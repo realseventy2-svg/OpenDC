@@ -3,13 +3,6 @@
 
 #include <stdint.h>
 
-/*
- * ABI exported by the freestanding bootloader at 0x8C00F000.
- *
- * Keep this definition in sync with bootloader/src/gdrom.h. The function
- * pointers refer to code that remains mapped in the bootloader ROM after the
- * KOS BIOS payload has been started.
- */
 #define GDROM_SERVICE_MAGIC   0x4744524FUL /* "GDRO" */
 #define GDROM_SERVICE_VERSION 1U
 #define GDROM_SERVICE_ADDR    0x8C00F000UL
@@ -23,6 +16,7 @@ typedef struct {
     int (*drive_ready)(void);
     int (*read_toc)(void *buffer, uint8_t session);
     int (*read_fad)(void *buffer, uint32_t fad, uint16_t sectors);
+    int (*boot_game)(uint32_t data_fad);
 } gdrom_service_table_t;
 
 /* Access the table published by the bootloader. */

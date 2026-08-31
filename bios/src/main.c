@@ -225,34 +225,51 @@ static void draw_3d_spiral_logo(float center_x, float center_y, float progress, 
     }
 }
 
+#include "bootloader_gdrom.h"
+
 static int check_disc_status(char *game_title, int max_len) {
     static int poll_count;
     static int cached_result;
-    file_t fd;
 
-    /* Let KOS's ISO9660 driver own GD-ROM initialization, TOC handling, and
-       disc-change detection.  The earlier direct TOC/IP probe could block
-       the BIOS during startup on some BIOS implementations. */
     if (poll_count++ != 0 && (poll_count % 60) != 0) {
         if (cached_result && game_title)
             snprintf(game_title, max_len, "DREAMCAST GAME DISC");
         return cached_result;
     }
 
-    fd = fs_open("/cd/1ST_READ.BIN", O_RDONLY);
+    /* 1. Check via Bootloader Service Table */
+    volatile gdrom_service_table_t *srv = gdrom_services();
+    if (srv && srv->magic == GDROM_SERVICE_MAGIC && srv->read_fad) {
+        static uint8_t pvd[2048] __attribute__((aligned(4)));
+        uint32_t fads[] = { 11852, 11702, 45000, 150 };
+        for (int c = 0; c < 4; c++) {
+            if (srv->read_fad(pvd, fads[c] + 16, 1) == 0) {
+                if (pvd[1] == 'C' && pvd[2] == 'D' && pvd[3] == '0' &&
+                    pvd[4] == '0' && pvd[5] == '1') {
+                    cached_result = 1;
+                    if (game_title)
+                        snprintf(game_title, max_len, "DREAMCAST GAME DISC");
+                    return 1;
+                }
+            }
+        }
+    }
+
+    /* 2. Fallback check via KOS VFS */
+    file_t fd = fs_open("/cd/1ST_READ.BIN", O_RDONLY);
     if (fd == FILEHND_INVALID)
         fd = fs_open("/cd/1st_read.bin", O_RDONLY);
 
-    if (fd == FILEHND_INVALID) {
-        cached_result = 0;
-        return 0;
+    if (fd != FILEHND_INVALID) {
+        fs_close(fd);
+        cached_result = 1;
+        if (game_title)
+            snprintf(game_title, max_len, "DREAMCAST GAME DISC");
+        return 1;
     }
 
-    fs_close(fd);
-    cached_result = 1;
-    if (game_title)
-        snprintf(game_title, max_len, "DREAMCAST GAME DISC");
-    return 1;
+    cached_result = 0;
+    return 0;
 }
 
 /*
@@ -265,19 +282,28 @@ static int check_disc_status(char *game_title, int max_len) {
 #define RUNGZ_SIZE 65280
 
 static void boot_inserted_disc(void) {
-    gzFile rungz = gzopen(RUNGZ_FILE, "rb");
-    if (!rungz) {
-        return;
+    /* 1. Direct bare-metal launch via bootloader GD-ROM service table */
+    volatile gdrom_service_table_t *srv = gdrom_services();
+    if (srv && srv->magic == GDROM_SERVICE_MAGIC && srv->boot_game) {
+        pvr_shutdown();
+        snd_shutdown();
+
+        uint32_t fads[] = { 11852, 11702, 45000, 150 };
+        for (int c = 0; c < 4; c++) {
+            srv->boot_game(fads[c]);
+        }
     }
+
+    /* 2. Fallback: rungd.bin.gz */
+    gzFile rungz = gzopen(RUNGZ_FILE, "rb");
+    if (!rungz) return;
 
     if (gzread(rungz, (void *)0x8C000100UL, RUNGZ_SIZE) != RUNGZ_SIZE) {
         gzclose(rungz);
         return;
     }
-
     gzclose(rungz);
 
-    /* Flush/invalidate the SH-4 cache before entering the launcher. */
     *(volatile uint32_t *)0xFF00001CUL = 0x0808;
     ((void (*)(volatile uint16_t))0x8C000120UL)(0x0FFF);
     __builtin_unreachable();

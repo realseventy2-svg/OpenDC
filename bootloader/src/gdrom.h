@@ -4,14 +4,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/*
- * Low-level GD-ROM transport for the Dreamcast G1 ATA bridge.
- *
- * This is intentionally not a KOS syscall/vector-table implementation.  The
- * bootloader has no KOS runtime, and the retail GD-ROM packet command set is
- * separate from the KOS syscall numbers.
- */
-
 enum {
     GDROM_OK          = 0,
     GDROM_TIMEOUT     = -1,
@@ -41,6 +33,7 @@ typedef struct {
     int (*drive_ready)(void);
     int (*read_toc)(void *buffer, uint8_t session);
     int (*read_fad)(void *buffer, uint32_t fad, uint16_t sectors);
+    int (*boot_game)(uint32_t data_fad);
 } gdrom_service_table_t;
 
 /* Configure the G1 PIO timing and select the GD-ROM device. */
@@ -69,6 +62,9 @@ int gdrom_read_fad(void *buffer, uint32_t fad, uint16_t sectors);
 /* Probe the drive and TOC without relying on the KOS syscall layer. */
 int gdrom_probe_toc(void);
 int gdrom_probe_iso(uint32_t *data_fad, uint8_t pvd_head[8]);
+
+/* Direct game booter */
+int gdrom_boot_game(uint32_t data_fad);
 
 /* Publish the bootloader GD-ROM ABI in RAM for the next stage. */
 void gdrom_install_services(void);

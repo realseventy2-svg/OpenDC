@@ -483,7 +483,13 @@ static int execute_pending_command(void) {
             break;
         }
 
+        case 2:  /* KOS_CMD_CHECK_LICENSE */
+        case 27: /* KOS_CMD_SEEK */
+        case 30: /* KOS_CMD_REQ_MODE */
+        case 31: /* KOS_CMD_SET_MODE */
+        case 36: /* KOS_CMD_REQ_STAT */
         case KOS_CMD_NOP:
+            result = GDROM_OK;
             break;
 
         default:
@@ -581,6 +587,131 @@ void gdrom_install_syscall(void) {
         (uintptr_t)&gdrom_syscall_dispatch;
 }
 
+static void gdrom_descramble(const uint8_t *src, uint8_t *dst, uint32_t size) {
+    uint32_t chunks = size / 2048;
+    for(uint32_t c = 0; c < chunks; c++) {
+        const uint8_t *in = src + (c * 2048);
+        uint8_t *out = dst + (c * 2048);
+        for(uint32_t i = 0; i < 2048; i++) {
+            uint32_t idx = ((i & 0x001) << 10) |
+                           ((i & 0x002) << 8)  |
+                           ((i & 0x004) << 6)  |
+                           ((i & 0x008) << 4)  |
+                           ((i & 0x010) << 2)  |
+                           ((i & 0x020) << 0)  |
+                           ((i & 0x040) >> 2)  |
+                           ((i & 0x080) >> 4)  |
+                           ((i & 0x100) >> 6)  |
+                           ((i & 0x200) >> 8)  |
+                           ((i & 0x400) >> 10);
+            out[idx] = in[i];
+        }
+    }
+    if(size % 2048) {
+        for(uint32_t i = 0; i < (size % 2048); i++) {
+            dst[chunks * 2048 + i] = src[chunks * 2048 + i];
+        }
+    }
+}
+
+int gdrom_boot_game(uint32_t data_fad) {
+    static uint8_t sector[2048] __attribute__((aligned(4)));
+    uint32_t file_fad = 0;
+    uint32_t file_size = 0;
+
+    /* 1. Read PVD at data_fad + 16 */
+    if(gdrom_read_fad(sector, data_fad + 16, 1) != GDROM_OK) {
+        return GDROM_DEVICE_ERR;
+    }
+
+    uint32_t root_lba = *(uint32_t *)(sector + 156 + 2);
+    uint32_t root_size = *(uint32_t *)(sector + 156 + 10);
+    uint32_t root_fad = (root_lba < data_fad) ? (data_fad + root_lba) : (root_lba + 150);
+
+    /* 2. Traverse ISO root directory to locate 1ST_READ.BIN */
+    uint32_t root_sectors = (root_size + 2047) / 2048;
+    if(root_sectors > 16) root_sectors = 16;
+
+    for(uint32_t s = 0; s < root_sectors; s++) {
+        if(gdrom_read_fad(sector, root_fad + s, 1) != GDROM_OK) break;
+
+        uint32_t offset = 0;
+        while(offset < 2048) {
+            uint8_t rec_len = sector[offset];
+            if(rec_len == 0) break;
+
+            uint32_t lba = *(uint32_t *)(sector + offset + 2);
+            uint32_t sz = *(uint32_t *)(sector + offset + 10);
+            uint8_t name_len = sector[offset + 32];
+            const char *name = (const char *)(sector + offset + 33);
+
+            char clean_name[32];
+            size_t nlen = (name_len < 31) ? name_len : 31;
+            for(size_t k = 0; k < nlen; k++) {
+                char ch = name[k];
+                if(ch == ';') { clean_name[k] = '\0'; nlen = k; break; }
+                if(ch >= 'a' && ch <= 'z') ch -= ('a' - 'A');
+                clean_name[k] = ch;
+            }
+            clean_name[nlen] = '\0';
+
+            const char *target = "1ST_READ.BIN";
+            int match = 1;
+            for(int k = 0; k < 12; k++) {
+                if(clean_name[k] != target[k]) { match = 0; break; }
+            }
+
+            if(match) {
+                file_fad = (lba < data_fad) ? (data_fad + lba) : (lba + 150);
+                file_size = sz;
+                break;
+            }
+            offset += rec_len;
+        }
+        if(file_fad != 0) break;
+    }
+
+    if(file_fad == 0) {
+        file_fad = data_fad + 150;
+        file_size = 512 * 1024;
+    }
+
+    /* 3. Read 1ST_READ.BIN into staging buffer 0x8CE00000 */
+    uint32_t total_sectors = (file_size + 2047) / 2048;
+    uint8_t *staging = (uint8_t *)0x8CE00000UL;
+    uint8_t *dest = (uint8_t *)0x8C010000UL;
+
+    uint32_t read_count = 0;
+    while(read_count < total_sectors) {
+        uint32_t batch = total_sectors - read_count;
+        if(batch > 16) batch = 16;
+
+        if(gdrom_read_fad(staging + (read_count * 2048), file_fad + read_count, (uint16_t)batch) != GDROM_OK) {
+            return GDROM_DEVICE_ERR;
+        }
+        read_count += batch;
+    }
+
+    /* 4. Descramble into execution destination 0x8C010000 */
+    gdrom_descramble(staging, dest, file_size);
+
+    /* 5. Invalidate SH-4 Instruction & Operand caches */
+    *(volatile uint32_t *)0xFF00001CUL = 0x0808;
+
+    /* 6. Launch Game: Reset stack pointer to 0x8D000000 and jump to 0x8C010000 */
+    __asm__ volatile(
+        "mov.l  %0, r15\n\t"
+        "mov.l  %1, r1\n\t"
+        "jmp    @r1\n\t"
+        "nop\n\t"
+        :
+        : "m"(*(const uint32_t[]){0x8D000000UL}), "m"(*(const uint32_t[]){0x8C010000UL})
+        : "r1"
+    );
+
+    return GDROM_OK;
+}
+
 void gdrom_install_services(void) {
     volatile gdrom_service_table_t *services =
         (volatile gdrom_service_table_t *)GDROM_SERVICE_ADDR;
@@ -593,4 +724,5 @@ void gdrom_install_services(void) {
     services->drive_ready = gdrom_drive_ready;
     services->read_toc = gdrom_read_toc;
     services->read_fad = gdrom_read_fad;
+    services->boot_game = gdrom_boot_game;
 }

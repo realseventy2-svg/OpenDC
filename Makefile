@@ -10,6 +10,22 @@ BOOT_DIR = $(ROOT_DIR)/bootloader
 BIOS_DIR = $(ROOT_DIR)/bios
 OUTPUT   = $(CURDIR)/boot_loader_custom.bios
 
+BASE ?= custom
+
+ifeq ($(BASE),devkit)
+  BIOS_BASE = res/boot_loader_devkit.bios
+else ifeq ($(BASE),devkit_32mb)
+  BIOS_BASE = res/boot_loader_devkit_32mb.bios
+else ifeq ($(BASE),devkit_nogdrom)
+  BIOS_BASE = res/boot_loader_devkit_nogdrom.bios
+else ifeq ($(BASE),devkit_nogdrom_32mb)
+  BIOS_BASE = res/boot_loader_devkit_nogdrom_32mb.bios
+else ifeq ($(BASE),custom)
+  BIOS_BASE = res/boot_loader_custom.bios
+else
+  BIOS_BASE = $(BASE)
+endif
+
 .PHONY: all bootloader bios check clean
 
 all: $(OUTPUT)
@@ -17,10 +33,12 @@ all: $(OUTPUT)
 bootloader:
 	$(MAKE) -C "$(BOOT_DIR)"
 
-bios: bootloader
+bios: $(if $(filter custom,$(BASE)),bootloader,)
+ifeq ($(BASE),custom)
 	cp -f "$(BOOT_DIR)/dc_boot.bin" "$(BIOS_DIR)/res/boot_loader_custom.bios"
+endif
 	$(MAKE) -C "$(BIOS_DIR)" clean
-	$(MAKE) -C "$(BIOS_DIR)" BIOS_BASE=res/boot_loader_custom.bios rom
+	$(MAKE) -C "$(BIOS_DIR)" BIOS_BASE=$(BIOS_BASE) rom
 
 $(OUTPUT): bios
 	cp -f "$(BIOS_DIR)/custom_dc_bios.bin" "$@"
