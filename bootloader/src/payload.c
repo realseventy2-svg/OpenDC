@@ -44,6 +44,21 @@ static const uint8_t FONT_8X8[][8] = {
     ['E'] = { 0x7E, 0x60, 0x60, 0x7C, 0x60, 0x60, 0x7E, 0x00 },
     ['G'] = { 0x3C, 0x66, 0x60, 0x6E, 0x66, 0x66, 0x3C, 0x00 },
     ['I'] = { 0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00 },
+    ['K'] = { 0x66, 0x6C, 0x78, 0x70, 0x78, 0x6C, 0x66, 0x00 },
+    ['0'] = { 0x3C, 0x66, 0x6E, 0x76, 0x66, 0x66, 0x3C, 0x00 },
+    ['1'] = { 0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00 },
+    ['2'] = { 0x3C, 0x66, 0x06, 0x0C, 0x30, 0x60, 0x7E, 0x00 },
+    ['3'] = { 0x3C, 0x66, 0x06, 0x1C, 0x06, 0x66, 0x3C, 0x00 },
+    ['4'] = { 0x0C, 0x1C, 0x3C, 0x6C, 0x7E, 0x0C, 0x0C, 0x00 },
+    ['5'] = { 0x7E, 0x60, 0x7C, 0x06, 0x06, 0x66, 0x3C, 0x00 },
+    ['6'] = { 0x1C, 0x30, 0x60, 0x7C, 0x66, 0x66, 0x3C, 0x00 },
+    ['7'] = { 0x7E, 0x06, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x00 },
+    ['8'] = { 0x3C, 0x66, 0x66, 0x3C, 0x66, 0x66, 0x3C, 0x00 },
+    ['9'] = { 0x3C, 0x66, 0x66, 0x3E, 0x06, 0x0C, 0x38, 0x00 },
+    ['A'] = { 0x18, 0x3C, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x00 },
+    ['F'] = { 0x7E, 0x60, 0x60, 0x7C, 0x60, 0x60, 0x60, 0x00 },
+    ['D'] = { 0x78, 0x6C, 0x66, 0x66, 0x66, 0x6C, 0x78, 0x00 },
+    [':'] = { 0x00, 0x18, 0x18, 0x00, 0x00, 0x18, 0x18, 0x00 },
     ['L'] = { 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x7E, 0x00 },
     ['M'] = { 0x63, 0x77, 0x7F, 0x6B, 0x63, 0x63, 0x63, 0x00 },
     ['N'] = { 0x66, 0x76, 0x7E, 0x7E, 0x6E, 0x66, 0x66, 0x00 },
@@ -94,6 +109,35 @@ static void draw_string_centered(volatile uint16_t* fb, int center_x, int y, con
     }
 }
 
+static char hex_digit(uint8_t value) {
+    return value < 10 ? (char)('0' + value) : (char)('A' + value - 10);
+}
+
+static void draw_hex32(volatile uint16_t *fb, int x, int y, uint32_t value,
+                       uint16_t color, int scale) {
+    char text[9];
+    char *p;
+    int i;
+    for(i = 0; i < 8; ++i)
+        text[i] = hex_digit((uint8_t)(value >> (28 - i * 4)) & 0x0F);
+    text[8] = 0;
+    p = text;
+    while(*p) {
+        draw_char(fb, x, y, *p++, color, scale);
+        x += 8 * scale;
+    }
+}
+
+static void draw_hex8(volatile uint16_t *fb, int x, int y, const uint8_t *data,
+                      uint16_t color, int scale) {
+    int i;
+    for(i = 0; i < 8; ++i) {
+        draw_char(fb, x, y, hex_digit(data[i] >> 4), color, scale);
+        draw_char(fb, x + 8 * scale, y, hex_digit(data[i] & 0x0F), color, scale);
+        x += 24 * scale;
+    }
+}
+
 static void init_pvr_video(void) {
     PVR_VIDEO_CFG     = 0x00000008;
     PVR_BORDER_COLOR  = 0x00000000;
@@ -116,10 +160,15 @@ static void init_pvr_video(void) {
     PVR_VIDEO_CFG     = 0x00000000;
 }
 
-/* Hardware VBlank Accurate Delay (60 Hz Hardware Crystal Sync) */
+/* Hardware VBlank delay. A bounded fallback is required because a video
+   sync-status fault must not prevent the BIOS payload from starting. */
 static void wait_vblank(void) {
-    while (!(PVR_SYNC_STATUS & 0x01FF)) { }
-    while (PVR_SYNC_STATUS & 0x01FF) { }
+    volatile uint32_t timeout = 1000000;
+
+    while (!(PVR_SYNC_STATUS & 0x01FF) && --timeout != 0) { }
+
+    timeout = 1000000;
+    while ((PVR_SYNC_STATUS & 0x01FF) && --timeout != 0) { }
 }
 
 static void wait_seconds_exact(int seconds) {
@@ -129,11 +178,6 @@ static void wait_seconds_exact(int seconds) {
     }
 }
 
-/* Safe Dummy Syscall Handler */
-static int dummy_syscall_handler(void) {
-    return 0;
-}
-
 static const uint32_t val_stack_handoff = 0x8D000000UL;
 static const uint32_t val_entry_handoff = 0x8C010000UL;
 
@@ -141,11 +185,8 @@ void chainload_custom_bios(void) {
     /* Publish the service ABI before the custom BIOS is started. */
     gdrom_install_services();
 
-    /* 1. Populate Dreamcast Syscall Table with safe stub handlers */
-    volatile uint32_t *vec_table = (volatile uint32_t *)0x8C000000UL;
-    for (int i = 0; i < 128; i++) {
-        vec_table[i] = (uint32_t)&dummy_syscall_handler;
-    }
+    /* 1. Install the open-source KOS-compatible GD-ROM syscall entry. */
+    gdrom_install_syscall();
 
     /* 2. Copy payload from ROM offset 64KB (0xA0010000) into SDRAM */
     volatile uint32_t *src = (volatile uint32_t *)(0xA0010000UL);
@@ -176,9 +217,18 @@ void main(void) {
     /* 1. Hardware video init */
     init_pvr_video();
 
+    /* 2. Bring up the GD-ROM before the splash delay. KOS will initialize it
+       again through the installed syscall ABI after the payload starts, but
+       cold-boot detection must not depend on the later KOS handoff. */
+    (void)gdrom_init();
+    int toc_result = gdrom_probe_toc();
+    uint32_t iso_fad = 0;
+    uint8_t iso_head[8];
+    int iso_result = gdrom_probe_iso(&iso_fad, iso_head);
+
     volatile uint16_t* fb = (volatile uint16_t*)VRAM_BASE;
 
-    /* 2. Display pure custom splash */
+    /* 3. Display pure custom splash */
     draw_rect(fb, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR_BLACK);
     draw_rect(fb, 30, 30, 580, 4, COLOR_CYAN);
     draw_rect(fb, 30, 446, 580, 4, COLOR_CYAN);
@@ -188,10 +238,19 @@ void main(void) {
     draw_string_centered(fb, 320, 110, "CUSTOM DREAMCAST", COLOR_GREEN, 3);
     draw_string_centered(fb, 320, 200, "BOOT ROM", COLOR_WHITE, 4);
     draw_string_centered(fb, 320, 300, "NO SEGA SWIRL", COLOR_GOLD, 3);
+    draw_string_centered(fb, 320, 380,
+                         toc_result == GDROM_OK ? "TOC OK" : "TOC ERROR",
+                         toc_result == GDROM_OK ? COLOR_GREEN : COLOR_GOLD, 2);
+    draw_string_centered(fb, 320, 410,
+                         iso_result == GDROM_OK ? "ISO OK" : "ISO ERROR",
+                         iso_result == GDROM_OK ? COLOR_GREEN : COLOR_GOLD, 2);
+    draw_string_centered(fb, 320, 440, "FAD", COLOR_WHITE, 1);
+    draw_hex32(fb, 340, 440, iso_fad, COLOR_WHITE, 1);
+    draw_hex8(fb, 220, 458, iso_head, COLOR_WHITE, 1);
 
-    /* 3. Hardware-Locked Exact 8.000 Seconds */
+    /* 4. Hardware-Locked Exact 8.000 Seconds */
     wait_seconds_exact(8);
 
-    /* 4. Chainload and launch Custom BIOS Dashboard */
+    /* 5. Chainload and launch Custom BIOS Dashboard */
     chainload_custom_bios();
 }

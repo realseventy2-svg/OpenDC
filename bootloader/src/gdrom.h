@@ -66,7 +66,12 @@ int gdrom_wait_complete(void);
 int gdrom_read_toc(void *buffer, uint8_t session);
 int gdrom_read_fad(void *buffer, uint32_t fad, uint16_t sectors);
 
+/* Probe the drive and TOC without relying on the KOS syscall layer. */
+int gdrom_probe_toc(void);
+int gdrom_probe_iso(uint32_t *data_fad, uint8_t pvd_head[8]);
+
 /* Publish the bootloader GD-ROM ABI in RAM for the next stage. */
 void gdrom_install_services(void);
+void gdrom_install_syscall(void);
 
 #endif

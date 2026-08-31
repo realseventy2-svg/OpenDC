@@ -20,7 +20,7 @@ bootloader:
 bios: bootloader
 	cp -f "$(BOOT_DIR)/dc_boot.bin" "$(BIOS_DIR)/res/boot_loader_custom.bios"
 	$(MAKE) -C "$(BIOS_DIR)" clean
-	$(MAKE) -C "$(BIOS_DIR)" rom
+	$(MAKE) -C "$(BIOS_DIR)" BIOS_BASE=res/boot_loader_custom.bios rom
 
 $(OUTPUT): bios
 	cp -f "$(BIOS_DIR)/custom_dc_bios.bin" "$@"
