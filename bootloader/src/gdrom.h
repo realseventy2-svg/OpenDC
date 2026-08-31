@@ -34,6 +34,8 @@ typedef struct {
     int (*read_toc)(void *buffer, uint8_t session);
     int (*read_fad)(void *buffer, uint32_t fad, uint16_t sectors);
     int (*boot_game)(uint32_t data_fad);
+    uint32_t disc_present;
+    uint32_t data_fad;
 } gdrom_service_table_t;
 
 /* Configure the G1 PIO timing and select the GD-ROM device. */

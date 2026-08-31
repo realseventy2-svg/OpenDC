@@ -237,31 +237,11 @@ static int check_disc_status(char *game_title, int max_len) {
         return cached_result;
     }
 
-    /* 1. Check via Bootloader Service Table */
+    /* The cold-boot loader already probed the TOC and ISO before KOS started.
+       Consume that result passively; querying the KOS semaphore or issuing a
+       raw read from the render loop can deadlock the first dashboard frame. */
     volatile gdrom_service_table_t *srv = gdrom_services();
-    if (srv && srv->magic == GDROM_SERVICE_MAGIC && srv->read_fad) {
-        static uint8_t pvd[2048] __attribute__((aligned(4)));
-        uint32_t fads[] = { 11852, 11702, 45000, 150 };
-        for (int c = 0; c < 4; c++) {
-            if (srv->read_fad(pvd, fads[c] + 16, 1) == 0) {
-                if (pvd[1] == 'C' && pvd[2] == 'D' && pvd[3] == '0' &&
-                    pvd[4] == '0' && pvd[5] == '1') {
-                    cached_result = 1;
-                    if (game_title)
-                        snprintf(game_title, max_len, "DREAMCAST GAME DISC");
-                    return 1;
-                }
-            }
-        }
-    }
-
-    /* 2. Fallback check via KOS VFS */
-    file_t fd = fs_open("/cd/1ST_READ.BIN", O_RDONLY);
-    if (fd == FILEHND_INVALID)
-        fd = fs_open("/cd/1st_read.bin", O_RDONLY);
-
-    if (fd != FILEHND_INVALID) {
-        fs_close(fd);
+    if (srv && srv->magic == GDROM_SERVICE_MAGIC && srv->disc_present) {
         cached_result = 1;
         if (game_title)
             snprintf(game_title, max_len, "DREAMCAST GAME DISC");
@@ -278,35 +258,15 @@ static int check_disc_status(char *game_title, int max_len) {
  * console after the splash. rungd.bin performs the BIOS-compatible GD-ROM
  * handoff used by DreamDash and the retail/proprietary bootloader.
  */
-#define RUNGZ_FILE "/rd/rungd.bin.gz"
-#define RUNGZ_SIZE 65280
-
 static void boot_inserted_disc(void) {
-    /* 1. Direct bare-metal launch via bootloader GD-ROM service table */
     volatile gdrom_service_table_t *srv = gdrom_services();
-    if (srv && srv->magic == GDROM_SERVICE_MAGIC && srv->boot_game) {
-        pvr_shutdown();
-        snd_shutdown();
 
-        uint32_t fads[] = { 11852, 11702, 45000, 150 };
-        for (int c = 0; c < 4; c++) {
-            srv->boot_game(fads[c]);
-        }
+    /* The bootloader owns the direct cold-boot path.  It reads IP.BIN,
+       enters its license-screen code, and then loads 1ST_READ.BIN. */
+    if (srv && srv->magic == GDROM_SERVICE_MAGIC && srv->boot_game &&
+        srv->disc_present && srv->data_fad) {
+        srv->boot_game(srv->data_fad);
     }
-
-    /* 2. Fallback: rungd.bin.gz */
-    gzFile rungz = gzopen(RUNGZ_FILE, "rb");
-    if (!rungz) return;
-
-    if (gzread(rungz, (void *)0x8C000100UL, RUNGZ_SIZE) != RUNGZ_SIZE) {
-        gzclose(rungz);
-        return;
-    }
-    gzclose(rungz);
-
-    *(volatile uint32_t *)0xFF00001CUL = 0x0808;
-    ((void (*)(volatile uint16_t))0x8C000120UL)(0x0FFF);
-    __builtin_unreachable();
 }
 
 enum {
@@ -402,14 +362,10 @@ int main(int argc, char **argv) {
                 draw_text(215.0f, 375.0f, 2.0f, "KALLISTIOS 2.0", PVR_PACK_COLOR(title_alpha * 0.7f, 0.5f, 0.8f, 1.0f));
             }
         } else {
-            if (frame == 150 && prev_buttons == 0) {
-                /* BIOS behavior: validate the disc before showing the menu,
-                   then hand it straight to the game loader. */
-                char boot_title[64];
-                if (check_disc_status(boot_title, sizeof(boot_title))) {
-                    boot_inserted_disc();
-                }
-            }
+            /* Keep the dashboard render loop free of blocking GD-ROM work.
+               Boot is initiated explicitly from PLAY DISC after the menu is
+               visible, so a slow/failing IP.BIN probe cannot freeze the intro
+               frame and look like a video failure. */
             /* Interactive Views */
             draw_3d_spiral_logo(100.0f, 90.0f, 0.45f, frame);
 

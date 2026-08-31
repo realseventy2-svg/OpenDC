@@ -251,6 +251,15 @@ void main(void) {
     /* 4. Hardware-Locked Exact 8.000 Seconds */
     wait_seconds_exact(8);
 
-    /* 5. Chainload and launch Custom BIOS Dashboard */
+    /* 5. Match the normal Dreamcast cold-boot order: once a valid bootable
+       disc has been identified, enter its IP.BIN before starting the KOS
+       dashboard.  Raw GD-ROM access is reliable here because KOS has not yet
+       installed its background CD/vblank machinery. */
+    if(iso_result == GDROM_OK) {
+        (void)gdrom_boot_game(iso_fad);
+    }
+
+    /* 6. Fall back to the Custom BIOS Dashboard when no bootable disc is
+       present or when the direct IP.BIN loader returns an error. */
     chainload_custom_bios();
 }

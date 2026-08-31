@@ -44,6 +44,11 @@ typedef struct {
     int32_t sector_size;
 } kos_sector_mode_t;
 
+typedef struct {
+    void *addr;
+    size_t size;
+} kos_transfer_params_t;
+
 enum {
     KOS_SYSINFO_VECTOR      = 0xAC0000B0UL,
     KOS_GDROM_VECTOR       = 0xAC0000BCUL,
@@ -53,10 +58,14 @@ enum {
     KOS_FUNC_EXEC_SERVER   = 2,
     KOS_FUNC_INIT          = 3,
     KOS_FUNC_DRIVE_STATUS  = 4,
+    KOS_FUNC_DMA_CALLBACK  = 5,
+    KOS_FUNC_DMA_TRANSFER  = 6,
     KOS_FUNC_DMA_CHECK     = 7,
     KOS_FUNC_ABORT_COMMAND = 8,
     KOS_FUNC_RESET         = 9,
     KOS_FUNC_SECTOR_MODE   = 10,
+    KOS_FUNC_PIO_CALLBACK  = 11,
+    KOS_FUNC_PIO_TRANSFER  = 12,
     KOS_FUNC_PIO_CHECK     = 13,
     KOS_CMD_PIOREAD        = 16,
     KOS_CMD_DMAREAD        = 17,
@@ -115,6 +124,7 @@ static kos_sector_mode_t sector_mode = { 1, 0x1000, 1, 2048 };
 static int gdrom_swap_data_words = 0;
 static int32_t cached_disc_status = KOS_STATUS_NO_DISC;
 static int32_t cached_disc_type = 0;
+static uint32_t cached_data_fad;
 
 static void *kos_buffer_address(void *buffer) {
     uintptr_t address = (uintptr_t)buffer;
@@ -293,30 +303,36 @@ int gdrom_read_toc(void *buffer, uint8_t session) {
 }
 
 int gdrom_read_fad(void *buffer, uint32_t fad, uint16_t sectors) {
-    uint8_t packet[12] = { 0 };
-    uint32_t total_bytes = (uint32_t)sectors * 2048U;
-    int result;
-
-    if(buffer == 0 || sectors == 0 || sectors > 31 || fad > 0xFFFFFFUL) {
+    if(buffer == 0 || sectors == 0 || fad > 0xFFFFFFUL) {
         return GDROM_BAD_ARG;
     }
 
-    packet[0]  = 0x30; /* Sega CD_READ */
-    packet[1]  = 0x20; /* 2048 bytes/sector mode */
-    packet[2]  = (uint8_t)(fad >> 16);
-    packet[3]  = (uint8_t)(fad >> 8);
-    packet[4]  = (uint8_t)fad;
-    packet[8]  = (uint8_t)(sectors >> 16);
-    packet[9]  = (uint8_t)(sectors >> 8);
-    packet[10] = (uint8_t)sectors;
+    uint8_t *dst = (uint8_t *)buffer;
+    for(uint16_t s = 0; s < sectors; s++) {
+        uint8_t packet[12] = { 0 };
+        uint32_t cur_fad = fad + (uint32_t)s;
+        int result;
 
-    result = gdrom_packet_begin((uint16_t)total_bytes);
-    if(result != GDROM_OK) return result;
-    result = gdrom_packet_write(packet);
-    if(result != GDROM_OK) return result;
-    result = gdrom_pio_read(buffer, (size_t)sectors * 2048U);
-    if(result != GDROM_OK) return result;
-    return gdrom_wait_complete();
+        packet[0]  = 0x30; /* Sega CD_READ */
+        packet[1]  = 0x20; /* 2048 bytes/sector mode */
+        packet[2]  = (uint8_t)(cur_fad >> 16);
+        packet[3]  = (uint8_t)(cur_fad >> 8);
+        packet[4]  = (uint8_t)cur_fad;
+        packet[8]  = 0;
+        packet[9]  = 0;
+        packet[10] = 1;
+
+        result = gdrom_packet_begin(2048);
+        if(result != GDROM_OK) return result;
+        result = gdrom_packet_write(packet);
+        if(result != GDROM_OK) return result;
+        result = gdrom_pio_read(dst + ((size_t)s * 2048U), 2048);
+        if(result != GDROM_OK) return result;
+        result = gdrom_wait_complete();
+        if(result != GDROM_OK) return result;
+    }
+
+    return GDROM_OK;
 }
 
 int gdrom_probe_toc(void) {
@@ -331,6 +347,9 @@ int gdrom_probe_toc(void) {
     if(result == GDROM_OK) {
         cached_disc_status = KOS_STATUS_STANDBY;
         cached_disc_type = (toc[0] != 0xFF && toc[0] != 0) ? KOS_DISC_GDROM : 0x10;
+    } else {
+        cached_disc_status = KOS_STATUS_NO_DISC;
+        cached_disc_type = 0;
     }
     return result;
 }
@@ -399,6 +418,7 @@ int gdrom_probe_iso(uint32_t *data_fad_out, uint8_t *pvd_head) {
     }
 
     if(data_fad == 0) return GDROM_NOT_READY;
+    cached_data_fad = data_fad;
     if(data_fad_out) *data_fad_out = data_fad;
 
     /* Read ISO PVD at data_fad + 16 */
@@ -505,8 +525,7 @@ static int execute_pending_command(void) {
 static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
                                   uint32_t super_function,
                                   uint32_t function) {
-    if(super_function != KOS_GDROM_SUPERFUNC)
-        return -1;
+    (void)super_function;
 
     switch(function) {
         case KOS_FUNC_INIT:
@@ -563,6 +582,24 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
                 pending_command.active = 0;
             return 0;
 
+        case KOS_FUNC_DMA_CALLBACK:
+        case KOS_FUNC_PIO_CALLBACK:
+            /* The standalone loader completes transfers synchronously, so
+               there is no interrupt callback to register. */
+            return 0;
+
+        case KOS_FUNC_DMA_TRANSFER:
+        case KOS_FUNC_PIO_TRANSFER: {
+            kos_transfer_params_t *transfer =
+                (kos_transfer_params_t *)arg1;
+            if(!pending_command.active ||
+               (int32_t)arg0 != pending_command.handle || !transfer)
+                return -1;
+            /* PIO/DMAREAD already placed the requested sectors in the
+               command's destination. Report the transfer as complete. */
+            return 0;
+        }
+
         case KOS_FUNC_SECTOR_MODE:
             if(!arg0) return -1;
             if(((kos_sector_mode_t *)arg0)->rw == 0)
@@ -573,18 +610,59 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
 
         case KOS_FUNC_DMA_CHECK:
         case KOS_FUNC_PIO_CHECK:
-            return -1;
+            if(!pending_command.active ||
+               (int32_t)arg0 != pending_command.handle)
+                return -1;
+            if(arg1)
+                *(size_t *)arg1 = pending_command.transferred;
+            return 0;
 
         default:
             return -1;
     }
 }
 
+#define KOS_SYSINFO_VECTOR   0x8C0000B0UL
+#define KOS_BIOFONT_VECTOR   0x8C0000B4UL
+#define KOS_FLASHROM_VECTOR  0x8C0000B8UL
+#define KOS_GDROM_VECTOR     0x8C0000BCUL
+#define KOS_GDROM2_VECTOR    0x8C0000C0UL
+#define KOS_SYSTEM_VECTOR    0x8C0000E0UL
+
+
+
+static int kos_biofont_dispatch(uint32_t arg0, uint32_t arg1,
+                                uint32_t arg2, uint32_t function) {
+    (void)arg0; (void)arg1; (void)arg2; (void)function;
+    return 0;
+}
+
+static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
+                                 uint32_t arg2, uint32_t function) {
+    (void)arg0; (void)arg1; (void)arg2; (void)function;
+    return 0;
+}
+
+static int kos_system_dispatch(uint32_t arg0, uint32_t arg1,
+                               uint32_t arg2, uint32_t function) {
+    (void)arg0; (void)arg1; (void)arg2; (void)function;
+    return 0;
+}
+
 void gdrom_install_syscall(void) {
-    *(volatile uintptr_t *)KOS_SYSINFO_VECTOR =
-        (uintptr_t)&kos_sysinfo_dispatch;
-    *(volatile uintptr_t *)KOS_GDROM_VECTOR =
-        (uintptr_t)&gdrom_syscall_dispatch;
+    *(volatile uintptr_t *)0x8C0000B0UL = (uintptr_t)&kos_sysinfo_dispatch;
+    *(volatile uintptr_t *)0x8C0000B4UL = (uintptr_t)&kos_biofont_dispatch;
+    *(volatile uintptr_t *)0x8C0000B8UL = (uintptr_t)&kos_flashrom_dispatch;
+    *(volatile uintptr_t *)0x8C0000BCUL = (uintptr_t)&gdrom_syscall_dispatch;
+    *(volatile uintptr_t *)0x8C0000C0UL = (uintptr_t)&gdrom_syscall_dispatch;
+    *(volatile uintptr_t *)0x8C0000E0UL = (uintptr_t)&kos_system_dispatch;
+
+    *(volatile uintptr_t *)0xAC0000B0UL = (uintptr_t)&kos_sysinfo_dispatch;
+    *(volatile uintptr_t *)0xAC0000B4UL = (uintptr_t)&kos_biofont_dispatch;
+    *(volatile uintptr_t *)0xAC0000B8UL = (uintptr_t)&kos_flashrom_dispatch;
+    *(volatile uintptr_t *)0xAC0000BCUL = (uintptr_t)&gdrom_syscall_dispatch;
+    *(volatile uintptr_t *)0xAC0000C0UL = (uintptr_t)&gdrom_syscall_dispatch;
+    *(volatile uintptr_t *)0xAC0000E0UL = (uintptr_t)&kos_system_dispatch;
 }
 
 static void gdrom_descramble(const uint8_t *src, uint8_t *dst, uint32_t size) {
@@ -615,11 +693,72 @@ static void gdrom_descramble(const uint8_t *src, uint8_t *dst, uint32_t size) {
 }
 
 int gdrom_boot_game(uint32_t data_fad) {
+    /* KOS has already initialized its own CD layer by the time the user
+       selects PLAY DISC.  Switch the hardware back to the standalone packet
+       state before issuing raw reads, and prevent the KOS vblank handler from
+       touching the same ATA registers during this handoff. */
+    __asm__ volatile("ldc    %0, sr" :: "r"(0x400000F0UL));
+    if(gdrom_init() != GDROM_OK || gdrom_prepare_disk() != GDROM_OK)
+        return GDROM_NOT_READY;
+
+    gdrom_install_syscall();
+
+    if(data_fad == 0)
+        data_fad = cached_data_fad;
+    if(data_fad == 0)
+        return GDROM_NOT_READY;
+
+    /* 1. Try booting standard Sega IP.BIN (displays Sega license screen & boots 1ST_READ.BIN) */
+    uint8_t *ip_buf = (uint8_t *)0x8C008000UL;
+    int ip_res = GDROM_NOT_READY;
+    uint32_t ip_candidates[5];
+    unsigned ip_candidate_count = 0;
+
+    /* CDI images are commonly authored with IP.BIN either at the data-track
+       FAD or one CD lead-in (150 FADs) before it.  Retail GD-ROMs use 45000.
+       Probe each location and require the signature before entering it. */
+    ip_candidates[ip_candidate_count++] = data_fad;
+    if(data_fad >= 150)
+        ip_candidates[ip_candidate_count++] = data_fad - 150;
+    ip_candidates[ip_candidate_count++] = 45000;
+    ip_candidates[ip_candidate_count++] = 150;
+    ip_candidates[ip_candidate_count++] = 11702;
+
+    for(unsigned i = 0; i < ip_candidate_count; ++i) {
+        uint32_t candidate = ip_candidates[i];
+        if(candidate > 0xFFFFFFUL)
+            continue;
+        /* Probe one sector first.  Reading sixteen sectors for every
+           candidate makes a bad CDI layout look like a hang. */
+        ip_res = gdrom_read_fad(ip_buf, candidate, 1);
+        if(ip_res == GDROM_OK && ip_buf[0] == 'S' && ip_buf[1] == 'E' &&
+           ip_buf[2] == 'G' && ip_buf[3] == 'A') {
+            ip_res = gdrom_read_fad(ip_buf, candidate, 16);
+            break;
+        }
+    }
+
+    if(ip_res == GDROM_OK && ip_buf[0] == 'S' && ip_buf[1] == 'E' && ip_buf[2] == 'G' && ip_buf[3] == 'A') {
+        *(volatile uint32_t *)0xFF00001CUL = 0x0808;
+
+        __asm__ volatile(
+            "mov.l  %0, r15\n\t"
+            "mov    #0, r0\n\t"
+            "mov.l  %1, r1\n\t"
+            "jmp    @r1\n\t"
+            "nop\n\t"
+            :
+            : "m"(*(const uint32_t[]){0x8C008000UL}), "m"(*(const uint32_t[]){0x8C008300UL})
+            : "r0", "r1"
+        );
+        return GDROM_OK;
+    }
+
     static uint8_t sector[2048] __attribute__((aligned(4)));
     uint32_t file_fad = 0;
     uint32_t file_size = 0;
 
-    /* 1. Read PVD at data_fad + 16 */
+    /* 2. Direct ISO PVD fallback at data_fad + 16 */
     if(gdrom_read_fad(sector, data_fad + 16, 1) != GDROM_OK) {
         return GDROM_DEVICE_ERR;
     }
@@ -725,4 +864,7 @@ void gdrom_install_services(void) {
     services->read_toc = gdrom_read_toc;
     services->read_fad = gdrom_read_fad;
     services->boot_game = gdrom_boot_game;
+    services->disc_present =
+        (cached_disc_status == KOS_STATUS_STANDBY) ? 1U : 0U;
+    services->data_fad = cached_data_fad;
 }

@@ -4,12 +4,10 @@ ENTRY(_start)
 
 MEMORY
 {
-    ROM (rx)  : ORIGIN = 0xA0000000, LENGTH = 0x00200000   /* 2 MB Flash ROM */
-    RAM (rwx) : ORIGIN = 0x8C010000, LENGTH = 0x00FE0000   /* ~16 MB SDRAM */
-    /* The KOS payload is copied through 0x8C1F0000 during handoff. Keep
-       bootloader globals beyond that window so the resident GD-ROM handler
-       retains its command state after KOS starts. */
-    STATE (rwx) : ORIGIN = 0x8C1F0000, LENGTH = 0x00010000
+    ROM (rx)    : ORIGIN = 0xA0000000, LENGTH = 0x00010000   /* 64 KB Bootloader Flash ROM */
+    /* Resident BIOS RAM state: 0x8C001000 to 0x8C00F000 (below KOS 0x8C010000 entry).
+       KOS never overwrites this region, ensuring resident GD-ROM syscalls remain intact. */
+    STATE (rwx) : ORIGIN = 0x8C001000, LENGTH = 0x0000E000
 }
 
 SECTIONS
@@ -34,7 +32,7 @@ SECTIONS
         *(.rodata*)
     } > ROM
 
-    /* Stage 3: Initialized data (Stored in ROM, Relocated to RAM) */
+    /* Stage 3: Initialized data (Stored in ROM, Relocated to Low SDRAM) */
     __data_lma = .;
     .data : AT (__data_lma)
     {
@@ -47,7 +45,7 @@ SECTIONS
 
     __data_size = __data_end - __data_vma;
 
-    /* Zero-initialized RAM memory */
+    /* Zero-initialized RAM memory in Low SDRAM */
     .bss (NOLOAD) :
     {
         . = ALIGN(4);
