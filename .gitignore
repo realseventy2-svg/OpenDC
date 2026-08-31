@@ -1,0 +1,18 @@
+# Build products
+boot_loader_custom.bios
+bootloader/*.o
+bootloader/*.elf
+bootloader/*.bin
+bios/*.o
+bios/*.elf
+bios/*.bin
+bios/*.cdi
+bios/*.img
+bios/romdisk.o
+bios/custom_dc_bios.bin
+
+# The BIOS base is generated from bootloader/dc_boot.bin.
+bios/res/boot_loader_custom.bios
+
+# External reference checkouts are documented but not vendored.
+bootloader/reference/

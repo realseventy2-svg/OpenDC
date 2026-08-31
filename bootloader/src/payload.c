@@ -1,0 +1,197 @@
+#include "gdrom.h"
+
+typedef volatile uint32_t vuint32_t;
+
+#define SCREEN_WIDTH        640
+#define SCREEN_HEIGHT       480
+
+/* PowerVR2 Video Hardware Registers */
+#define PVR_BASE            0xA05F8000UL
+#define PVR_BORDER_COLOR    (*(vuint32_t*)(PVR_BASE + 0x0040))
+#define PVR_FB_CFG_1        (*(vuint32_t*)(PVR_BASE + 0x0044))
+#define PVR_FB_CFG_2        (*(vuint32_t*)(PVR_BASE + 0x0048))
+#define PVR_RENDER_MODULO   (*(vuint32_t*)(PVR_BASE + 0x004C))
+#define PVR_FB_ADDR         (*(vuint32_t*)(PVR_BASE + 0x0050))
+#define PVR_FB_IL_ADDR      (*(vuint32_t*)(PVR_BASE + 0x0054))
+#define PVR_FB_SIZE         (*(vuint32_t*)(PVR_BASE + 0x005C))
+#define PVR_IL_CFG          (*(vuint32_t*)(PVR_BASE + 0x00D0))
+#define PVR_BORDER_X        (*(vuint32_t*)(PVR_BASE + 0x00D4))
+#define PVR_SCAN_CLK        (*(vuint32_t*)(PVR_BASE + 0x00D8))
+#define PVR_BORDER_Y        (*(vuint32_t*)(PVR_BASE + 0x00DC))
+#define PVR_VIDEO_CFG       (*(vuint32_t*)(PVR_BASE + 0x00E8))
+#define PVR_BITMAP_X        (*(vuint32_t*)(PVR_BASE + 0x00EC))
+#define PVR_BITMAP_Y        (*(vuint32_t*)(PVR_BASE + 0x00F0))
+#define PVR_SCALER_CFG      (*(vuint32_t*)(PVR_BASE + 0x00F4))
+#define PVR_SYNC_STATUS     (*(vuint32_t*)(PVR_BASE + 0x010C))
+
+#define VRAM_BASE           0xA5000000UL
+
+/* RGB565 Colors */
+#define RGB565(r, g, b)     ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | (((b) & 0xF8) >> 3)))
+#define COLOR_BLACK         RGB565(0,   0,   0)
+#define COLOR_CYAN          RGB565(0,   220, 255)
+#define COLOR_GREEN         RGB565(40,  255, 120)
+#define COLOR_WHITE         RGB565(255, 255, 255)
+#define COLOR_GOLD          RGB565(255, 200, 40)
+
+/* Simple 8x8 font glyphs */
+static const uint8_t FONT_8X8[][8] = {
+    [' '] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+    ['A'] = { 0x18, 0x3C, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x00 },
+    ['B'] = { 0x7C, 0x66, 0x66, 0x7C, 0x66, 0x66, 0x7C, 0x00 },
+    ['C'] = { 0x3C, 0x66, 0x60, 0x60, 0x60, 0x66, 0x3C, 0x00 },
+    ['D'] = { 0x78, 0x6C, 0x66, 0x66, 0x66, 0x6C, 0x78, 0x00 },
+    ['E'] = { 0x7E, 0x60, 0x60, 0x7C, 0x60, 0x60, 0x7E, 0x00 },
+    ['G'] = { 0x3C, 0x66, 0x60, 0x6E, 0x66, 0x66, 0x3C, 0x00 },
+    ['I'] = { 0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00 },
+    ['L'] = { 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x7E, 0x00 },
+    ['M'] = { 0x63, 0x77, 0x7F, 0x6B, 0x63, 0x63, 0x63, 0x00 },
+    ['N'] = { 0x66, 0x76, 0x7E, 0x7E, 0x6E, 0x66, 0x66, 0x00 },
+    ['O'] = { 0x3C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00 },
+    ['R'] = { 0x7C, 0x66, 0x66, 0x7C, 0x78, 0x6C, 0x66, 0x00 },
+    ['S'] = { 0x3C, 0x66, 0x60, 0x3C, 0x06, 0x66, 0x3C, 0x00 },
+    ['T'] = { 0x7E, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00 },
+    ['U'] = { 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00 },
+    ['W'] = { 0x63, 0x63, 0x63, 0x6B, 0x7F, 0x77, 0x63, 0x00 }
+};
+
+static void draw_rect(volatile uint16_t* fb, int x, int y, int w, int h, uint16_t color) {
+    for (int row = y; row < y + h; row++) {
+        if ((unsigned)row >= SCREEN_HEIGHT) continue;
+        volatile uint16_t* line = fb + (row * SCREEN_WIDTH) + x;
+        for (int col = 0; col < w; col++) {
+            if ((unsigned)(x + col) >= SCREEN_WIDTH) continue;
+            line[col] = color;
+        }
+    }
+}
+
+static void draw_char(volatile uint16_t* fb, int x, int y, char c, uint16_t color, int scale) {
+    uint8_t uc = (uint8_t)c;
+    if (uc >= sizeof(FONT_8X8)/sizeof(FONT_8X8[0])) return;
+    const uint8_t* glyph = FONT_8X8[uc];
+    for (int r = 0; r < 8; r++) {
+        uint8_t row = glyph[r];
+        for (int col = 0; col < 8; col++) {
+            if (row & (0x80 >> col)) {
+                draw_rect(fb, x + col * scale, y + r * scale, scale, scale, color);
+            }
+        }
+    }
+}
+
+static void draw_string_centered(volatile uint16_t* fb, int center_x, int y, const char* str, uint16_t color, int scale) {
+    int len = 0;
+    const char* p = str;
+    while (*p++) len++;
+    int total_w = len * 8 * scale;
+    int start_x = center_x - (total_w / 2);
+
+    int cx = start_x;
+    while (*str) {
+        draw_char(fb, cx, y, *str++, color, scale);
+        cx += 8 * scale;
+    }
+}
+
+static void init_pvr_video(void) {
+    PVR_VIDEO_CFG     = 0x00000008;
+    PVR_BORDER_COLOR  = 0x00000000;
+
+    PVR_BORDER_X      = 0x007E0345;
+    PVR_BORDER_Y      = 0x00240204;
+    PVR_SCAN_CLK      = 0x020C0359;
+    PVR_IL_CFG        = 0x00000100;
+    PVR_BITMAP_X      = 0x000000AC;
+    PVR_BITMAP_Y      = 0x00280028;
+    PVR_SCALER_CFG    = 0x00000400;
+
+    PVR_FB_ADDR       = 0x00000000;
+    PVR_FB_IL_ADDR    = 0x00000000;
+    PVR_FB_CFG_1      = 0x00800005;
+    PVR_FB_CFG_2      = 0x00000009;
+    PVR_RENDER_MODULO = 160;
+    PVR_FB_SIZE       = (1 << 20) | (479 << 10) | 319;
+
+    PVR_VIDEO_CFG     = 0x00000000;
+}
+
+/* Hardware VBlank Accurate Delay (60 Hz Hardware Crystal Sync) */
+static void wait_vblank(void) {
+    while (!(PVR_SYNC_STATUS & 0x01FF)) { }
+    while (PVR_SYNC_STATUS & 0x01FF) { }
+}
+
+static void wait_seconds_exact(int seconds) {
+    int total_vblanks = seconds * 60;
+    for (int i = 0; i < total_vblanks; i++) {
+        wait_vblank();
+    }
+}
+
+/* Safe Dummy Syscall Handler */
+static int dummy_syscall_handler(void) {
+    return 0;
+}
+
+static const uint32_t val_stack_handoff = 0x8D000000UL;
+static const uint32_t val_entry_handoff = 0x8C010000UL;
+
+void chainload_custom_bios(void) {
+    /* Publish the service ABI before the custom BIOS is started. */
+    gdrom_install_services();
+
+    /* 1. Populate Dreamcast Syscall Table with safe stub handlers */
+    volatile uint32_t *vec_table = (volatile uint32_t *)0x8C000000UL;
+    for (int i = 0; i < 128; i++) {
+        vec_table[i] = (uint32_t)&dummy_syscall_handler;
+    }
+
+    /* 2. Copy payload from ROM offset 64KB (0xA0010000) into SDRAM */
+    volatile uint32_t *src = (volatile uint32_t *)(0xA0010000UL);
+    volatile uint32_t *dst = (volatile uint32_t *)(0x8C010000UL);
+    uint32_t size_words = 0x1E0000 / 4;
+
+    for (uint32_t i = 0; i < size_words; i++) {
+        dst[i] = src[i];
+    }
+
+    /* 3. Invalidate instruction and operand caches (CCR register). */
+    volatile uint32_t *ccr = (volatile uint32_t *)0xFF00001CUL;
+    *ccr = 0x00000808;
+
+    /* 4. Set r15 to top of SDRAM and jump into KallistiOS. */
+    __asm__ volatile(
+        "mov.l  %0, r15\n\t"
+        "mov.l  %1, r1\n\t"
+        "jmp    @r1\n\t"
+        "nop\n\t"
+        :
+        : "m"(val_stack_handoff), "m"(val_entry_handoff)
+        : "r1"
+    );
+}
+
+void main(void) {
+    /* 1. Hardware video init */
+    init_pvr_video();
+
+    volatile uint16_t* fb = (volatile uint16_t*)VRAM_BASE;
+
+    /* 2. Display pure custom splash */
+    draw_rect(fb, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR_BLACK);
+    draw_rect(fb, 30, 30, 580, 4, COLOR_CYAN);
+    draw_rect(fb, 30, 446, 580, 4, COLOR_CYAN);
+    draw_rect(fb, 30, 30, 4, 420, COLOR_CYAN);
+    draw_rect(fb, 606, 30, 4, 420, COLOR_CYAN);
+
+    draw_string_centered(fb, 320, 110, "CUSTOM DREAMCAST", COLOR_GREEN, 3);
+    draw_string_centered(fb, 320, 200, "BOOT ROM", COLOR_WHITE, 4);
+    draw_string_centered(fb, 320, 300, "NO SEGA SWIRL", COLOR_GOLD, 3);
+
+    /* 3. Hardware-Locked Exact 8.000 Seconds */
+    wait_seconds_exact(8);
+
+    /* 4. Chainload and launch Custom BIOS Dashboard */
+    chainload_custom_bios();
+}
