@@ -1,4 +1,4 @@
-# Custom Dreamcast firmware
+# OpenDC - Open Source Bootloader and BIOS for Dreamcast
 
 This directory is the single build tree for the experimental custom Dreamcast
 firmware. It contains two stages:
