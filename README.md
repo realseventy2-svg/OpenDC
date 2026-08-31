@@ -200,9 +200,6 @@ Before contributing:
    values, and test results.
 5. Test both an empty-drive case and a known-good CDI when changing GD-ROM or
    startup code.
-6. Do not include proprietary BIOS images, copyrighted game data, or external
-   source code unless its license permits redistribution and the required
-   notices are included.
 
 For pull requests, explain what changed, which target was tested, whether the
 test used Flycast or physical hardware, and include logs or photos when they
