@@ -18,7 +18,11 @@ start:
     mov.l   val_sr_init, r0
     ldc     r0, sr
 
-    ! Set Vector Base Register to SDRAM Base (0x8C000000)
+    ! Set Vector Base Register to the linker-reserved exception vector
+    ! table (see exception_vector_table in payload.c) rather than a
+    ! hardcoded SDRAM address. A hardcoded guess here previously collided
+    ! with this program's own .data/.bss, which also starts at SDRAM base,
+    ! and the vector-stub install in main() was corrupting live globals.
     mov.l   val_vbr_init, r0
     ldc     r0, vbr
 
@@ -132,9 +136,65 @@ halt_loop:
     bra     halt_loop
     nop
 
+! ==============================================================================
+! Minimal SH-4 exception vector stub + handler.
+!
+! VBR is set to SDRAM base (0x8C000000) above, which means the CPU will jump
+! to VBR+0x100 (general exception), VBR+0x400 (TLB miss) and VBR+0x600
+! (interrupt) on any fault. Nothing else in this project ever writes real
+! code to those addresses, so an unhandled exception previously executed
+! whatever zeroed/garbage memory happened to be sitting there -- an illegal
+! instruction, which faults again inside its own "handler" and produces the
+! double-fault an emulator reports as "Fatal: SH4 exception".
+!
+! _vector_stub_template is a small, self-contained, position-independent
+! block of code: it is copied byte-for-byte into each of the three vector
+! slots at C startup (see install_exception_vectors() in payload.c). Because
+! the pointer to the handler is loaded via a PC-relative literal that lives
+! immediately after the code, this works correctly no matter where the block
+! is copied to.
+! ==============================================================================
 .align 4
+.global _vector_stub_template
+.global _vector_stub_template_end
+_vector_stub_template:
+    mov.l   1f, r0
+    jmp     @r0
+    nop
+    .align 4
+1:  .long   _generic_exception_handler
+_vector_stub_template_end:
+
+.global _generic_exception_handler
+.align 4
+_generic_exception_handler:
+    ! Register bank 1 is active on exception entry (hardware automatically
+    ! banks r0-r7); r8-r15 including the stack pointer keep their pre-fault
+    ! values, so it's safe to call back into C from here.
+    mov.l   val_sr_init, r0
+    ldc     r0, sr                  ! re-mask interrupts (IMASK=15), BL=0
+
+    stc     spc, r4                 ! r4 = arg0 = faulting PC
+    mov.l   p_expevt, r1
+    mov.l   @r1, r5                 ! r5 = arg1 = EXPEVT (exception code)
+
+    mov.l   p_report_exception, r0
+    jsr     @r0
+    nop
+
+exception_halt_loop:
+    sleep
+    bra     exception_halt_loop
+    nop
+
+.align 4
+p_expevt:              .long   0xFF000024        ! EXPEVT register (P4 area)
+p_report_exception:    .long   _report_exception  ! defined in payload.c
+
+.align 4
+.extern _exception_vector_table
 val_sr_init:        .long   0x400000F0     ! Privileged mode, BL=0, IMASK=15
-val_vbr_init:       .long   0x8C000000     ! SDRAM Exception Vector Base
+val_vbr_init:       .long   _exception_vector_table ! Linker-reserved vector table (payload.c)
 val_fpscr_init:     .long   0x00040001     ! Single-precision FPU, Denorm Flush
 p_ccr:              .long   0xFF00001C     ! Cache Control Register
 val_ccr_init:       .long   0x0000080B     ! Instruction & Operand Cache Enable

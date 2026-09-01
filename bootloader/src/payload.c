@@ -178,8 +178,78 @@ static void wait_seconds_exact(int seconds) {
     }
 }
 
+/* Provided by crt0.s: a small, position-independent block of code that gets
+   copied verbatim into each VBR-relative exception vector slot. See the
+   comment above _vector_stub_template in crt0.s for why this is necessary:
+   an unhandled exception previously executed garbage memory and
+   double-faulted. */
+extern const uint8_t vector_stub_template[];
+extern const uint8_t vector_stub_template_end[];
+
+/* Real, linker-allocated storage for the exception vector table. This is
+   intentionally NOT a hardcoded address like 0x8C000000: this program's own
+   .data/.bss (toc[], pvd[], sector[], pending_command, etc.) is placed by
+   the linker starting at SDRAM base, so a hardcoded VBR guess stomped on
+   live globals and corrupted the program before it ever reached IP.BIN.
+   Letting the linker place this array guarantees no overlap with anything
+   else. crt0.s points VBR here (see val_vbr_init in crt0.s). Needs to
+   cover offsets 0x000 (used), 0x100 (general exception), 0x400 (TLB miss)
+   and 0x600 (interrupt), each followed by a small stub -- 2KB is generous. */
+__attribute__((aligned(1024)))
+uint8_t exception_vector_table[0x800];
+
+static void install_exception_vectors(void) {
+    const uint8_t *tmpl = vector_stub_template;
+    size_t len = (size_t)(vector_stub_template_end - vector_stub_template);
+    uint32_t vbr_base = (uint32_t)exception_vector_table;
+    const uint32_t vector_offsets[3] = {
+        0x100UL, /* general exception (incl. address errors, illegal instr) */
+        0x400UL, /* TLB miss */
+        0x600UL  /* interrupt */
+    };
+
+    for (unsigned t = 0; t < 3; t++) {
+        uint8_t *dst = (uint8_t *)(vbr_base + vector_offsets[t]);
+        for (size_t i = 0; i < len; i++) {
+            dst[i] = tmpl[i];
+        }
+    }
+
+    /* Flush I/D caches so the CPU fetches the freshly written stub code
+       rather than stale/absent cache lines. */
+    *(volatile uint32_t *)0xFF00001CUL = 0x0808;
+}
+
 static const uint32_t val_stack_handoff = 0x8D000000UL;
 static const uint32_t val_entry_handoff = 0x8C010000UL;
+
+/* Called from _generic_exception_handler in crt0.s when any unhandled CPU
+   exception fires. Paints the faulting PC and the EXPEVT exception code on
+   screen instead of just hanging, so a fault is diagnosable without a
+   hardware debugger.
+
+   Common EXPEVT values worth knowing:
+     0x000000E0  general illegal instruction
+     0x0000001A  slot illegal instruction
+     0x000000E4  reserved instruction (slot)
+     0x000000E0  ... consult the SH-4 manual's EXPEVT table for the rest --
+                     the important thing here is that you now get *a* code
+                     and PC instead of a black screen or a double-fault.
+
+   Only uses glyphs already present in FONT_8X8 (F, A, U, L, T, C, O, D, E,
+   plus 0-9/A-F for the hex digits) to avoid needing to extend the font. */
+void report_exception(uint32_t pc, uint32_t expevt) {
+    volatile uint16_t *fb = (volatile uint16_t *)VRAM_BASE;
+
+    draw_rect(fb, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR_BLACK);
+    draw_string_centered(fb, 320, 140, "FAULT", COLOR_GOLD, 5);
+
+    draw_string_centered(fb, 220, 260, "AT", COLOR_WHITE, 3);
+    draw_hex32(fb, 300, 260, pc, COLOR_WHITE, 3);
+
+    draw_string_centered(fb, 220, 320, "CODE", COLOR_WHITE, 3);
+    draw_hex32(fb, 340, 320, expevt, COLOR_WHITE, 3);
+}
 
 void chainload_custom_bios(void) {
     /* Publish the service ABI before the custom BIOS is started. */
@@ -209,11 +279,17 @@ void chainload_custom_bios(void) {
         "nop\n\t"
         :
         : "m"(val_stack_handoff), "m"(val_entry_handoff)
-        : "r1"
+        : "r1", "r15"
     );
 }
 
 void main(void) {
+    /* 0. Install exception vector stubs before anything else runs, so a
+       fault anywhere below (or later, inside IP.BIN / the syscall shim)
+       hits a defined handler instead of double-faulting into whatever
+       garbage was previously sitting at the VBR-relative vector slots. */
+    install_exception_vectors();
+
     /* 1. Hardware video init */
     init_pvr_video();
 

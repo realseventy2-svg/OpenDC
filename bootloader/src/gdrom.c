@@ -665,6 +665,15 @@ void gdrom_install_syscall(void) {
     *(volatile uintptr_t *)0xAC0000E0UL = (uintptr_t)&kos_system_dispatch;
 }
 
+/* ISO9660 directory-record fields are not 4-byte aligned within a sector
+   buffer. SH-4 requires natural alignment for 16/32-bit loads and raises an
+   address-error exception on a misaligned mov.l/mov.w -- unlike x86, which
+   tolerates it silently. Always read multi-byte fields byte-wise. */
+static uint32_t read_le32_unaligned(const uint8_t *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
 static void gdrom_descramble(const uint8_t *src, uint8_t *dst, uint32_t size) {
     uint32_t chunks = size / 2048;
     for(uint32_t c = 0; c < chunks; c++) {
@@ -741,6 +750,18 @@ int gdrom_boot_game(uint32_t data_fad) {
     if(ip_res == GDROM_OK && ip_buf[0] == 'S' && ip_buf[1] == 'E' && ip_buf[2] == 'G' && ip_buf[3] == 'A') {
         *(volatile uint32_t *)0xFF00001CUL = 0x0808;
 
+        /* Both handoff constants MUST be real static storage, not compound
+           literals/automatics. Compound literals live on the C stack, so
+           GCC addresses them relative to r15 -- but the first instruction
+           below overwrites r15 with the new stack top before the second
+           mov.l reads its operand, so that read ends up relative to the
+           *new* stack pointer instead, pulling 4 bytes out of whatever is
+           sitting at that address (in practice, out of the just-loaded
+           IP.BIN buffer itself) instead of the intended constant. That is
+           exactly what was sending execution into IP.BIN's header text. */
+        static const uint32_t ip_bin_stack_top = 0x8C008000UL;
+        static const uint32_t ip_bin_entry      = 0x8C008300UL;
+
         __asm__ volatile(
             "mov.l  %0, r15\n\t"
             "mov    #0, r0\n\t"
@@ -748,8 +769,8 @@ int gdrom_boot_game(uint32_t data_fad) {
             "jmp    @r1\n\t"
             "nop\n\t"
             :
-            : "m"(*(const uint32_t[]){0x8C008000UL}), "m"(*(const uint32_t[]){0x8C008300UL})
-            : "r0", "r1"
+            : "m"(ip_bin_stack_top), "m"(ip_bin_entry)
+            : "r0", "r1", "r15"
         );
         return GDROM_OK;
     }
@@ -763,8 +784,8 @@ int gdrom_boot_game(uint32_t data_fad) {
         return GDROM_DEVICE_ERR;
     }
 
-    uint32_t root_lba = *(uint32_t *)(sector + 156 + 2);
-    uint32_t root_size = *(uint32_t *)(sector + 156 + 10);
+    uint32_t root_lba = read_le32_unaligned(sector + 156 + 2);
+    uint32_t root_size = read_le32_unaligned(sector + 156 + 10);
     uint32_t root_fad = (root_lba < data_fad) ? (data_fad + root_lba) : (root_lba + 150);
 
     /* 2. Traverse ISO root directory to locate 1ST_READ.BIN */
@@ -779,8 +800,8 @@ int gdrom_boot_game(uint32_t data_fad) {
             uint8_t rec_len = sector[offset];
             if(rec_len == 0) break;
 
-            uint32_t lba = *(uint32_t *)(sector + offset + 2);
-            uint32_t sz = *(uint32_t *)(sector + offset + 10);
+            uint32_t lba = read_le32_unaligned(sector + offset + 2);
+            uint32_t sz = read_le32_unaligned(sector + offset + 10);
             uint8_t name_len = sector[offset + 32];
             const char *name = (const char *)(sector + offset + 33);
 
@@ -838,14 +859,17 @@ int gdrom_boot_game(uint32_t data_fad) {
     *(volatile uint32_t *)0xFF00001CUL = 0x0808;
 
     /* 6. Launch Game: Reset stack pointer to 0x8D000000 and jump to 0x8C010000 */
+    static const uint32_t game_stack_top = 0x8D000000UL;
+    static const uint32_t game_entry      = 0x8C010000UL;
+
     __asm__ volatile(
         "mov.l  %0, r15\n\t"
         "mov.l  %1, r1\n\t"
         "jmp    @r1\n\t"
         "nop\n\t"
         :
-        : "m"(*(const uint32_t[]){0x8D000000UL}), "m"(*(const uint32_t[]){0x8C010000UL})
-        : "r1"
+        : "m"(game_stack_top), "m"(game_entry)
+        : "r1", "r15"
     );
 
     return GDROM_OK;
