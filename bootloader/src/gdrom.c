@@ -714,21 +714,117 @@ static void gdrom_descramble(const uint8_t *src, uint8_t *dst, uint32_t size) {
     }
 }
 
+/* Helper: locate 1ST_READ.BIN in the ISO9660 filesystem rooted at
+   data_fad and load it into its standard Dreamcast execution address
+   0x8C010000.  Shared by both the IP.BIN and direct boot paths. */
+static int gdrom_load_1st_read(uint32_t data_fad) {
+    static uint8_t sector[2048] __attribute__((aligned(4)));
+    uint32_t file_fad  = 0;
+    uint32_t file_size = 0;
+
+    /* Read ISO9660 Primary Volume Descriptor. */
+    if(gdrom_read_fad(sector, data_fad + 16U, 1) != GDROM_OK)
+        return GDROM_DEVICE_ERR;
+    if(sector[0] != 1 || sector[1] != 'C' || sector[2] != 'D' ||
+       sector[3] != '0' || sector[4] != '0' || sector[5] != '1')
+        return GDROM_DEVICE_ERR;
+
+    uint8_t root_record_len = sector[156];
+    if(root_record_len < 34)
+        return GDROM_DEVICE_ERR;
+
+    uint32_t root_lba  = read_le32_unaligned(sector + 156 + 2);
+    uint32_t root_size = read_le32_unaligned(sector + 156 + 10);
+    uint32_t root_fad  = data_fad + root_lba;
+
+    /* Traverse the root directory to locate 1ST_READ.BIN. */
+    uint32_t root_sectors = (root_size + 2047) / 2048;
+    if(root_sectors > 16) root_sectors = 16;
+
+    for(uint32_t s = 0; s < root_sectors; s++) {
+        if(gdrom_read_fad(sector, root_fad + s, 1) != GDROM_OK) break;
+
+        uint32_t offset = 0;
+        while(offset < 2048) {
+            uint8_t rec_len = sector[offset];
+            if(rec_len == 0) break;
+
+            uint32_t lba     = read_le32_unaligned(sector + offset + 2);
+            uint32_t sz      = read_le32_unaligned(sector + offset + 10);
+            uint8_t name_len = sector[offset + 32];
+            const char *name = (const char *)(sector + offset + 33);
+
+            char clean_name[32];
+            size_t nlen = (name_len < 31) ? name_len : 31;
+            for(size_t k = 0; k < nlen; k++) {
+                char ch = name[k];
+                if(ch == ';') { clean_name[k] = '\0'; nlen = k; break; }
+                if(ch >= 'a' && ch <= 'z') ch -= ('a' - 'A');
+                clean_name[k] = ch;
+            }
+            clean_name[nlen] = '\0';
+
+            const char *target = "1ST_READ.BIN";
+            int match = (nlen == 12);
+            if(match) {
+                for(int k = 0; k < 12; k++) {
+                    if(clean_name[k] != target[k]) { match = 0; break; }
+                }
+            }
+            if(match) {
+                file_fad  = data_fad + lba;
+                file_size = sz;
+                break;
+            }
+            offset += rec_len;
+        }
+        if(file_fad != 0) break;
+    }
+
+    if(file_fad == 0 || file_size == 0)
+        return GDROM_DEVICE_ERR;
+    if(file_size > 0x00D00000UL)
+        return GDROM_BAD_ARG;
+
+    /*
+     * Load 1ST_READ.BIN into its standard Dreamcast execution address.
+     * GD-ROM executables are NOT scrambled; do not apply the MIL-CD
+     * descramble transform here.
+     */
+    uint8_t *dest = (uint8_t *)0x8C010000UL;
+    uint32_t total_sectors = (file_size + 2047U) / 2048U;
+    uint32_t read_count = 0;
+    while(read_count < total_sectors) {
+        uint32_t batch = total_sectors - read_count;
+        if(batch > 16U) batch = 16U;
+        if(gdrom_read_fad(dest + (read_count * 2048U),
+                          file_fad + read_count,
+                          (uint16_t)batch) != GDROM_OK)
+            return GDROM_DEVICE_ERR;
+        read_count += batch;
+    }
+    return GDROM_OK;
+}
+
 int gdrom_boot_game(uint32_t data_fad) {
     /*
-     * IMPORTANT: do not change SR here and do not replace the BIOS syscall
-     * vectors before entering IP.BIN.
+     * OpenDC is the BIOS ROM replacement.  We must populate the syscall
+     * vectors at 0x8C0000B0-0x8C0000E0 ourselves before IP.BIN runs.
      *
-     * IP.BIN's license-screen code is designed to run in the BIOS-provided
-     * environment.  In particular, it eventually uses the system-call
-     * mechanism and the BIOS continues the boot at 0x8c00b800.  Installing
-     * our KOS-compatible C dispatcher here changes that ABI and can make the
-     * license code return to the wrong place.
+     * On a real Dreamcast the BIOS ROM populates those vectors during its
+     * own startup and IP.BIN relies on them for GD-ROM access, region
+     * checks, and (critically) to call into the BIOS after the license
+     * screen is done.  In our custom bootloader those slots are zero
+     * (uninitialized SDRAM) unless we write them here.
      *
-     * The standalone GD-ROM driver does not need the KOS syscall table in
-     * order to read the disc.  Keep gdrom_install_syscall() available for
-     * callers that explicitly need it, but NEVER install it as part of the
-     * retail-IP.BIN handoff.
+     * When the vector at 0x8C0000BC is 0 and IP.BIN does
+     *   mov.l @0x8C0000BC, r0 / jsr @r0 / nop
+     * the CPU jumps to address 0x00000000.  With the MMU off, physical
+     * address 0 aliases Area 0 = our boot ROM = _start.  This is the
+     * exact "bootloop" (bootloader → license screen → bootloader → ...).
+     *
+     * gdrom_install_syscall() writes our KOS-compatible dispatchers to
+     * all six slots so IP.BIN can use them normally.
      */
     if(gdrom_init() != GDROM_OK || gdrom_prepare_disk() != GDROM_OK)
         return GDROM_NOT_READY;
@@ -770,6 +866,49 @@ int gdrom_boot_game(uint32_t data_fad) {
 
     if(ip_res == GDROM_OK && ip_buf[0] == 'S' && ip_buf[1] == 'E' && ip_buf[2] == 'G' && ip_buf[3] == 'A') {
         /*
+         * Load 1ST_READ.BIN into 0x8C010000 BEFORE jumping into IP.BIN.
+         *
+         * IP.BIN's license-screen code always finishes by jumping to
+         * 0x8C00B800 — the "BIOS continuation vector".  On a real Dreamcast
+         * the BIOS ROM has code there that loads and launches 1ST_READ.BIN.
+         * OpenDC leaves 0x8C00B800 in zero-BSS, so IP.BIN was jumping to
+         * all-zero SH-4 opcodes, which eventually wrapped execution back to
+         * the ROM entry point at 0xA0000000 — the exact bootloop observed.
+         *
+         * Fix: preload 1ST_READ.BIN, then install a small trampoline at
+         * 0x8C00B800 that forwards to 0x8C010000.
+         */
+        (void)gdrom_load_1st_read(data_fad);
+
+        /*
+         * Install the BIOS continuation trampoline at 0x8C00B800.
+         *
+         * SH-4 little-endian opcodes (each 16-bit word stored LE):
+         *   D1 01   mov.l @(1,PC), r1
+         *           EA = (PC+4 & ~3) + 1*4 = 0x8C00B808  <- literal slot
+         *   41 2B   jmp   @r1
+         *   00 09   nop
+         *   00 00   alignment pad
+         *   .long   0x8C010000          (1ST_READ.BIN entry point)
+         */
+        {
+            volatile uint16_t *tramp = (volatile uint16_t *)0x8C00B800UL;
+            tramp[0] = 0xD101;  /* mov.l @(1,PC), r1 */
+            tramp[1] = 0x412B;  /* jmp   @r1         */
+            tramp[2] = 0x0009;  /* nop               */
+            tramp[3] = 0x0000;  /* alignment pad     */
+            *(volatile uint32_t *)0x8C00B808UL = 0x8C010000UL;
+        }
+
+        /*
+         * Populate the BIOS syscall vectors now, before IP.BIN runs.
+         * IP.BIN calls through 0x8C0000BC (GD-ROM) and possibly other
+         * slots.  Leaving them zero causes the CPU to jump to physical
+         * address 0 = boot ROM = _start, which is the bootloop.
+         */
+        gdrom_install_syscall();
+
+        /*
          * 0x0808 is NOT an instruction-cache invalidate value on SH-4
          * (ICI is bit 11 / 0x0800).  Do not write it here.
          *
@@ -800,127 +939,18 @@ int gdrom_boot_game(uint32_t data_fad) {
         return GDROM_OK;
     }
 
-    static uint8_t sector[2048] __attribute__((aligned(4)));
-    uint32_t file_fad = 0;
-    uint32_t file_size = 0;
-
-    /* 2. Read the ISO9660 Primary Volume Descriptor. */
-    if(gdrom_read_fad(sector, data_fad + 16U, 1) != GDROM_OK) {
-        return GDROM_DEVICE_ERR;
-    }
-
-    if(sector[0] != 1 || sector[1] != 'C' || sector[2] != 'D' ||
-       sector[3] != '0' || sector[4] != '0' || sector[5] != '1') {
-        return GDROM_DEVICE_ERR;
-    }
-
     /*
-     * The root directory record begins at byte 156 and is guaranteed to
-     * contain these fields in a valid ISO9660 PVD.
+     * Direct path (no IP.BIN found on disc): locate 1ST_READ.BIN via the
+     * ISO9660 directory and load it directly into 0x8C010000.
      */
-    uint8_t root_record_len = sector[156];
-    if(root_record_len < 34)
-        return GDROM_DEVICE_ERR;
+    int load_res = gdrom_load_1st_read(data_fad);
+    if(load_res != GDROM_OK)
+        return load_res;
 
-    uint32_t root_lba = read_le32_unaligned(sector + 156 + 2);
-    uint32_t root_size = read_le32_unaligned(sector + 156 + 10);
-    uint32_t root_fad = data_fad + root_lba;
-
-    /* 2. Traverse ISO root directory to locate 1ST_READ.BIN */
-    uint32_t root_sectors = (root_size + 2047) / 2048;
-    if(root_sectors > 16) root_sectors = 16;
-
-    for(uint32_t s = 0; s < root_sectors; s++) {
-        if(gdrom_read_fad(sector, root_fad + s, 1) != GDROM_OK) break;
-
-        uint32_t offset = 0;
-        while(offset < 2048) {
-            uint8_t rec_len = sector[offset];
-            if(rec_len == 0) break;
-
-            uint32_t lba = read_le32_unaligned(sector + offset + 2);
-            uint32_t sz = read_le32_unaligned(sector + offset + 10);
-            uint8_t name_len = sector[offset + 32];
-            const char *name = (const char *)(sector + offset + 33);
-
-            char clean_name[32];
-            size_t nlen = (name_len < 31) ? name_len : 31;
-            for(size_t k = 0; k < nlen; k++) {
-                char ch = name[k];
-                if(ch == ';') { clean_name[k] = '\0'; nlen = k; break; }
-                if(ch >= 'a' && ch <= 'z') ch -= ('a' - 'A');
-                clean_name[k] = ch;
-            }
-            clean_name[nlen] = '\0';
-
-            const char *target = "1ST_READ.BIN";
-            int match = (nlen == 12);
-            if(match) {
-                for(int k = 0; k < 12; k++) {
-                    if(clean_name[k] != target[k]) {
-                        match = 0;
-                        break;
-                    }
-                }
-            }
-
-            if(match) {
-                file_fad = data_fad + lba;
-                file_size = sz;
-                break;
-            }
-            offset += rec_len;
-        }
-        if(file_fad != 0) break;
-    }
-
-    if(file_fad == 0 || file_size == 0) {
-        /* Never guess a game executable location. A wrong FAD means we
-           would execute arbitrary sector contents as SH-4 instructions. */
-        return GDROM_DEVICE_ERR;
-    }
-
-    /*
-     * 3. Read 1ST_READ.BIN directly into its normal Dreamcast execution
-     *    address.
-     *
-     * This loader is targeting a GD-ROM.  Do NOT apply the MIL-CD/CD
-     * scrambling transform here.  The public boot-process documentation
-     * explicitly distinguishes CD scrambling from GD-ROM loading.
-     */
-    uint32_t total_sectors = (file_size + 2047U) / 2048U;
-    uint8_t *dest = (uint8_t *)0x8C010000UL;
-
-    /*
-     * A normal 16 MB Dreamcast has RAM through 0x8CFFFFFF.  Keep the load
-     * inside RAM and reserve the upper 1 MB for the loader/stack.
-     */
-    if(file_size == 0 || file_size > 0x00D00000UL)
-        return GDROM_BAD_ARG;
-
-    uint32_t read_count = 0;
-    while(read_count < total_sectors) {
-        uint32_t batch = total_sectors - read_count;
-        if(batch > 16U) batch = 16U;
-
-        if(gdrom_read_fad(dest + (read_count * 2048U),
-                          file_fad + read_count,
-                          (uint16_t)batch) != GDROM_OK) {
-            return GDROM_DEVICE_ERR;
-        }
-        read_count += batch;
-    }
-
-    /*
-     * We intentionally do not descramble a GD-ROM executable.  For a
-     * MIL-CD/CD boot path, scrambling support must be selected explicitly;
-     * applying it unconditionally destroys a normal GD-ROM 1ST_READ.BIN.
-     */
-
-    /* 4. Disable L1 caches before transferring to freshly loaded code. */
+    /* Disable L1 caches before transferring to freshly loaded code. */
     *(volatile uint32_t *)0xFF00001CUL = 0x00000000UL;
 
-    /* 5. Launch Game: reset stack pointer and jump to 0x8C010000. */
+    /* Launch Game: reset stack pointer and jump to 0x8C010000. */
     static const uint32_t game_stack_top = 0x8D000000UL;
     static const uint32_t game_entry      = 0x8C010000UL;
 
