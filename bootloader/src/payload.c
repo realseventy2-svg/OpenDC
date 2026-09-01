@@ -305,15 +305,15 @@ void main(void) {
     volatile uint16_t* fb = (volatile uint16_t*)VRAM_BASE;
 
     /* 3. Display pure custom splash */
-    draw_rect(fb, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR_BLACK);
-    draw_rect(fb, 30, 30, 580, 4, COLOR_CYAN);
-    draw_rect(fb, 30, 446, 580, 4, COLOR_CYAN);
-    draw_rect(fb, 30, 30, 4, 420, COLOR_CYAN);
-    draw_rect(fb, 606, 30, 4, 420, COLOR_CYAN);
+    // draw_rect(fb, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR_BLACK);
+    // draw_rect(fb, 30, 30, 580, 4, COLOR_CYAN);
+    // draw_rect(fb, 30, 446, 580, 4, COLOR_CYAN);
+    // draw_rect(fb, 30, 30, 4, 420, COLOR_CYAN);
+    // draw_rect(fb, 606, 30, 4, 420, COLOR_CYAN);
 
-    draw_string_centered(fb, 320, 110, "CUSTOM DREAMCAST", COLOR_GREEN, 3);
-    draw_string_centered(fb, 320, 200, "BOOT ROM", COLOR_WHITE, 4);
-    draw_string_centered(fb, 320, 300, "NO SEGA SWIRL", COLOR_GOLD, 3);
+    draw_string_centered(fb, 320, 110, "SEGA DREAMCAST", COLOR_GREEN, 3);
+    draw_string_centered(fb, 320, 200, "CUSTOM BOOT ROM", COLOR_WHITE, 4);
+    //draw_string_centered(fb, 320, 300, "NO SEGA SWIRL", COLOR_GOLD, 3);
     draw_string_centered(fb, 320, 380,
                          toc_result == GDROM_OK ? "TOC OK" : "TOC ERROR",
                          toc_result == GDROM_OK ? COLOR_GREEN : COLOR_GOLD, 2);

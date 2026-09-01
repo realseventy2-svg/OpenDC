@@ -108,6 +108,18 @@ enum {
 #define G1_ACCESS_PIO_DEFAULT  0x00000222UL
 #define GDROM_TIMEOUT_LOOPS    1000000UL
 
+/*
+ * Boot policy:
+ *   1 = execute the disc's IP.BIN at 0x8c008300 so the normal SEGA license
+ *       screen appears.  The BIOS syscall vectors are left untouched.
+ *   0 = skip IP.BIN and load 1ST_READ.BIN directly.
+ *
+ * Keep this at 1 while diagnosing the post-license exception.
+ */
+#ifndef GDROM_BOOT_THROUGH_IP
+#define GDROM_BOOT_THROUGH_IP 1
+#endif
+
 typedef struct {
     int32_t handle;
     uint32_t command;
@@ -303,7 +315,8 @@ int gdrom_read_toc(void *buffer, uint8_t session) {
 }
 
 int gdrom_read_fad(void *buffer, uint32_t fad, uint16_t sectors) {
-    if(buffer == 0 || sectors == 0 || fad > 0xFFFFFFUL) {
+    if(buffer == 0 || sectors == 0 || fad > 0xFFFFFFUL ||
+       (uint32_t)(sectors - 1U) > (0xFFFFFFUL - fad)) {
         return GDROM_BAD_ARG;
     }
 
@@ -702,15 +715,23 @@ static void gdrom_descramble(const uint8_t *src, uint8_t *dst, uint32_t size) {
 }
 
 int gdrom_boot_game(uint32_t data_fad) {
-    /* KOS has already initialized its own CD layer by the time the user
-       selects PLAY DISC.  Switch the hardware back to the standalone packet
-       state before issuing raw reads, and prevent the KOS vblank handler from
-       touching the same ATA registers during this handoff. */
-    __asm__ volatile("ldc    %0, sr" :: "r"(0x400000F0UL));
+    /*
+     * IMPORTANT: do not change SR here and do not replace the BIOS syscall
+     * vectors before entering IP.BIN.
+     *
+     * IP.BIN's license-screen code is designed to run in the BIOS-provided
+     * environment.  In particular, it eventually uses the system-call
+     * mechanism and the BIOS continues the boot at 0x8c00b800.  Installing
+     * our KOS-compatible C dispatcher here changes that ABI and can make the
+     * license code return to the wrong place.
+     *
+     * The standalone GD-ROM driver does not need the KOS syscall table in
+     * order to read the disc.  Keep gdrom_install_syscall() available for
+     * callers that explicitly need it, but NEVER install it as part of the
+     * retail-IP.BIN handoff.
+     */
     if(gdrom_init() != GDROM_OK || gdrom_prepare_disk() != GDROM_OK)
         return GDROM_NOT_READY;
-
-    gdrom_install_syscall();
 
     if(data_fad == 0)
         data_fad = cached_data_fad;
@@ -723,9 +744,9 @@ int gdrom_boot_game(uint32_t data_fad) {
     uint32_t ip_candidates[5];
     unsigned ip_candidate_count = 0;
 
-    /* CDI images are commonly authored with IP.BIN either at the data-track
-       FAD or one CD lead-in (150 FADs) before it.  Retail GD-ROMs use 45000.
-       Probe each location and require the signature before entering it. */
+    /* Prefer the actual data-track FAD.  The other candidates are retained
+       only as compatibility probes for dumps/images whose track offset was
+       supplied differently.  Require the IP.BIN signature before executing. */
     ip_candidates[ip_candidate_count++] = data_fad;
     if(data_fad >= 150)
         ip_candidates[ip_candidate_count++] = data_fad - 150;
@@ -748,17 +769,21 @@ int gdrom_boot_game(uint32_t data_fad) {
     }
 
     if(ip_res == GDROM_OK && ip_buf[0] == 'S' && ip_buf[1] == 'E' && ip_buf[2] == 'G' && ip_buf[3] == 'A') {
-        *(volatile uint32_t *)0xFF00001CUL = 0x0808;
+        /*
+         * 0x0808 is NOT an instruction-cache invalidate value on SH-4
+         * (ICI is bit 11 / 0x0800).  Do not write it here.
+         *
+         * We may have executed code from the same P1 RAM area before loading
+         * IP.BIN, so the safest first-stage handoff is to disable both L1
+         * caches.  IP.BIN's bootstrap will establish its normal cache state.
+         */
+        *(volatile uint32_t *)0xFF00001CUL = 0x00000000UL;
+        __asm__ volatile("nop\n\t" "nop\n\t" "nop\n\t" "nop" ::: "memory");
 
-        /* Both handoff constants MUST be real static storage, not compound
-           literals/automatics. Compound literals live on the C stack, so
-           GCC addresses them relative to r15 -- but the first instruction
-           below overwrites r15 with the new stack top before the second
-           mov.l reads its operand, so that read ends up relative to the
-           *new* stack pointer instead, pulling 4 bytes out of whatever is
-           sitting at that address (in practice, out of the just-loaded
-           IP.BIN buffer itself) instead of the intended constant. That is
-           exactly what was sending execution into IP.BIN's header text. */
+        /*
+         * Keep these in static storage because the inline assembly changes
+         * r15 before it loads the second address.
+         */
         static const uint32_t ip_bin_stack_top = 0x8C008000UL;
         static const uint32_t ip_bin_entry      = 0x8C008300UL;
 
@@ -779,14 +804,27 @@ int gdrom_boot_game(uint32_t data_fad) {
     uint32_t file_fad = 0;
     uint32_t file_size = 0;
 
-    /* 2. Direct ISO PVD fallback at data_fad + 16 */
-    if(gdrom_read_fad(sector, data_fad + 16, 1) != GDROM_OK) {
+    /* 2. Read the ISO9660 Primary Volume Descriptor. */
+    if(gdrom_read_fad(sector, data_fad + 16U, 1) != GDROM_OK) {
         return GDROM_DEVICE_ERR;
     }
 
+    if(sector[0] != 1 || sector[1] != 'C' || sector[2] != 'D' ||
+       sector[3] != '0' || sector[4] != '0' || sector[5] != '1') {
+        return GDROM_DEVICE_ERR;
+    }
+
+    /*
+     * The root directory record begins at byte 156 and is guaranteed to
+     * contain these fields in a valid ISO9660 PVD.
+     */
+    uint8_t root_record_len = sector[156];
+    if(root_record_len < 34)
+        return GDROM_DEVICE_ERR;
+
     uint32_t root_lba = read_le32_unaligned(sector + 156 + 2);
     uint32_t root_size = read_le32_unaligned(sector + 156 + 10);
-    uint32_t root_fad = (root_lba < data_fad) ? (data_fad + root_lba) : (root_lba + 150);
+    uint32_t root_fad = data_fad + root_lba;
 
     /* 2. Traverse ISO root directory to locate 1ST_READ.BIN */
     uint32_t root_sectors = (root_size + 2047) / 2048;
@@ -816,13 +854,18 @@ int gdrom_boot_game(uint32_t data_fad) {
             clean_name[nlen] = '\0';
 
             const char *target = "1ST_READ.BIN";
-            int match = 1;
-            for(int k = 0; k < 12; k++) {
-                if(clean_name[k] != target[k]) { match = 0; break; }
+            int match = (nlen == 12);
+            if(match) {
+                for(int k = 0; k < 12; k++) {
+                    if(clean_name[k] != target[k]) {
+                        match = 0;
+                        break;
+                    }
+                }
             }
 
             if(match) {
-                file_fad = (lba < data_fad) ? (data_fad + lba) : (lba + 150);
+                file_fad = data_fad + lba;
                 file_size = sz;
                 break;
             }
@@ -831,34 +874,53 @@ int gdrom_boot_game(uint32_t data_fad) {
         if(file_fad != 0) break;
     }
 
-    if(file_fad == 0) {
-        file_fad = data_fad + 150;
-        file_size = 512 * 1024;
+    if(file_fad == 0 || file_size == 0) {
+        /* Never guess a game executable location. A wrong FAD means we
+           would execute arbitrary sector contents as SH-4 instructions. */
+        return GDROM_DEVICE_ERR;
     }
 
-    /* 3. Read 1ST_READ.BIN into staging buffer 0x8CE00000 */
-    uint32_t total_sectors = (file_size + 2047) / 2048;
-    uint8_t *staging = (uint8_t *)0x8CE00000UL;
+    /*
+     * 3. Read 1ST_READ.BIN directly into its normal Dreamcast execution
+     *    address.
+     *
+     * This loader is targeting a GD-ROM.  Do NOT apply the MIL-CD/CD
+     * scrambling transform here.  The public boot-process documentation
+     * explicitly distinguishes CD scrambling from GD-ROM loading.
+     */
+    uint32_t total_sectors = (file_size + 2047U) / 2048U;
     uint8_t *dest = (uint8_t *)0x8C010000UL;
+
+    /*
+     * A normal 16 MB Dreamcast has RAM through 0x8CFFFFFF.  Keep the load
+     * inside RAM and reserve the upper 1 MB for the loader/stack.
+     */
+    if(file_size == 0 || file_size > 0x00D00000UL)
+        return GDROM_BAD_ARG;
 
     uint32_t read_count = 0;
     while(read_count < total_sectors) {
         uint32_t batch = total_sectors - read_count;
-        if(batch > 16) batch = 16;
+        if(batch > 16U) batch = 16U;
 
-        if(gdrom_read_fad(staging + (read_count * 2048), file_fad + read_count, (uint16_t)batch) != GDROM_OK) {
+        if(gdrom_read_fad(dest + (read_count * 2048U),
+                          file_fad + read_count,
+                          (uint16_t)batch) != GDROM_OK) {
             return GDROM_DEVICE_ERR;
         }
         read_count += batch;
     }
 
-    /* 4. Descramble into execution destination 0x8C010000 */
-    gdrom_descramble(staging, dest, file_size);
+    /*
+     * We intentionally do not descramble a GD-ROM executable.  For a
+     * MIL-CD/CD boot path, scrambling support must be selected explicitly;
+     * applying it unconditionally destroys a normal GD-ROM 1ST_READ.BIN.
+     */
 
-    /* 5. Invalidate SH-4 Instruction & Operand caches */
-    *(volatile uint32_t *)0xFF00001CUL = 0x0808;
+    /* 4. Disable L1 caches before transferring to freshly loaded code. */
+    *(volatile uint32_t *)0xFF00001CUL = 0x00000000UL;
 
-    /* 6. Launch Game: Reset stack pointer to 0x8D000000 and jump to 0x8C010000 */
+    /* 5. Launch Game: reset stack pointer and jump to 0x8C010000. */
     static const uint32_t game_stack_top = 0x8D000000UL;
     static const uint32_t game_entry      = 0x8C010000UL;
 
