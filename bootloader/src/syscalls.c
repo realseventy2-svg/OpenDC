@@ -124,14 +124,14 @@ static int execute_pending_command(void) {
         case KOS_CMD_GETTOC:
         case KOS_CMD_GETTOC2: {
             kos_toc_params_t *params = (kos_toc_params_t *)pending_command.params;
-            if(!params || !params->buffer || params->area < 0 || params->area > 1) {
+            if(!params || !params->buffer) {
                 result = GDROM_BAD_ARG;
                 break;
             }
             (void)gdrom_prepare_disk();
-            result = gdrom_read_toc(params->buffer, (uint8_t)params->area);
+            result = gdrom_read_toc(kos_buffer_address(params->buffer), (uint8_t)params->area);
             if(result != GDROM_OK && params->area == 0)
-                result = gdrom_read_toc(params->buffer, 1);
+                result = gdrom_read_toc(kos_buffer_address(params->buffer), 1);
             if(result == GDROM_OK)
                 pending_command.transferred = sizeof(kos_toc_t);
             break;
@@ -141,11 +141,13 @@ static int execute_pending_command(void) {
         case KOS_CMD_DMAREAD: {
             kos_read_params_t *params = (kos_read_params_t *)pending_command.params;
             if(!params || !params->buffer || params->num_sec == 0 ||
-               params->num_sec > 0xFFFFU || params->start_sec > 0xFFFFFFU - 150U) {
+               params->num_sec > 0xFFFFU) {
                 result = GDROM_BAD_ARG;
                 break;
             }
-            uint32_t fad = params->start_sec + 150U;
+            uint32_t fad = params->start_sec;
+            if(fad < 150U)
+                fad += 150U;
             result = gdrom_read_fad(kos_buffer_address(params->buffer), fad,
                                     (uint16_t)params->num_sec);
             if(result == GDROM_OK)
@@ -163,24 +165,19 @@ static int execute_pending_command(void) {
             break;
         }
 
-        case 32: { /* KOS_CMD_REQ_TOC */
-            uint32_t *toc_buf = (uint32_t *)pending_command.params;
-            if(toc_buf) {
-                result = gdrom_read_toc((kos_toc_t *)toc_buf, 0);
-            }
-            break;
-        }
-
-        case 2:  /* KOS_CMD_CHECK_LICENSE */
-        case 27: /* KOS_CMD_SEEK */
-        case 30: /* KOS_CMD_REQ_MODE */
-        case 31: /* KOS_CMD_SET_MODE */
-        case KOS_CMD_NOP:
+        case 2:  /* CD_CMD_CHECK_LICENSE */
+        case 25: /* CD_CMD_DMA_ABORT */
+        case 27: /* CD_CMD_SEEK */
+        case 29: /* CD_CMD_NOP */
+        case 30: /* CD_CMD_REQ_MODE */
+        case 31: /* CD_CMD_SET_MODE */
+        case 32: /* CD_CMD_SCAN_CD */
+        case 33: /* CD_CMD_STOP */
             result = GDROM_OK;
             break;
 
         default:
-            result = GDROM_NOT_READY;
+            result = GDROM_OK;
             break;
     }
 
@@ -337,7 +334,11 @@ static int kos_sysinfo_dispatch(uint32_t arg0, uint32_t arg1,
 static int kos_biofont_dispatch(uint32_t arg0, uint32_t arg1,
                                 uint32_t arg2, uint32_t function) {
     (void)arg0; (void)arg1; (void)arg2; (void)function;
-    return (int)0xA000B000UL;
+    register uint32_t cmd __asm__("r1");
+    if(cmd == 0) {
+        return (int)0xA000B000UL;
+    }
+    return 0;
 }
 
 
@@ -415,20 +416,32 @@ static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
         uint8_t *dst = (uint8_t *)arg1;
         uint32_t bytes = arg2;
         if(!dst) return -1;
-        if(offset >= 0x20000) return 0;
+        if(offset >= 0x20000) return -1;
         if(offset + bytes > 0x20000) bytes = 0x20000 - offset;
 
         for(uint32_t i = 0; i < bytes; i++) {
             dst[i] = fake_flashrom_byte(offset + i);
         }
-        return (int)bytes;
+        return 0; /* Returns 0 on success, -1 on failure */
+    } else if(function == 2) {
+        /* flashrom_write */
+        return (int)arg2;
+    } else if(function == 3) {
+        /* flashrom_delete */
+        return 0;
     }
     return 0;
 }
 
 static int kos_system_dispatch(uint32_t arg0, uint32_t arg1,
                                uint32_t arg2, uint32_t function) {
-    (void)arg0; (void)arg1; (void)arg2; (void)function;
+    (void)arg1; (void)arg2; (void)function;
+    if(arg0 == 0) {
+        /* MISC normal init: clear normal interrupts and set border color */
+        *(volatile uint32_t *)0xA05F6808UL = 0;           /* SB_IML2NRM = 0 */
+        *(volatile uint32_t *)0xA05F8040UL = 0x00C0BEBCUL; /* VO_BORDER_COL */
+        return 0x00C0BEBC;
+    }
     return 0;
 }
 
@@ -475,4 +488,8 @@ void gdrom_install_syscall(void) {
     *(volatile uintptr_t *)0xAC0000BCUL = (uintptr_t)&gdrom_syscall_dispatch;
     *(volatile uintptr_t *)0xAC0000C0UL = (uintptr_t)&gdrom_syscall_dispatch;
     *(volatile uintptr_t *)0xAC0000E0UL = (uintptr_t)&kos_system_dispatch;
+
+    /* Entrypoint 0x8C0010F0 for direct gd2 entry calls */
+    *(volatile uintptr_t *)0x8C0010F0UL = (uintptr_t)&gdrom_syscall_dispatch;
+    *(volatile uintptr_t *)0xAC0010F0UL = (uintptr_t)&gdrom_syscall_dispatch;
 }
