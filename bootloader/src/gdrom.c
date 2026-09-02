@@ -516,11 +516,28 @@ static int execute_pending_command(void) {
             break;
         }
 
+        case 36: { /* KOS_CMD_REQ_STAT */
+            uint32_t *stat = (uint32_t *)pending_command.params;
+            if(stat) {
+                stat[0] = cached_disc_status;
+                stat[1] = cached_disc_type;
+            }
+            result = GDROM_OK;
+            break;
+        }
+
+        case 32: { /* KOS_CMD_REQ_TOC */
+            uint32_t *toc_buf = (uint32_t *)pending_command.params;
+            if(toc_buf) {
+                result = gdrom_read_toc((kos_toc_t *)toc_buf, 0);
+            }
+            break;
+        }
+
         case 2:  /* KOS_CMD_CHECK_LICENSE */
         case 27: /* KOS_CMD_SEEK */
         case 30: /* KOS_CMD_REQ_MODE */
         case 31: /* KOS_CMD_SET_MODE */
-        case 36: /* KOS_CMD_REQ_STAT */
         case KOS_CMD_NOP:
             result = GDROM_OK;
             break;
@@ -597,8 +614,6 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
 
         case KOS_FUNC_DMA_CALLBACK:
         case KOS_FUNC_PIO_CALLBACK:
-            /* The standalone loader completes transfers synchronously, so
-               there is no interrupt callback to register. */
             return 0;
 
         case KOS_FUNC_DMA_TRANSFER:
@@ -608,8 +623,6 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             if(!pending_command.active ||
                (int32_t)arg0 != pending_command.handle || !transfer)
                 return -1;
-            /* PIO/DMAREAD already placed the requested sectors in the
-               command's destination. Report the transfer as complete. */
             return 0;
         }
 
@@ -642,17 +655,46 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
 #define KOS_GDROM2_VECTOR    0x8C0000C0UL
 #define KOS_SYSTEM_VECTOR    0x8C0000E0UL
 
-
-
 static int kos_biofont_dispatch(uint32_t arg0, uint32_t arg1,
                                 uint32_t arg2, uint32_t function) {
     (void)arg0; (void)arg1; (void)arg2; (void)function;
-    return 0;
+    /* Return uncached pointer to Sega BIOS 1BPP font */
+    return (int)0xA000B000UL;
 }
 
 static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
                                  uint32_t arg2, uint32_t function) {
-    (void)arg0; (void)arg1; (void)arg2; (void)function;
+    /* Function 0: flashrom_info (partition, ptrs[2]) */
+    if(function == 0) {
+        int part = (int)arg0;
+        int *ptrs = (int *)arg1;
+        if(!ptrs) return -1;
+
+        switch(part) {
+            case 0: ptrs[0] = 0x00000; ptrs[1] = 0x02000; break; /* System */
+            case 1: ptrs[0] = 0x08000; ptrs[1] = 0x04000; break; /* User Settings */
+            case 2: ptrs[0] = 0x0C000; ptrs[1] = 0x04000; break; /* Game Settings */
+            case 3: ptrs[0] = 0x10000; ptrs[1] = 0x08000; break; /* Block 3 */
+            case 4: ptrs[0] = 0x18000; ptrs[1] = 0x08000; break; /* Block 4 */
+            default: return -1;
+        }
+        return 0;
+    }
+    /* Function 1: flashrom_read (offset, buffer, bytes) */
+    else if(function == 1) {
+        uint32_t offset = arg0;
+        uint8_t *dst = (uint8_t *)arg1;
+        uint32_t bytes = arg2;
+        if(!dst) return -1;
+        if(offset >= 0x20000) return 0;
+        if(offset + bytes > 0x20000) bytes = 0x20000 - offset;
+
+        const uint8_t *src = (const uint8_t *)(0xA0200000UL + offset);
+        for(uint32_t i = 0; i < bytes; i++) {
+            dst[i] = src[i];
+        }
+        return (int)bytes;
+    }
     return 0;
 }
 
@@ -663,6 +705,22 @@ static int kos_system_dispatch(uint32_t arg0, uint32_t arg1,
 }
 
 void gdrom_install_syscall(void) {
+    /* Initialize Sysinfo Block at 0x8C000068 */
+    char *sysinfo = (char *)0x8C000068UL;
+    sysinfo[0] = 'S'; sysinfo[1] = 'E'; sysinfo[2] = 'G'; sysinfo[3] = 'A';
+    sysinfo[4] = ' '; sysinfo[5] = 'S'; sysinfo[6] = 'E'; sysinfo[7] = 'G';
+    sysinfo[8] = 'A'; sysinfo[9] = 'K'; sysinfo[10] = 'A'; sysinfo[11] = 'T';
+    sysinfo[12] = 'A'; sysinfo[13] = 'N'; sysinfo[14] = 'A'; sysinfo[15] = ' ';
+    /* System configuration at 0x8C000078 */
+    sysinfo[16] = '1'; /* Auto-start */
+    sysinfo[17] = '0'; /* Stereo */
+    sysinfo[18] = '0'; /* Japan / Universal Region - passes 0x8C00B700 check */
+    sysinfo[19] = '1'; /* English */
+    sysinfo[20] = '0'; /* NTSC */
+    sysinfo[21] = '0';
+    sysinfo[22] = '0';
+    sysinfo[23] = '0';
+
     *(volatile uintptr_t *)0x8C0000B0UL = (uintptr_t)&kos_sysinfo_dispatch;
     *(volatile uintptr_t *)0x8C0000B4UL = (uintptr_t)&kos_biofont_dispatch;
     *(volatile uintptr_t *)0x8C0000B8UL = (uintptr_t)&kos_flashrom_dispatch;
@@ -700,7 +758,7 @@ static void gdrom_descramble(const uint8_t *src, uint8_t *dst, uint32_t filesz) 
     uint32_t src_pos = 0;
     uint32_t remaining = filesz;
     uint8_t *cur_dst = dst;
-    uint16_t *idx = (uint16_t *)0x8CD00000UL;
+    uint16_t *idx = (uint16_t *)0x8CE00000UL;
 
     scramble_srand(filesz);
 
@@ -737,7 +795,7 @@ static void gdrom_descramble(const uint8_t *src, uint8_t *dst, uint32_t filesz) 
 
 static uint32_t lba_to_fad(uint32_t lba, uint32_t data_fad) {
     if(lba >= 1000U) {
-        if(data_fad >= 150U && lba < data_fad) {
+        if(data_fad < 45000U) {
             return lba + 150U;
         }
         return lba;
@@ -767,7 +825,7 @@ static int gdrom_load_1st_read(uint32_t data_fad) {
 
     /* Traverse the root directory to locate 1ST_READ.BIN. */
     uint32_t root_sectors = (root_size + 2047U) / 2048U;
-    if(root_sectors > 16U) root_sectors = 16U;
+    if(root_sectors > 32U) root_sectors = 32U;
 
     for(uint32_t s = 0; s < root_sectors; s++) {
         if(gdrom_read_fad(sector, root_fad + s, 1) != GDROM_OK) break;
@@ -818,9 +876,9 @@ static int gdrom_load_1st_read(uint32_t data_fad) {
     uint32_t total_sectors = (file_size + 2047U) / 2048U;
     uint32_t read_count = 0;
 
-    if(data_fad < 45000) {
-        /* CDI / CD-R: Executables on disc are scrambled; descramble into 0x8C010000 */
-        uint8_t *staging = (uint8_t *)0x8C900000UL;
+    if(data_fad < 45000U) {
+        /* CDI / CD-R: Executables on disc are scrambled; read to staging & descramble into 0x8C010000 */
+        uint8_t *staging = (uint8_t *)0x8C700000UL;
         while(read_count < total_sectors) {
             uint32_t batch = total_sectors - read_count;
             if(batch > 16U) batch = 16U;
@@ -882,13 +940,22 @@ int gdrom_boot_game(uint32_t data_fad) {
 
     if(ip_res == GDROM_OK && ip_buf[0] == 'S' && ip_buf[1] == 'E' && ip_buf[2] == 'G' && ip_buf[3] == 'A') {
         /*
-         * 1. Pre-load and descramble 1ST_READ.BIN into 0x8C010000 BEFORE jumping into IP.BIN.
+         * 1. Pre-load and descramble 1ST_READ.BIN into 0x8C010000 BEFORE
+         *    jumping into IP.BIN. Per the documented Dreamcast boot process,
+         *    the real BIOS/ROM loads BOTH IP.BIN and 1ST_READ.BIN before it
+         *    ever calls the license-screen entry point, so this is the
+         *    correct order and NOT something that needs revisiting.
          */
         int load_res = gdrom_load_1st_read(data_fad);
+        if(load_res != GDROM_OK)
+            load_res = gdrom_load_1st_read(11702);
+        if(load_res != GDROM_OK)
+            load_res = gdrom_load_1st_read(45000);
+
         if(load_res != GDROM_OK) {
-            if(gdrom_load_1st_read(11702) != GDROM_OK) {
-                (void)gdrom_load_1st_read(45000);
-            }
+            /* Never jump into 0x8C010000 (or let IP.BIN jump there) with
+               unknown/garbage contents. */
+            return GDROM_DEVICE_ERR;
         }
 
         /*
@@ -897,47 +964,50 @@ int gdrom_boot_game(uint32_t data_fad) {
         gdrom_install_syscall();
 
         /*
-         * 3. Install the Launch Trampoline across 0x8C00B700, 0x8C00B800, 0xAC00B700, 0xAC00B800.
+         * 3. Disable L1 caches before entering IP.BIN so that IP.BIN
+         *    establishes its own CCR state.
+         */
+        *(volatile uint32_t *)0xFF00001CUL = 0x00000000UL;
+        __asm__ volatile("nop\n\t" "nop\n\t" "nop\n\t" "nop" ::: "memory");
+
+        /*
+         * 4. Jump into IP.BIN's Sega license screen at 0x8C008300 with a
+         *    PLAIN ONE-WAY JUMP -- do not touch anything else inside the
+         *    just-loaded IP.BIN image (0x8C008000-0x8C00FFFF).
          *
-         * When IP.BIN's 0x8C008300 finishes displaying the Sega splash screen, it executes "rts"
-         * returning to PR = 0xAC00B700. This trampoline branches to uncached P2 space, flushes both
-         * SH-4 caches (CCR = 0x092B), restores standard hardware registers (SP = 0x8D000000,
-         * SR = 0x40000000, FPSCR = 0x00040001), and jumps directly to 0x8C010000 (1ST_READ.BIN).
-         */
-        static const uint16_t trampoline_opcodes[40] = {
-            0xC703, 0xE1A0, 0x4128, 0x4118, 0x201B, 0x402B, 0x0009, 0x0009,
-            0xD109, 0xD00A, 0x2102, 0x0009, 0x0009, 0x0009, 0x0009, 0x0009,
-            0x0009, 0x0009, 0x0009, 0xDF06, 0xD006, 0x400E, 0xD006, 0x406A,
-            0xD106, 0x412B, 0x0009, 0x0009, 0x001C, 0xFF00, 0x092B, 0x0000,
-            0x0000, 0x8D00, 0x0000, 0x4000, 0x0001, 0x0004, 0x0000, 0x8C01,
-        };
-
-        uint32_t tramp_addrs[] = {
-            0x8C00B700UL, 0x8C00B800UL, 0xAC00B700UL, 0xAC00B800UL
-        };
-        for(int t = 0; t < 4; t++) {
-            volatile uint16_t *tramp = (volatile uint16_t *)tramp_addrs[t];
-            for(int i = 0; i < 40; i++) {
-                tramp[i] = trampoline_opcodes[i];
-            }
-        }
-
-        /*
-         * 4. Calibrate the Sega license splash display timer in IP.BIN so it displays
-         *    cleanly for ~2 seconds before transitioning to the game.
-         */
-        *(volatile uint16_t *)0x8C008532UL = 120U;
-        *(volatile uint16_t *)0xAC008532UL = 120U;
-
-        /*
-         * 5. Invalidate & flush both caches before entering IP.BIN.
-         */
-        *(volatile uint32_t *)0xFF00001CUL = 0x0000092BUL;
-        __asm__ volatile("nop\n\t" "nop\n\t" "nop\n\t" "nop\n\t"
-                         "nop\n\t" "nop\n\t" "nop\n\t" "nop" ::: "memory");
-
-        /*
-         * 6. Jump into IP.BIN Sega license splash screen.
+         *    Per the documented Dreamcast boot process: the license-screen
+         *    code displays the splash for ~6 seconds and then transfers
+         *    control to Bootstrap 1 on its own, which transfers control to
+         *    Bootstrap 2 on its own, which sets up the stack/VBR, disables
+         *    the cache, and jumps to 0x8C010000 (1ST_READ.BIN, already
+         *    loaded above) on its own. This is a continuous one-way chain
+         *    entirely inside IP.BIN -- there is no "rts" back to the BIOS
+         *    at any point, and nothing after the license code needs the
+         *    caller to do anything further.
+         *
+         *    An earlier version of this function wrote a hand-built
+         *    "trampoline" into 0x8C00B700 (assuming IP.BIN would "rts" back
+         *    there) and patched a hardcoded byte offset inside the license
+         *    code as a splash-duration timer. Both were mistakes:
+         *      - 0x8C00B700 falls inside the documented "Area protection
+         *        symbols" region, which contains a chain of branch
+         *        instructions that execution genuinely flows through on its
+         *        way into Bootstrap 1 -- but that chain's exact length and
+         *        layout depends on which regions a given disc supports, so
+         *        it is NOT a fixed, universal address to safely overwrite.
+         *        It happened to be harmless for the specific (likely
+         *        single-region) homebrew IP.BIN this was tested against,
+         *        but corrupted the real flow-through path for commercial,
+         *        often multi-region ("JUE"), IP.BIN builds -- producing
+         *        exactly the "hangs on the splash instead of crashing"
+         *        symptom seen with Sonic and other commercial titles.
+         *      - The license-screen code (0x8c008300 up to roughly
+         *        0x8c00b6ff) is documented as checksum-verified by the real
+         *        BIOS byte-for-byte and is not meant to be touched; patching
+         *        a specific offset inside it only has a defined effect for
+         *        the exact IP.BIN build it was reverse-engineered from.
+         *    Removing both and doing a plain jump lets every IP.BIN handle
+         *    its own, unmodified, already-correct continuation.
          */
         static const uint32_t ip_bin_stack_top  = 0x8D000000UL;
         static const uint32_t ip_bin_entry      = 0x8C008300UL;
