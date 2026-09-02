@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "ata.h"
 
 enum {
     GDROM_OK          = 0,
@@ -13,12 +14,19 @@ enum {
 };
 
 enum {
-    GDROM_ST_ERR  = 0x01,
-    GDROM_ST_DRQ  = 0x08,
-    GDROM_ST_DF   = 0x20,
-    GDROM_ST_DRDY = 0x40,
-    GDROM_ST_BSY  = 0x80
+    GDROM_ST_ERR  = ATA_ST_ERR,
+    GDROM_ST_DRQ  = ATA_ST_DRQ,
+    GDROM_ST_DF   = ATA_ST_DF,
+    GDROM_ST_DRDY = ATA_ST_DRDY,
+    GDROM_ST_BSY  = ATA_ST_BSY
 };
+
+typedef struct {
+    uint32_t entry[99];
+    uint32_t first;
+    uint32_t last;
+    uint32_t leadout_sector;
+} kos_toc_t;
 
 #define GDROM_SERVICE_MAGIC   0x4744524FUL /* "GDRO" */
 #define GDROM_SERVICE_VERSION 1
@@ -38,38 +46,37 @@ typedef struct {
     uint32_t data_fad;
 } gdrom_service_table_t;
 
-/* Configure the G1 PIO timing and select the GD-ROM device. */
+/* Initialize G1 ATA interface and select master device */
 int gdrom_init(void);
 
-/* Read the ATA status register without changing device state. */
+/* Check drive status */
 uint8_t gdrom_status(void);
-
-/* Returns non-zero when the device is present and not reporting an error. */
 int gdrom_drive_ready(void);
 
-/* Start an ATA PACKET transaction and submit its 12-byte command packet. */
-int gdrom_packet_begin(uint16_t byte_count);
-int gdrom_packet_write(const uint8_t packet[12]);
+/* Send drive wakeup/ready packet (REQ_STAT 0x70) */
+int gdrom_prepare_disk(void);
 
-/* Read a data phase after the drive asserts DRQ. */
-int gdrom_pio_read(void *dst, size_t bytes);
-
-/* Wait until the current command completes. */
-int gdrom_wait_complete(void);
-
-/* Read the 408-byte Sega TOC and 2048-byte FAD sectors. */
+/* Read raw or public TOC format */
+int gdrom_read_raw_toc(uint8_t *buffer, uint8_t session);
 int gdrom_read_toc(void *buffer, uint8_t session);
+
+/* Read sectors by FAD */
 int gdrom_read_fad(void *buffer, uint32_t fad, uint16_t sectors);
 
-/* Probe the drive and TOC without relying on the KOS syscall layer. */
+/* Disc and ISO probing */
 int gdrom_probe_toc(void);
 int gdrom_probe_iso(uint32_t *data_fad, uint8_t pvd_head[8]);
 
-/* Direct game booter */
-int gdrom_boot_game(uint32_t data_fad);
+/* Query cached data track FAD */
+uint32_t gdrom_get_cached_data_fad(void);
 
-/* Publish the bootloader GD-ROM ABI in RAM for the next stage. */
+/* Publish services to RAM */
 void gdrom_install_services(void);
-void gdrom_install_syscall(void);
 
-#endif
+/* Include modular subsystem headers */
+#include "iso9660.h"
+#include "scramble.h"
+#include "syscalls.h"
+#include "boot.h"
+
+#endif /* CUSTOM_BOOTLOADER_GDROM_H */

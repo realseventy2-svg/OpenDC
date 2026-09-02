@@ -18,7 +18,7 @@ LDFLAGS = -m4-single-only -ml -nostdlib \
           -Wl,-T,linker.ld \
           -Wl,--gc-sections
 
-OBJS = crt0.o payload.o gdrom.o
+OBJS = crt0.o payload.o ata.o gdrom.o iso9660.o scramble.o syscalls.o boot.o
 
 .PHONY: all clean rom
 
@@ -31,7 +31,22 @@ crt0.o: src/crt0.s
 payload.o: src/payload.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-gdrom.o: src/gdrom.c src/gdrom.h
+ata.o: src/ata.c src/ata.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+gdrom.o: src/gdrom.c src/gdrom.h src/ata.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+iso9660.o: src/iso9660.c src/iso9660.h src/gdrom.h src/scramble.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+scramble.o: src/scramble.c src/scramble.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+syscalls.o: src/syscalls.c src/syscalls.h src/gdrom.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+boot.o: src/boot.c src/boot.h src/gdrom.h src/iso9660.h src/syscalls.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET).elf: $(OBJS) linker.ld
@@ -40,9 +55,9 @@ $(TARGET).elf: $(OBJS) linker.ld
 $(TARGET).bin: $(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 
-# Pad to exactly 2 MB (2,097,152 bytes) for BootROM
+# Pad with retail ROM tables to exactly 2 MB (2,097,152 bytes) for full Katana SDK font/system compatibility
 dc_boot.bin: $(TARGET).bin
-	python3 -c "d=open('$<','rb').read(); open('$@','wb').write((d + b'\x00'*($(ROM_SIZE)-len(d)))[:$(ROM_SIZE)]); print(f'Built $@: {$(ROM_SIZE):,} bytes')"
+	python3 -c "import os; r_path='/mnt/d/Github/Personal/KallistiOS/bios/jc-bootROM-retail-v1.032.bin'; r=bytearray(open(r_path,'rb').read() if os.path.exists(r_path) else b'\x00'*$(ROM_SIZE)); b=open('$<','rb').read(); r[:len(b)]=b; open('$@','wb').write(r[:$(ROM_SIZE)]); print(f'Built $@: {$(ROM_SIZE):,} bytes')"
 
 clean:
 	rm -f $(OBJS) $(TARGET).elf $(TARGET).bin dc_boot.bin
