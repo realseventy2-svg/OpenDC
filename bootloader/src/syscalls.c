@@ -76,11 +76,11 @@ enum {
 typedef struct {
     int32_t handle;
     uint32_t command;
-    void *params;
+    uint32_t params[4];
     int32_t result;
     size_t transferred;
     int active;
-    int executed;
+    int status; /* GDC_OK = 0, GDC_BUSY = 1, GDC_COMPLETE = 2, GDC_CONTINUE = 3, GDC_ERR = -1 */
 } kos_pending_command_t;
 
 static kos_pending_command_t pending_command;
@@ -114,53 +114,103 @@ static int execute_pending_command(void) {
     pending_command.transferred = 0;
 
     switch(pending_command.command) {
-        case KOS_CMD_INIT:
+        case 24: /* GDCC_INIT / KOS_CMD_INIT */
             result = gdrom_init();
             if(result == GDROM_OK) {
                 result = gdrom_prepare_disk();
             }
             break;
 
-        case KOS_CMD_GETTOC:
-        case KOS_CMD_GETTOC2: {
-            kos_toc_params_t *params = (kos_toc_params_t *)pending_command.params;
-            if(!params || !params->buffer) {
+        case 18: /* GDCC_GETTOC */
+        case 19: /* GDCC_GETTOC2 */ {
+            uint32_t area = pending_command.params[0];
+            void *dst_buf = (void *)(uintptr_t)pending_command.params[1];
+            if(!dst_buf) {
                 result = GDROM_BAD_ARG;
                 break;
             }
             (void)gdrom_prepare_disk();
-            result = gdrom_read_toc(kos_buffer_address(params->buffer), (uint8_t)params->area);
-            if(result != GDROM_OK && params->area == 0)
-                result = gdrom_read_toc(kos_buffer_address(params->buffer), 1);
+            result = gdrom_read_toc(kos_buffer_address(dst_buf), (uint8_t)area);
+            if(result != GDROM_OK && area == 0)
+                result = gdrom_read_toc(kos_buffer_address(dst_buf), 1);
             if(result == GDROM_OK)
                 pending_command.transferred = sizeof(kos_toc_t);
             break;
         }
 
-        case KOS_CMD_PIOREAD:
-        case KOS_CMD_DMAREAD: {
-            kos_read_params_t *params = (kos_read_params_t *)pending_command.params;
-            if(!params || !params->buffer || params->num_sec == 0 ||
-               params->num_sec > 0xFFFFU) {
-                result = GDROM_BAD_ARG;
-                break;
-            }
-            uint32_t fad = params->start_sec;
-            if(fad < 150U)
+        case 16: /* GDCC_PIOREAD */
+        case 17: /* GDCC_DMAREAD */
+        case 28: /* GDCC_DMA_READ_REQ */
+        case 48: /* GDCC_MULTI_DMAREAD */
+        case 49: /* GDCC_MULTI_PIOREAD */ {
+            uint32_t fad = pending_command.params[0] & 0x00FFFFFF;
+            uint32_t num_sec = pending_command.params[1];
+            void *dst_buf = (void *)(uintptr_t)pending_command.params[2];
+
+            if(fad < 150U && fad > 0)
                 fad += 150U;
-            result = gdrom_read_fad(kos_buffer_address(params->buffer), fad,
-                                    (uint16_t)params->num_sec);
+            if(fad == 0)
+                fad = 45150U;
+
+            if(num_sec == 0 || num_sec > 0xFFFFU)
+                num_sec = 1;
+
+            if(dst_buf) {
+                result = gdrom_read_fad(kos_buffer_address(dst_buf), fad, (uint16_t)num_sec);
+            } else {
+                result = GDROM_OK;
+            }
             if(result == GDROM_OK)
-                pending_command.transferred = params->num_sec * 2048U;
+                pending_command.transferred = num_sec * 2048U;
             break;
         }
 
-        case 36: { /* KOS_CMD_REQ_STAT */
-            uint32_t *stat = (uint32_t *)pending_command.params;
-            if(stat) {
-                stat[0] = KOS_STATUS_STANDBY;
-                stat[1] = KOS_DISC_GDROM;
+        case 30: { /* GDCC_REQ_MODE */
+            uint32_t *dest = (uint32_t *)(uintptr_t)pending_command.params[0];
+            if(dest) {
+                uint32_t *d = (uint32_t *)kos_buffer_address(dest);
+                d[0] = 0;      /* speed (standard / default) */
+                d[1] = 0x0000; /* standby */
+                d[2] = 0;      /* read_flags */
+                d[3] = 0;      /* read_retry */
             }
+            pending_command.transferred = 10;
+            result = GDROM_OK;
+            break;
+        }
+
+        case 31: { /* GDCC_SET_MODE */
+            pending_command.transferred = 10;
+            result = GDROM_OK;
+            break;
+        }
+
+        case 36: { /* GDCC_REQ_STAT */
+            uint32_t *dst0 = (uint32_t *)(uintptr_t)pending_command.params[0];
+            uint32_t *dst1 = (uint32_t *)(uintptr_t)pending_command.params[1];
+            uint32_t *dst2 = (uint32_t *)(uintptr_t)pending_command.params[2];
+            uint32_t *dst3 = (uint32_t *)(uintptr_t)pending_command.params[3];
+
+            if(dst0) *(uint32_t *)kos_buffer_address(dst0) = 2;     /* GD_STANDBY */
+            if(dst1) *(uint32_t *)kos_buffer_address(dst1) = 3;     /* Track 3 */
+            if(dst2) *(uint32_t *)kos_buffer_address(dst2) = 45150; /* FAD */
+            if(dst3) *(uint32_t *)kos_buffer_address(dst3) = 1;     /* Index */
+
+            pending_command.transferred = 16;
+            result = GDROM_OK;
+            break;
+        }
+
+        case 50: { /* GDCC_GET_VERSION */
+            char *dest = (char *)(uintptr_t)pending_command.params[0];
+            if(dest) {
+                char *d = (char *)kos_buffer_address(dest);
+                const char ver[] = "GDC Version 1.10 1999-03-31\x02";
+                for(int i = 0; i < 28; i++) {
+                    d[i] = ver[i];
+                }
+            }
+            pending_command.transferred = 28;
             result = GDROM_OK;
             break;
         }
@@ -169,20 +219,17 @@ static int execute_pending_command(void) {
         case 25: /* CD_CMD_DMA_ABORT */
         case 27: /* CD_CMD_SEEK */
         case 29: /* CD_CMD_NOP */
-        case 30: /* CD_CMD_REQ_MODE */
-        case 31: /* CD_CMD_SET_MODE */
         case 32: /* CD_CMD_SCAN_CD */
         case 33: /* CD_CMD_STOP */
-            result = GDROM_OK;
-            break;
-
+        case 34: /* CD_CMD_GETSCD */
+        case 35: /* CD_CMD_REQ_SES */
         default:
             result = GDROM_OK;
             break;
     }
 
     pending_command.result = result;
-    pending_command.executed = 1;
+    pending_command.status = (result == GDROM_OK) ? 2 /* GDC_COMPLETE */ : -1 /* GDC_ERR */;
 
     /* Signal completion to hardware and Katana callbacks */
     *(volatile uint32_t *)0xA05F6900UL |= (1UL << 14); /* GD-ROM DMA complete */
@@ -232,46 +279,66 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             return 0;
         }
 
-        case KOS_FUNC_SEND_COMMAND:
-            if(pending_command.active && !pending_command.executed)
-                execute_pending_command();
-            if(arg0 == 0 || arg0 >= 47)
+        case KOS_FUNC_SEND_COMMAND: {
+            if(arg0 == 0 || arg0 >= 0x40)
                 return 0;
+            if(pending_command.status == 1 /* BUSY */) {
+                return 0;
+            }
             pending_command.handle = next_handle++;
             if(next_handle <= 0) next_handle = 1;
             pending_command.command = arg0;
-            pending_command.params = (void *)arg1;
+            if(arg1) {
+                uint32_t *p = (uint32_t *)arg1;
+                pending_command.params[0] = p[0];
+                pending_command.params[1] = p[1];
+                pending_command.params[2] = p[2];
+                pending_command.params[3] = p[3];
+            } else {
+                pending_command.params[0] = 0;
+                pending_command.params[1] = 0;
+                pending_command.params[2] = 0;
+                pending_command.params[3] = 0;
+            }
             pending_command.result = 0;
             pending_command.transferred = 0;
             pending_command.active = 1;
-            pending_command.executed = 0;
+            pending_command.status = 1; /* GDC_BUSY */
             return pending_command.handle;
+        }
 
         case KOS_FUNC_EXEC_SERVER:
-            if(pending_command.active && !pending_command.executed)
+            if(pending_command.active && pending_command.status == 1 /* BUSY */)
                 execute_pending_command();
             return 0;
 
         case KOS_FUNC_CHECK_COMMAND: {
-            kos_command_status_t *status = (kos_command_status_t *)arg1;
-            clear_command_status(status);
-            if(!pending_command.active || (int32_t)arg0 != pending_command.handle)
-                return KOS_CMD_NOT_FOUND;
-            if(!pending_command.executed)
-                execute_pending_command();
-            if(status)
-                status->size = pending_command.transferred;
-            if(pending_command.result != GDROM_OK) {
-                if(status)
-                    status->err1 = (pending_command.result == GDROM_NOT_READY) ? 2 : 1;
-                return KOS_CMD_FAILED;
+            uint32_t *status = (uint32_t *)arg1;
+            if(status) {
+                status[0] = (pending_command.result != GDROM_OK) ? 2 : 0; /* Error code (0 = NOERR) */
+                status[1] = 0;                                           /* Sub-error */
+                status[2] = pending_command.transferred;                 /* Size */
+                status[3] = 0;                                           /* Wait state */
             }
-            return KOS_CMD_COMPLETED;
+            if(!pending_command.active || (int32_t)arg0 != pending_command.handle)
+                return 0; /* GDC_OK (no request active) */
+
+            if(pending_command.status == 1 /* BUSY */)
+                execute_pending_command();
+
+            int ret_status = pending_command.status;
+            if(pending_command.status == 2 /* COMPLETE */) {
+                pending_command.status = 0;
+                pending_command.active = 0;
+            }
+            return ret_status;
         }
 
         case KOS_FUNC_ABORT_COMMAND:
-            if(pending_command.active && (int32_t)arg0 == pending_command.handle)
+            if(pending_command.active && (int32_t)arg0 == pending_command.handle) {
                 pending_command.active = 0;
+                pending_command.status = 0;
+            }
             return 0;
 
         case KOS_FUNC_DMA_CALLBACK:
@@ -291,8 +358,29 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             if(!pending_command.active ||
                (int32_t)arg0 != pending_command.handle || !transfer)
                 return -1;
-            if(!pending_command.executed)
-                execute_pending_command();
+            if(transfer->addr && pending_command.params[1] > 0) {
+                uint32_t fad = pending_command.params[0] & 0x00FFFFFF;
+                if(fad < 150U && fad > 0) fad += 150U;
+                if(fad == 0) fad = 45150U;
+                uint32_t num = pending_command.params[1];
+                if(num > 0xFFFFU) num = 1;
+                gdrom_read_fad(kos_buffer_address(transfer->addr), fad, (uint16_t)num);
+                pending_command.transferred = num * 2048U;
+            }
+            pending_command.status = 2; /* GDC_COMPLETE */
+            *(volatile uint32_t *)0xA05F6900UL |= (1UL << 14); /* GD-ROM DMA complete */
+            if(dma_callback) {
+                kos_callback_t cb = dma_callback;
+                void *param = dma_callback_param;
+                dma_callback = NULL;
+                cb(param);
+            }
+            if(pio_callback) {
+                kos_callback_t cb = pio_callback;
+                void *param = pio_callback_param;
+                pio_callback = NULL;
+                cb(param);
+            }
             return 0;
         }
 
@@ -309,7 +397,7 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             if(!pending_command.active ||
                (int32_t)arg0 != pending_command.handle)
                 return -1;
-            if(!pending_command.executed)
+            if(pending_command.status == 1 /* BUSY */)
                 execute_pending_command();
             if(arg1)
                 *(size_t *)arg1 = pending_command.transferred;
@@ -327,7 +415,11 @@ static int kos_sysinfo_dispatch(uint32_t arg0, uint32_t arg1,
         /* SYSINFO_INIT: returns 0 on success */
         return 0;
     }
-    /* SYSINFO_ID (3) or SYSINFO_ICON (2): return pointer to 0x8C000068 */
+    if(function == 2) {
+        /* SYSINFO_ICON: r4 = icon num (0-9), returns size (704) */
+        return (arg0 > 9) ? -1 : 704;
+    }
+    /* SYSINFO_ID (3): return pointer to 0x8C000068 */
     return (int)0x8C000068UL;
 }
 
@@ -453,28 +545,50 @@ void gdrom_install_syscall(void) {
         low_stubs[i + 1] = 0x0009; /* nop */
     }
 
-    /* 2. Initialize Sysinfo Block at 0x8C000068 */
+    /* 2. Exception & Interrupt stubs for SH-4 VBR at 0x8C000000:
+          0x8C000100: General Exception -> rte; nop
+          0x8C000400: TLB Miss Exception -> rte; nop
+          0x8C000600: Interrupt Vector (VBlank, TMU, DMA) -> rte; nop */
+    uint16_t *exc_stub = (uint16_t *)0x8C000100UL;
+    exc_stub[0] = 0x002B; /* rte */
+    exc_stub[1] = 0x0009; /* nop */
+
+    uint16_t *tlb_stub = (uint16_t *)0x8C000400UL;
+    tlb_stub[0] = 0x002B; /* rte */
+    tlb_stub[1] = 0x0009; /* nop */
+
+    uint16_t *irq_stub = (uint16_t *)0x8C000600UL;
+    irq_stub[0] = 0x002B; /* rte */
+    irq_stub[1] = 0x0009; /* nop */
+
+    /* Also replicate stubs in uncached P2 mirror (0xAC000000) */
+    uint16_t *uncached_exc = (uint16_t *)0xAC000100UL;
+    uncached_exc[0] = 0x002B; uncached_exc[1] = 0x0009;
+    uint16_t *uncached_tlb = (uint16_t *)0xAC000400UL;
+    uncached_tlb[0] = 0x002B; uncached_tlb[1] = 0x0009;
+    uint16_t *uncached_irq = (uint16_t *)0xAC000600UL;
+    uncached_irq[0] = 0x002B; uncached_irq[1] = 0x0009;
+
+    /* 3. Initialize Sysinfo Block at 0x8C000068 (Factory Dreamcast Layout) */
     char *sysinfo = (char *)0x8C000068UL;
     char *sysinfo_uncached = (char *)0xAC000068UL;
+    /* 0x00-0x07: system_id from flashrom 0x1A056 ("SEGA    ") */
     sysinfo[0] = 'S'; sysinfo[1] = 'E'; sysinfo[2] = 'G'; sysinfo[3] = 'A';
-    sysinfo[4] = ' '; sysinfo[5] = 'S'; sysinfo[6] = 'E'; sysinfo[7] = 'G';
-    sysinfo[8] = 'A'; sysinfo[9] = 'K'; sysinfo[10] = 'A'; sysinfo[11] = 'T';
-    sysinfo[12] = 'A'; sysinfo[13] = 'N'; sysinfo[14] = 'A'; sysinfo[15] = ' ';
-    /* System configuration at 0x8C000078 */
-    sysinfo[16] = '1'; /* Auto-start */
-    sysinfo[17] = '0'; /* Stereo */
-    sysinfo[18] = '0'; /* Japan / Universal Region */
-    sysinfo[19] = '1'; /* English */
-    sysinfo[20] = '0'; /* NTSC */
-    sysinfo[21] = '0';
-    sysinfo[22] = '0';
-    sysinfo[23] = '0';
+    sysinfo[4] = ' '; sysinfo[5] = ' '; sysinfo[6] = ' '; sysinfo[7] = ' ';
+    /* 0x08-0x0C: system_props from flashrom 0x1A000 ("00110" for USA NTSC) */
+    sysinfo[8]  = '0'; sysinfo[9]  = '0'; sysinfo[10] = '1';
+    sysinfo[11] = '1'; sysinfo[12] = '0';
+    /* 0x0D-0x0F: padding (zeroes) */
+    sysinfo[13] = 0; sysinfo[14] = 0; sysinfo[15] = 0;
+    /* 0x10-0x17: time_lo (0), time_hi (0) */
+    *(uint32_t *)&sysinfo[16] = 0;
+    *(uint32_t *)&sysinfo[20] = 0;
 
     for(int i = 0; i < 24; i++) {
         sysinfo_uncached[i] = sysinfo[i];
     }
 
-    /* 3. Install indirect function vectors in cached and uncached RAM */
+    /* 4. Install indirect function vectors in cached and uncached RAM */
     *(volatile uintptr_t *)0x8C0000B0UL = (uintptr_t)&kos_sysinfo_dispatch;
     *(volatile uintptr_t *)0x8C0000B4UL = (uintptr_t)&kos_biofont_dispatch;
     *(volatile uintptr_t *)0x8C0000B8UL = (uintptr_t)&kos_flashrom_dispatch;
