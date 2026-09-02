@@ -92,11 +92,33 @@ int iso_load_1st_read(uint32_t data_fad) {
 
     uint8_t *dest = (uint8_t *)0x8C010000UL;
     uint32_t total_sectors = (file_size + 2047U) / 2048U;
-    uint32_t read_count = 0;
 
-    if(data_fad < 45000U) {
-        /* CDI / CD-R: Executables on disc are scrambled; read to staging & descramble into 0x8C010000 */
+    /* 1. Read first sector to check if scrambled or already plain machine code */
+    if(gdrom_read_fad(dest, file_fad, 1) != GDROM_OK)
+        return GDROM_DEVICE_ERR;
+
+    int is_unscrambled = ((dest[0] == 0x09 && dest[1] == 0x00) ||
+                          (dest[2] == 0x09 && dest[3] == 0x00) ||
+                          (data_fad >= 45000U));
+
+    if(is_unscrambled) {
+        /* Read remaining sectors directly into dest without staging */
+        uint32_t read_count = 1;
+        while(read_count < total_sectors) {
+            uint32_t batch = total_sectors - read_count;
+            if(batch > 16U) batch = 16U;
+            if(gdrom_read_fad(dest + (read_count * 2048U),
+                              file_fad + read_count,
+                              (uint16_t)batch) != GDROM_OK)
+                return GDROM_DEVICE_ERR;
+            read_count += batch;
+        }
+    } else {
+        /* Scrambled CD-R binary: read to staging buffer and descramble into dest */
         uint8_t *staging = (uint8_t *)0x8C700000UL;
+        for(int b = 0; b < 2048; b++) staging[b] = dest[b];
+
+        uint32_t read_count = 1;
         while(read_count < total_sectors) {
             uint32_t batch = total_sectors - read_count;
             if(batch > 16U) batch = 16U;
@@ -107,17 +129,6 @@ int iso_load_1st_read(uint32_t data_fad) {
             read_count += batch;
         }
         gdrom_descramble(staging, dest, file_size);
-    } else {
-        /* GD-ROM: Raw unscrambled binary */
-        while(read_count < total_sectors) {
-            uint32_t batch = total_sectors - read_count;
-            if(batch > 16U) batch = 16U;
-            if(gdrom_read_fad(dest + (read_count * 2048U),
-                              file_fad + read_count,
-                              (uint16_t)batch) != GDROM_OK)
-                return GDROM_DEVICE_ERR;
-            read_count += batch;
-        }
     }
 
     return GDROM_OK;

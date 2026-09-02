@@ -9,7 +9,7 @@ int gdrom_boot_game(uint32_t data_fad) {
     if(data_fad == 0)
         return GDROM_NOT_READY;
 
-    /* 1. Pre-load IP.BIN (16 sectors) into 0x8C008000 */
+    /* 1. Pre-load IP.BIN (16 sectors) into 0x8C008000UL */
     uint8_t *ip_dest = (uint8_t *)0x8C008000UL;
     gdrom_read_fad(ip_dest, data_fad, 16);
 
@@ -27,13 +27,7 @@ int gdrom_boot_game(uint32_t data_fad) {
     __asm__ volatile("nop\n\t" "nop\n\t" "nop\n\t" "nop\n\t"
                      "nop\n\t" "nop\n\t" "nop\n\t" "nop" ::: "memory");
 
-    /* 5. Jump to Bootstrap 1 (0x8C00B800) or fallback to 0x8C010000 */
-    uint32_t boot_entry = 0x8C00B800UL;
-    if(*(volatile uint16_t *)0x8C00B800UL != 0xD005 &&
-       *(volatile uint16_t *)0x8C00B800UL != 0x05D0) {
-        boot_entry = 0x8C010000UL;
-    }
-
+    /* 5. Set up clean Katana environment registers and jump to 0x8C010000 */
     __asm__ volatile(
         "mov.l  1f, r15\n\t"
         "mov.l  2f, r0\n\t"
@@ -42,7 +36,24 @@ int gdrom_boot_game(uint32_t data_fad) {
         "ldc    r0, sr\n\t"
         "mov.l  4f, r0\n\t"
         "lds    r0, fpscr\n\t"
-        "mov    %0, r0\n\t"
+        "mov.l  5f, r0\n\t"
+        "ldc    r0, vbr\n\t"
+        "sub    r0, r0\n\t"
+        "mov    r0, r1\n\t"
+        "mov    r0, r2\n\t"
+        "mov    r0, r3\n\t"
+        "mov    r0, r4\n\t"
+        "mov    r0, r5\n\t"
+        "mov    r0, r6\n\t"
+        "mov    r0, r7\n\t"
+        "mov    r0, r8\n\t"
+        "mov    r0, r9\n\t"
+        "mov    r0, r10\n\t"
+        "mov    r0, r11\n\t"
+        "mov    r0, r12\n\t"
+        "mov    r0, r13\n\t"
+        "mov    r0, r14\n\t"
+        "mov.l  6f, r0\n\t"
         "jmp    @r0\n\t"
         "sub    r0, r0\n\t"
         ".align 4\n\t"
@@ -50,9 +61,11 @@ int gdrom_boot_game(uint32_t data_fad) {
         "2: .long 0xAC00B700\n\t"
         "3: .long 0x40000000\n\t"
         "4: .long 0x00040001\n\t"
+        "5: .long 0x8C00F400\n\t"
+        "6: .long 0x8C010000\n\t"
         :
-        : "r"(boot_entry)
-        : "r0", "memory"
+        :
+        : "memory"
     );
 
     while(1) { __asm__ volatile("nop"); }

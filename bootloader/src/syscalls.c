@@ -186,7 +186,17 @@ static int execute_pending_command(void) {
 static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
                                   uint32_t super_function,
                                   uint32_t function) {
-    (void)super_function;
+    /* Handle MISC superfunction (r6 == -1) */
+    if((int32_t)super_function == -1) {
+        if(function == 0) {
+            /* MISC_INIT */
+            return 0;
+        } else if(function == 1) {
+            /* MISC_SETVECTOR */
+            return 0;
+        }
+        return 0;
+    }
 
     switch(function) {
         case KOS_FUNC_INIT:
@@ -275,13 +285,18 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             return 0;
 
         default:
-            return -1;
+            return 0;
     }
 }
 
 static int kos_sysinfo_dispatch(uint32_t arg0, uint32_t arg1,
                                 uint32_t arg2, uint32_t function) {
-    (void)arg0; (void)arg1; (void)arg2; (void)function;
+    (void)arg0; (void)arg1; (void)arg2;
+    if(function == 0) {
+        /* SYSINFO_INIT: returns 0 on success */
+        return 0;
+    }
+    /* SYSINFO_ID (3) or SYSINFO_ICON (2): return pointer to 0x8C000068 */
     return (int)0x8C000068UL;
 }
 
@@ -294,20 +309,22 @@ static int kos_biofont_dispatch(uint32_t arg0, uint32_t arg1,
 static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
                                  uint32_t arg2, uint32_t function) {
     if(function == 0) {
+        /* flashrom_info (partition, ptrs[2]) */
         int part = (int)arg0;
         int *ptrs = (int *)arg1;
         if(!ptrs) return -1;
 
         switch(part) {
-            case 0: ptrs[0] = 0x00000; ptrs[1] = 0x02000; break;
-            case 1: ptrs[0] = 0x08000; ptrs[1] = 0x04000; break;
-            case 2: ptrs[0] = 0x0C000; ptrs[1] = 0x04000; break;
-            case 3: ptrs[0] = 0x10000; ptrs[1] = 0x08000; break;
-            case 4: ptrs[0] = 0x18000; ptrs[1] = 0x08000; break;
+            case 0: ptrs[0] = 0x00000; ptrs[1] = 0x02000; break; /* System */
+            case 1: ptrs[0] = 0x08000; ptrs[1] = 0x04000; break; /* User Settings */
+            case 2: ptrs[0] = 0x0C000; ptrs[1] = 0x04000; break; /* Game Settings */
+            case 3: ptrs[0] = 0x10000; ptrs[1] = 0x08000; break; /* Block 3 */
+            case 4: ptrs[0] = 0x18000; ptrs[1] = 0x08000; break; /* Block 4 */
             default: return -1;
         }
         return 0;
     } else if(function == 1) {
+        /* flashrom_read (offset, buffer, bytes) */
         uint32_t offset = arg0;
         uint8_t *dst = (uint8_t *)arg1;
         uint32_t bytes = arg2;
@@ -331,7 +348,14 @@ static int kos_system_dispatch(uint32_t arg0, uint32_t arg1,
 }
 
 void gdrom_install_syscall(void) {
-    /* Initialize Sysinfo Block at 0x8C000068 */
+    /* 1. Safe rts; nop stubs at 0x8C000000..0x8C000064 */
+    uint16_t *low_stubs = (uint16_t *)0x8C000000UL;
+    for(int i = 0; i < 50; i += 2) {
+        low_stubs[i]     = 0x000B; /* rts */
+        low_stubs[i + 1] = 0x0009; /* nop */
+    }
+
+    /* 2. Initialize Sysinfo Block at 0x8C000068 */
     char *sysinfo = (char *)0x8C000068UL;
     char *sysinfo_uncached = (char *)0xAC000068UL;
     sysinfo[0] = 'S'; sysinfo[1] = 'E'; sysinfo[2] = 'G'; sysinfo[3] = 'A';
@@ -352,6 +376,7 @@ void gdrom_install_syscall(void) {
         sysinfo_uncached[i] = sysinfo[i];
     }
 
+    /* 3. Install indirect function vectors in cached and uncached RAM */
     *(volatile uintptr_t *)0x8C0000B0UL = (uintptr_t)&kos_sysinfo_dispatch;
     *(volatile uintptr_t *)0x8C0000B4UL = (uintptr_t)&kos_biofont_dispatch;
     *(volatile uintptr_t *)0x8C0000B8UL = (uintptr_t)&kos_flashrom_dispatch;

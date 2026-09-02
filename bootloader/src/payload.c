@@ -321,7 +321,7 @@ void main(void) {
     draw_hex8(fb, 220, 458, iso_head, COLOR_WHITE, 1);
 
     /* 4. Hardware-Locked Exact 8.000 Seconds */
-    wait_seconds_exact(8);
+    wait_seconds_exact(4);
 
     /* 5. Match the normal Dreamcast cold-boot order: once a valid bootable
        disc has been identified, enter its IP.BIN before starting the KOS
