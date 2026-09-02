@@ -185,38 +185,34 @@ static void wait_seconds_exact(int seconds) {
    double-faulted. */
 extern const uint8_t vector_stub_template[];
 extern const uint8_t vector_stub_template_end[];
+extern const uint8_t interrupt_stub_template[];
+extern const uint8_t interrupt_stub_template_end[];
 
-/* Real, linker-allocated storage for the exception vector table. This is
-   intentionally NOT a hardcoded address like 0x8C000000: this program's own
-   .data/.bss (toc[], pvd[], sector[], pending_command, etc.) is placed by
-   the linker starting at SDRAM base, so a hardcoded VBR guess stomped on
-   live globals and corrupted the program before it ever reached IP.BIN.
-   Letting the linker place this array guarantees no overlap with anything
-   else. crt0.s points VBR here (see val_vbr_init in crt0.s). Needs to
-   cover offsets 0x000 (used), 0x100 (general exception), 0x400 (TLB miss)
-   and 0x600 (interrupt), each followed by a small stub -- 2KB is generous. */
+/* Real, linker-allocated storage for the exception vector table. */
 __attribute__((aligned(1024)))
 uint8_t exception_vector_table[0x800];
 
 static void install_exception_vectors(void) {
-    const uint8_t *tmpl = vector_stub_template;
-    size_t len = (size_t)(vector_stub_template_end - vector_stub_template);
+    const uint8_t *exc_tmpl = vector_stub_template;
+    size_t exc_len = (size_t)(vector_stub_template_end - vector_stub_template);
+
+    const uint8_t *irq_tmpl = interrupt_stub_template;
+    size_t irq_len = (size_t)(interrupt_stub_template_end - interrupt_stub_template);
+
     uint32_t vbr_base = (uint32_t)exception_vector_table;
-    const uint32_t vector_offsets[3] = {
-        0x100UL, /* general exception (incl. address errors, illegal instr) */
-        0x400UL, /* TLB miss */
-        0x600UL  /* interrupt */
-    };
 
-    for (unsigned t = 0; t < 3; t++) {
-        uint8_t *dst = (uint8_t *)(vbr_base + vector_offsets[t]);
-        for (size_t i = 0; i < len; i++) {
-            dst[i] = tmpl[i];
-        }
-    }
+    /* 1. General exception (0x100) and TLB miss (0x400) -> fatal reporter */
+    uint8_t *dst_exc = (uint8_t *)(vbr_base + 0x100UL);
+    for (size_t i = 0; i < exc_len; i++) dst_exc[i] = exc_tmpl[i];
 
-    /* Flush I/D caches so the CPU fetches the freshly written stub code
-       rather than stale/absent cache lines. */
+    uint8_t *dst_tlb = (uint8_t *)(vbr_base + 0x400UL);
+    for (size_t i = 0; i < exc_len; i++) dst_tlb[i] = exc_tmpl[i];
+
+    /* 2. Interrupts (0x600, e.g. VBlank/Timer) -> return from interrupt (rte) */
+    uint8_t *dst_irq = (uint8_t *)(vbr_base + 0x600UL);
+    for (size_t i = 0; i < irq_len; i++) dst_irq[i] = irq_tmpl[i];
+
+    /* Flush I/D caches */
     *(volatile uint32_t *)0xFF00001CUL = 0x0808;
 }
 

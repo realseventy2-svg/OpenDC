@@ -165,6 +165,14 @@ _vector_stub_template:
 1:  .long   _generic_exception_handler
 _vector_stub_template_end:
 
+.align 4
+.global _interrupt_stub_template
+.global _interrupt_stub_template_end
+_interrupt_stub_template:
+    rte
+    nop
+_interrupt_stub_template_end:
+
 .global _generic_exception_handler
 .align 4
 _generic_exception_handler:
