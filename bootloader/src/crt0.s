@@ -200,9 +200,8 @@ p_expevt:              .long   0xFF000024        ! EXPEVT register (P4 area)
 p_report_exception:    .long   _report_exception  ! defined in payload.c
 
 .align 4
-.extern _exception_vector_table
 val_sr_init:        .long   0x400000F0     ! Privileged mode, BL=0, IMASK=15
-val_vbr_init:       .long   _exception_vector_table ! Linker-reserved vector table (payload.c)
+val_vbr_init:       .long   0x8C000000     ! SDRAM base VBR (0x8C000000)
 val_fpscr_init:     .long   0x00040001     ! Single-precision FPU, Denorm Flush
 p_ccr:              .long   0xFF00001C     ! Cache Control Register
 val_ccr_init:       .long   0x0000080B     ! Instruction & Operand Cache Enable

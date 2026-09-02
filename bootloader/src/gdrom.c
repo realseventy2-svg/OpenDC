@@ -120,7 +120,7 @@ int gdrom_read_fad(void *buffer, uint32_t fad, uint16_t sectors) {
 }
 
 int gdrom_probe_toc(void) {
-    static uint8_t toc[408] __attribute__((aligned(4)));
+    uint8_t *toc = (uint8_t *)0x8C004000UL;
     int result = gdrom_prepare_disk();
     if(result != GDROM_OK) return result;
 
@@ -139,8 +139,8 @@ int gdrom_probe_toc(void) {
 }
 
 int gdrom_probe_iso(uint32_t *data_fad_out, uint8_t *pvd_head) {
-    static uint8_t toc[408] __attribute__((aligned(4)));
-    static uint8_t pvd[2048] __attribute__((aligned(4)));
+    uint8_t *toc = (uint8_t *)0x8C004000UL;
+    uint8_t *pvd = (uint8_t *)0x8C004200UL;
     uint32_t data_fad = 0;
     int result;
 

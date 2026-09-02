@@ -23,7 +23,7 @@ uint32_t lba_to_fad(uint32_t lba, uint32_t data_fad) {
 }
 
 int iso_load_1st_read(uint32_t data_fad) {
-    static uint8_t sector[2048] __attribute__((aligned(4)));
+    uint8_t *sector = (uint8_t *)0x8C004000UL;
     uint32_t file_fad  = 0;
     uint32_t file_size = 0;
     uint32_t pvd_fad   = 0;

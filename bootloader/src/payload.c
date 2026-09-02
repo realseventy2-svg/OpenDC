@@ -188,10 +188,6 @@ extern const uint8_t vector_stub_template_end[];
 extern const uint8_t interrupt_stub_template[];
 extern const uint8_t interrupt_stub_template_end[];
 
-/* Real, linker-allocated storage for the exception vector table. */
-__attribute__((aligned(1024)))
-uint8_t exception_vector_table[0x800];
-
 static void install_exception_vectors(void) {
     const uint8_t *exc_tmpl = vector_stub_template;
     size_t exc_len = (size_t)(vector_stub_template_end - vector_stub_template);
@@ -199,7 +195,7 @@ static void install_exception_vectors(void) {
     const uint8_t *irq_tmpl = interrupt_stub_template;
     size_t irq_len = (size_t)(interrupt_stub_template_end - interrupt_stub_template);
 
-    uint32_t vbr_base = (uint32_t)exception_vector_table;
+    uint32_t vbr_base = 0x8C000000UL;
 
     /* 1. General exception (0x100) and TLB miss (0x400) -> fatal reporter */
     uint8_t *dst_exc = (uint8_t *)(vbr_base + 0x100UL);

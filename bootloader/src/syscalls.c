@@ -274,8 +274,8 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             return gdrom_init();
 
         case KOS_FUNC_DRIVE_STATUS: {
-            kos_drive_status_t *status = (kos_drive_status_t *)arg0;
-            if(!status) return -1;
+            if(!arg0) return -1;
+            kos_drive_status_t *status = (kos_drive_status_t *)kos_buffer_address((void *)arg0);
             status->status = KOS_STATUS_STANDBY;
             status->disc_type = KOS_DISC_GDROM;
             return 0;
@@ -291,7 +291,7 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             if(next_handle <= 0) next_handle = 1;
             pending_command.command = arg0;
             if(arg1) {
-                uint32_t *p = (uint32_t *)arg1;
+                uint32_t *p = (uint32_t *)kos_buffer_address((void *)arg1);
                 pending_command.params[0] = p[0];
                 pending_command.params[1] = p[1];
                 pending_command.params[2] = p[2];
@@ -315,8 +315,8 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             return 0;
 
         case KOS_FUNC_CHECK_COMMAND: {
-            uint32_t *status = (uint32_t *)arg1;
-            if(status) {
+            if(arg1) {
+                uint32_t *status = (uint32_t *)kos_buffer_address((void *)arg1);
                 status[0] = (pending_command.result != GDROM_OK) ? 2 : 0; /* Error code (0 = NOERR) */
                 status[1] = 0;                                           /* Sub-error */
                 status[2] = pending_command.transferred;                 /* Size */
@@ -355,11 +355,10 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
 
         case KOS_FUNC_DMA_TRANSFER:
         case KOS_FUNC_PIO_TRANSFER: {
-            kos_transfer_params_t *transfer =
-                (kos_transfer_params_t *)arg1;
-            if(!pending_command.active ||
-               (int32_t)arg0 != pending_command.handle || !transfer)
+            if(!pending_command.active || (int32_t)arg0 != pending_command.handle || !arg1)
                 return -1;
+            kos_transfer_params_t *transfer =
+                (kos_transfer_params_t *)kos_buffer_address((void *)arg1);
             if(transfer->addr && pending_command.params[1] > 0) {
                 uint32_t fad = pending_command.params[0] & 0x00FFFFFF;
                 if(fad < 150U && fad > 0) fad += 150U;
@@ -386,24 +385,28 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             return 0;
         }
 
-        case KOS_FUNC_SECTOR_MODE:
+        case KOS_FUNC_SECTOR_MODE: {
             if(!arg0) return -1;
-            if(((kos_sector_mode_t *)arg0)->rw == 0)
-                sector_mode = *(kos_sector_mode_t *)arg0;
+            kos_sector_mode_t *sm = (kos_sector_mode_t *)kos_buffer_address((void *)arg0);
+            if(sm->rw == 0)
+                sector_mode = *sm;
             else
-                *(kos_sector_mode_t *)arg0 = sector_mode;
+                *sm = sector_mode;
             return 0;
+        }
 
         case KOS_FUNC_DMA_CHECK:
-        case KOS_FUNC_PIO_CHECK:
-            if(!pending_command.active ||
-               (int32_t)arg0 != pending_command.handle)
+        case KOS_FUNC_PIO_CHECK: {
+            if(!pending_command.active || (int32_t)arg0 != pending_command.handle)
                 return -1;
             if(pending_command.status == 1 /* BUSY */)
                 execute_pending_command();
-            if(arg1)
-                *(size_t *)arg1 = pending_command.transferred;
+            if(arg1) {
+                size_t *sz = (size_t *)kos_buffer_address((void *)arg1);
+                *sz = pending_command.transferred;
+            }
             return 0;
+        }
 
         default:
             return 0;
@@ -412,14 +415,19 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
 
 static int kos_sysinfo_dispatch(uint32_t arg0, uint32_t arg1,
                                 uint32_t arg2, uint32_t function) {
-    (void)arg0; (void)arg1; (void)arg2;
+    (void)arg2;
     if(function == 0) {
         /* SYSINFO_INIT: returns 0 on success */
         return 0;
     }
     if(function == 2) {
-        /* SYSINFO_ICON: r4 = icon num (0-9), returns size (704) */
-        return (arg0 > 9) ? -1 : 704;
+        /* SYSINFO_ICON: r4 = icon num (0-9), r5 = destination buffer (704 bytes) */
+        if(arg0 > 9) return -1;
+        if(arg1) {
+            uint8_t *dst = (uint8_t *)kos_buffer_address((void *)arg1);
+            for(int i = 0; i < 704; i++) dst[i] = 0;
+        }
+        return 704;
     }
     /* SYSINFO_ID (3): return pointer to 0x8C000068 */
     return (int)0x8C000068UL;
@@ -492,8 +500,8 @@ static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
     if(function == 0) {
         /* flashrom_info (partition, ptrs[2]) */
         int part = (int)arg0;
-        int *ptrs = (int *)arg1;
-        if(!ptrs) return -1;
+        if(!arg1) return -1;
+        int *ptrs = (int *)kos_buffer_address((void *)arg1);
 
         switch(part) {
             case 0: ptrs[0] = 0x1A000; ptrs[1] = 0x02000; break; /* System (Factory) */
@@ -507,9 +515,9 @@ static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
     } else if(function == 1) {
         /* flashrom_read (offset, buffer, bytes) */
         uint32_t offset = arg0;
-        uint8_t *dst = (uint8_t *)arg1;
+        if(!arg1) return -1;
+        uint8_t *dst = (uint8_t *)kos_buffer_address((void *)arg1);
         uint32_t bytes = arg2;
-        if(!dst) return -1;
         if(offset >= 0x20000) return -1;
         if(offset + bytes > 0x20000) bytes = 0x20000 - offset;
 

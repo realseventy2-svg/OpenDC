@@ -5,9 +5,9 @@ ENTRY(_start)
 MEMORY
 {
     ROM (rx)    : ORIGIN = 0xA0000000, LENGTH = 0x00010000   /* 64 KB Bootloader Flash ROM */
-    /* Resident BIOS RAM state: 0x8C001000 to 0x8C00F000 (below KOS 0x8C010000 entry).
-       KOS never overwrites this region, ensuring resident GD-ROM syscalls remain intact. */
-    STATE (rwx) : ORIGIN = 0x8C001000, LENGTH = 0x0000E000
+    /* Resident BIOS RAM state: 0x8C000800 to 0x8C000F00 (safe private BIOS workspace).
+       Leaves 0x8C001000-0x8C007FFF 100% free for Katana SDK game buffers and CRT0. */
+    STATE (rwx) : ORIGIN = 0x8C000800, LENGTH = 0x00000700
 }
 
 SECTIONS
