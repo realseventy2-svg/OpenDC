@@ -130,9 +130,11 @@ static int execute_pending_command(void) {
                 break;
             }
             (void)gdrom_prepare_disk();
-            result = gdrom_read_toc(kos_buffer_address(dst_buf), (uint8_t)area);
+            /* Katana area 0 = DoubleDensity (Session 2 / ATA session 1), area 1 = SingleDensity (ATA session 0) */
+            uint8_t ata_session = (area == 0) ? 1 : 0;
+            result = gdrom_read_toc(kos_buffer_address(dst_buf), ata_session);
             if(result != GDROM_OK && area == 0)
-                result = gdrom_read_toc(kos_buffer_address(dst_buf), 1);
+                result = gdrom_read_toc(kos_buffer_address(dst_buf), 0);
             if(result == GDROM_OK)
                 pending_command.transferred = sizeof(kos_toc_t);
             break;
@@ -548,7 +550,7 @@ void gdrom_install_syscall(void) {
     /* 2. Exception & Interrupt stubs for SH-4 VBR at 0x8C000000:
           0x8C000100: General Exception -> rte; nop
           0x8C000400: TLB Miss Exception -> rte; nop
-          0x8C000600: Interrupt Vector (VBlank, TMU, DMA) -> rte; nop */
+          0x8C000600: Interrupt Vector (VBlank, TMU, DMA) -> acknowledge ASIC & rte */
     uint16_t *exc_stub = (uint16_t *)0x8C000100UL;
     exc_stub[0] = 0x002B; /* rte */
     exc_stub[1] = 0x0009; /* nop */
@@ -557,17 +559,30 @@ void gdrom_install_syscall(void) {
     tlb_stub[0] = 0x002B; /* rte */
     tlb_stub[1] = 0x0009; /* nop */
 
-    uint16_t *irq_stub = (uint16_t *)0x8C000600UL;
-    irq_stub[0] = 0x002B; /* rte */
-    irq_stub[1] = 0x0009; /* nop */
+    /* Complete SH-4 interrupt stub that acknowledges / clears Holly ASIC interrupts
+       (SB_ISTNRM at 0xA05F6900 and SB_ISTEXT at 0xA05F6904) before executing rte; nop.
+       This prevents unacknowledged VBlank/Timer IRQ storms from locking the CPU. */
+    static const uint32_t irq_stub_code[] = {
+        0x6102D003, /* mov.l @(12,pc), r0 ; mov.l @r0, r1 */
+        0xD0032012, /* mov.l r1, @r0      ; mov.l @(12,pc), r0 */
+        0x20126102, /* mov.l @r0, r1      ; mov.l r1, @r0 */
+        0x0009002B, /* rte                ; nop */
+        0xA05F6900, /* SB_ISTNRM */
+        0xA05F6904  /* SB_ISTEXT */
+    };
 
-    /* Also replicate stubs in uncached P2 mirror (0xAC000000) */
+    uint32_t *irq_dst_cached = (uint32_t *)0x8C000600UL;
+    uint32_t *irq_dst_uncached = (uint32_t *)0xAC000600UL;
+    for(size_t i = 0; i < sizeof(irq_stub_code)/sizeof(irq_stub_code[0]); i++) {
+        irq_dst_cached[i]   = irq_stub_code[i];
+        irq_dst_uncached[i] = irq_stub_code[i];
+    }
+
+    /* Replicate exception stubs in uncached P2 mirror (0xAC000000) */
     uint16_t *uncached_exc = (uint16_t *)0xAC000100UL;
     uncached_exc[0] = 0x002B; uncached_exc[1] = 0x0009;
     uint16_t *uncached_tlb = (uint16_t *)0xAC000400UL;
     uncached_tlb[0] = 0x002B; uncached_tlb[1] = 0x0009;
-    uint16_t *uncached_irq = (uint16_t *)0xAC000600UL;
-    uncached_irq[0] = 0x002B; uncached_irq[1] = 0x0009;
 
     /* 3. Initialize Sysinfo Block at 0x8C000068 (Factory Dreamcast Layout) */
     char *sysinfo = (char *)0x8C000068UL;
