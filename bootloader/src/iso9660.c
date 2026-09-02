@@ -101,6 +101,8 @@ int iso_load_1st_read(uint32_t data_fad) {
                           (dest[2] == 0x09 && dest[3] == 0x00) ||
                           (data_fad >= 45000U));
 
+    volatile uint16_t *fb = (volatile uint16_t *)0xA5000000UL;
+
     if(is_unscrambled) {
         /* Read remaining sectors directly into dest without staging */
         uint32_t read_count = 1;
@@ -109,9 +111,23 @@ int iso_load_1st_read(uint32_t data_fad) {
             if(batch > 16U) batch = 16U;
             if(gdrom_read_fad(dest + (read_count * 2048U),
                               file_fad + read_count,
-                              (uint16_t)batch) != GDROM_OK)
+                              (uint16_t)batch) != GDROM_OK) {
+                /* Signal read error on screen */
+                for(int y = 460; y < 475; y++) {
+                    for(int x = 200; x < 440; x++) fb[y * 640 + x] = 0xF800; /* RED */
+                }
                 return GDROM_DEVICE_ERR;
+            }
             read_count += batch;
+
+            /* Progress bar at bottom of screen (read_count >> 3 gives 0..432 px) */
+            uint32_t progress_w = (read_count >> 3);
+            if(progress_w > 400U) progress_w = 400U;
+            for(int y = 468; y < 474; y++) {
+                for(uint32_t x = 0; x < progress_w; x++) {
+                    fb[y * 640 + (120 + x)] = 0x07E0; /* GREEN */
+                }
+            }
         }
     } else {
         /* Scrambled CD-R binary: read to staging buffer and descramble into dest */
@@ -127,8 +143,24 @@ int iso_load_1st_read(uint32_t data_fad) {
                               (uint16_t)batch) != GDROM_OK)
                 return GDROM_DEVICE_ERR;
             read_count += batch;
+
+            /* Progress bar */
+            uint32_t progress_w = (read_count >> 3);
+            if(progress_w > 400U) progress_w = 400U;
+            for(int y = 468; y < 474; y++) {
+                for(uint32_t x = 0; x < progress_w; x++) {
+                    fb[y * 640 + (120 + x)] = 0x07E0;
+                }
+            }
         }
         gdrom_descramble(staging, dest, file_size);
+    }
+
+    /* Turn progress bar CYAN to indicate load finished, entering handoff */
+    for(int y = 468; y < 474; y++) {
+        for(int x = 120; x < 520; x++) {
+            fb[y * 640 + x] = 0x07FF; /* CYAN */
+        }
     }
 
     return GDROM_OK;

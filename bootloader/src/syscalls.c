@@ -87,6 +87,12 @@ static kos_pending_command_t pending_command;
 static int32_t next_handle = 1;
 static kos_sector_mode_t sector_mode = { 1, 0x1000, 1, 2048 };
 
+typedef void (*kos_callback_t)(void *param);
+static kos_callback_t dma_callback = NULL;
+static void *dma_callback_param = NULL;
+static kos_callback_t pio_callback = NULL;
+static void *pio_callback_param = NULL;
+
 static void *kos_buffer_address(void *buffer) {
     uintptr_t address = (uintptr_t)buffer;
     if(address < 0x20000000UL)
@@ -180,6 +186,24 @@ static int execute_pending_command(void) {
 
     pending_command.result = result;
     pending_command.executed = 1;
+
+    /* Signal completion to hardware and Katana callbacks */
+    *(volatile uint32_t *)0xA05F6900UL |= (1UL << 14); /* GD-ROM DMA complete */
+    *(volatile uint32_t *)0xA05F6904UL |= (1UL << 0);  /* GD-ROM status */
+
+    if(dma_callback) {
+        kos_callback_t cb = dma_callback;
+        void *param = dma_callback_param;
+        dma_callback = NULL;
+        cb(param);
+    }
+    if(pio_callback) {
+        kos_callback_t cb = pio_callback;
+        void *param = pio_callback_param;
+        pio_callback = NULL;
+        cb(param);
+    }
+
     return result;
 }
 
@@ -213,7 +237,7 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
 
         case KOS_FUNC_SEND_COMMAND:
             if(pending_command.active && !pending_command.executed)
-                return 0;
+                execute_pending_command();
             if(arg0 == 0 || arg0 >= 47)
                 return 0;
             pending_command.handle = next_handle++;
@@ -237,7 +261,7 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             if(!pending_command.active || (int32_t)arg0 != pending_command.handle)
                 return KOS_CMD_NOT_FOUND;
             if(!pending_command.executed)
-                return KOS_CMD_PROCESSING;
+                execute_pending_command();
             if(status)
                 status->size = pending_command.transferred;
             if(pending_command.result != GDROM_OK) {
@@ -254,7 +278,13 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             return 0;
 
         case KOS_FUNC_DMA_CALLBACK:
+            dma_callback = (kos_callback_t)arg0;
+            dma_callback_param = (void *)arg1;
+            return 0;
+
         case KOS_FUNC_PIO_CALLBACK:
+            pio_callback = (kos_callback_t)arg0;
+            pio_callback_param = (void *)arg1;
             return 0;
 
         case KOS_FUNC_DMA_TRANSFER:
@@ -264,6 +294,8 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             if(!pending_command.active ||
                (int32_t)arg0 != pending_command.handle || !transfer)
                 return -1;
+            if(!pending_command.executed)
+                execute_pending_command();
             return 0;
         }
 
@@ -280,6 +312,8 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             if(!pending_command.active ||
                (int32_t)arg0 != pending_command.handle)
                 return -1;
+            if(!pending_command.executed)
+                execute_pending_command();
             if(arg1)
                 *(size_t *)arg1 = pending_command.transferred;
             return 0;
@@ -306,6 +340,58 @@ static int kos_biofont_dispatch(uint32_t arg0, uint32_t arg1,
     return (int)0xA000B000UL;
 }
 
+
+static const uint8_t syscfg_block[64] = {
+    0x05, 0x00,             /* block_id = 5 (LE) */
+    0x00, 0x00, 0x00, 0x00, /* date = 0 */
+    0x00,                   /* unk1 */
+    0x01,                   /* lang = 1 (English) */
+    0x00,                   /* mono = 0 (Stereo) */
+    0x00,                   /* autostart = 0 */
+    0x00, 0x00, 0x00, 0x00, /* unk2 */
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x40, 0x03              /* CRC16 = 0x0340 */
+};
+
+static uint8_t fake_flashrom_byte(uint32_t addr) {
+    /* Partition 0: System (Factory info, starts at 0x1A000) */
+    if(addr >= 0x1A000 && addr < 0x1A005) {
+        const char *region = "00110"; /* USA NTSC */
+        return (uint8_t)region[addr - 0x1A000];
+    }
+    if(addr >= 0x1A005 && addr < 0x1A018) {
+        const char *serial = "0000000000000000000";
+        return (uint8_t)serial[addr - 0x1A005];
+    }
+
+    /* Partition 2: Block 1 / User Settings (starts at 0x1C000) */
+    /* Header (18 bytes): "KATANA_FLASH____\x02\x00" */
+    if(addr >= 0x1C000 && addr < 0x1C012) {
+        const char *magic = "KATANA_FLASH____\x02\x00";
+        return (uint8_t)magic[addr - 0x1C000];
+    }
+
+    /* Physical block 1 (offset 0x1C040 to 0x1C07F): Block 5 (Sysconfig) */
+    if(addr >= 0x1C040 && addr < 0x1C080) {
+        return syscfg_block[addr - 0x1C040];
+    }
+
+    /* Allocation bitmap at end of Partition 2 (offset 0x1FFC0 to 0x1FFFF) */
+    if(addr >= 0x1FFC0 && addr < 0x20000) {
+        if(addr == 0x1FFC0)
+            return 0x40; /* Block 0 used, block 1 unused (terminates scan) */
+        return 0xFF;
+    }
+
+    /* Fallback to physical flash or 0xFF */
+    return *(const volatile uint8_t *)(0xA0200000UL + addr);
+}
+
 static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
                                  uint32_t arg2, uint32_t function) {
     if(function == 0) {
@@ -315,11 +401,11 @@ static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
         if(!ptrs) return -1;
 
         switch(part) {
-            case 0: ptrs[0] = 0x00000; ptrs[1] = 0x02000; break; /* System */
-            case 1: ptrs[0] = 0x08000; ptrs[1] = 0x04000; break; /* User Settings */
-            case 2: ptrs[0] = 0x0C000; ptrs[1] = 0x04000; break; /* Game Settings */
-            case 3: ptrs[0] = 0x10000; ptrs[1] = 0x08000; break; /* Block 3 */
-            case 4: ptrs[0] = 0x18000; ptrs[1] = 0x08000; break; /* Block 4 */
+            case 0: ptrs[0] = 0x1A000; ptrs[1] = 0x02000; break; /* System (Factory) */
+            case 1: ptrs[0] = 0x18000; ptrs[1] = 0x02000; break; /* Reserved */
+            case 2: ptrs[0] = 0x1C000; ptrs[1] = 0x04000; break; /* Block 1 (User / Syscfg) */
+            case 3: ptrs[0] = 0x10000; ptrs[1] = 0x08000; break; /* Settings */
+            case 4: ptrs[0] = 0x00000; ptrs[1] = 0x10000; break; /* Block 2 */
             default: return -1;
         }
         return 0;
@@ -332,9 +418,8 @@ static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
         if(offset >= 0x20000) return 0;
         if(offset + bytes > 0x20000) bytes = 0x20000 - offset;
 
-        const uint8_t *src = (const uint8_t *)(0xA0200000UL + offset);
         for(uint32_t i = 0; i < bytes; i++) {
-            dst[i] = src[i];
+            dst[i] = fake_flashrom_byte(offset + i);
         }
         return (int)bytes;
     }
