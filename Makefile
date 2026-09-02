@@ -26,9 +26,11 @@ else
   BIOS_BASE = $(BASE)
 endif
 
-.PHONY: all bootloader bios check clean
+.PHONY: all bootloader bios check clean cdi
 
 all: $(OUTPUT)
+
+cdi: all
 
 bootloader:
 	$(MAKE) -C "$(BOOT_DIR)"
