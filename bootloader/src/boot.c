@@ -2,6 +2,7 @@
 #include "gdrom.h"
 #include "iso9660.h"
 #include "syscalls.h"
+#include "wince.h"
 
 int gdrom_boot_game(uint32_t data_fad) {
     if(data_fad == 0)
@@ -15,12 +16,20 @@ int gdrom_boot_game(uint32_t data_fad) {
         return load_res;
     }
 
+    /* Detect Windows CE kernel image */
+    wince_detect((const uint8_t *)0x8CE01000UL);
+
     /* 2. Load IP.BIN (16 sectors) cleanly into 0x8C008000UL */
     uint8_t *ip_dest = (uint8_t *)0x8C008000UL;
     gdrom_read_fad(ip_dest, data_fad, 16);
 
     /* 3. Populate BIOS syscall vectors and sysinfo table */
     gdrom_install_syscall();
+
+    /* 3b. If Windows CE, apply Midway / San Francisco Rush security checksum */
+    if(wince_is_active()) {
+        wince_apply_security_checksum();
+    }
 
     /* 4. Set up Katana required hardware states */
     /* DMAC DMAOR enable (0x8201) */
@@ -45,7 +54,10 @@ int gdrom_boot_game(uint32_t data_fad) {
     *(volatile uint32_t *)0xA05F74E4UL = 0x00000018; /* SB_G1RRC */
     *(volatile uint32_t *)0xA05F74B4UL = 0x00000000; /* SB_GDST */
     *(volatile uint32_t *)0xA05F74F4UL = 0x00000001; /* SB_GDEN (Unlock GD-ROM DMA/PIO) */
-    *(volatile uint32_t *)0xA05F7404UL = 0x0C010000; /* SB_GDSTARD */
+
+    /* SB_GDSTARD: In Katana, 0x0C010000 + 0x00100000.
+       In Windows CE, IP.BIN explicitly verifies SB_GDSTARD == *(0x8CE0101C) + *(0x8CE01020). */
+    *(volatile uint32_t *)0xA05F7404UL = wince_get_gdstard(); /* SB_GDSTARD */
     *(volatile uint32_t *)0xA05F688CUL = 0x00000000; /* SB_SDSTAW */
     *(volatile uint32_t *)0xA05F8040UL = 0x00000000; /* VO_BORDER_COL */
 

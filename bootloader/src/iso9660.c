@@ -62,7 +62,7 @@ int iso_load_1st_read(uint32_t data_fad) {
 
     /* 1. Read IP.BIN (sector 0 at data_fad) to determine target boot executable and OS type */
     if(gdrom_read_fad(sector, data_fad, 1) == GDROM_OK) {
-        wince_os = (char)sector[0x39];
+        wince_os = (char)sector[0x3E];
         int len = 0;
         for(int i = 0; i < 16; i++) {
             char c = (char)sector[0x60 + i];
@@ -149,7 +149,9 @@ int iso_load_1st_read(uint32_t data_fad) {
 
     volatile uint16_t *fb = (volatile uint16_t *)0xA5000000UL;
     uint8_t *dest = (uint8_t *)0x8C010000UL;
-    int is_wince = (wince_os == '1');
+    int is_wince = (wince_os == '1' ||
+                    filename_match(boot_file, 12, "0WINCEOS.BIN") ||
+                    filename_match(boot_file, 8, "0WINCEOS"));
     int is_gdi   = (data_fad >= 45000U);
 
     if(is_wince && is_gdi) {
@@ -158,6 +160,13 @@ int iso_load_1st_read(uint32_t data_fad) {
            2. Remaining binary placed at 0x8C010000. */
         if(gdrom_read_fad((void *)0x8CE01000UL, file_fad, 1) != GDROM_OK)
             return GDROM_DEVICE_ERR;
+
+        /* Also mirror to uncached 0xACE01000 */
+        const uint32_t *hdr_c = (const uint32_t *)0x8CE01000UL;
+        uint32_t *hdr_u = (uint32_t *)0xACE01000UL;
+        for(size_t i = 0; i < 512; i++) {
+            hdr_u[i] = hdr_c[i];
+        }
 
         uint32_t rem_sectors = (file_size > 2048U) ? ((file_size - 2048U + 2047U) / 2048U) : 0;
         uint32_t read_count = 0;

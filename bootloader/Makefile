@@ -18,7 +18,7 @@ LDFLAGS = -m4-single-only -ml -nostdlib \
           -Wl,-T,linker.ld \
           -Wl,--gc-sections
 
-OBJS = crt0.o payload.o ata.o gdrom.o iso9660.o scramble.o syscalls.o boot.o
+OBJS = crt0.o payload.o ata.o gdrom.o iso9660.o scramble.o syscalls.o wince.o boot.o
 
 .PHONY: all clean rom
 
@@ -43,10 +43,13 @@ iso9660.o: src/iso9660.c src/iso9660.h src/gdrom.h src/scramble.h
 scramble.o: src/scramble.c src/scramble.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-syscalls.o: src/syscalls.c src/syscalls.h src/gdrom.h
+syscalls.o: src/syscalls.c src/syscalls.h src/gdrom.h src/wince.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-boot.o: src/boot.c src/boot.h src/gdrom.h src/iso9660.h src/syscalls.h
+wince.o: src/wince.c src/wince.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+boot.o: src/boot.c src/boot.h src/gdrom.h src/iso9660.h src/syscalls.h src/wince.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET).elf: $(OBJS) linker.ld

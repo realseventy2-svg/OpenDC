@@ -1,5 +1,6 @@
 #include "syscalls.h"
 #include "gdrom.h"
+#include "wince.h"
 #include <stddef.h>
 
 typedef struct {
@@ -462,14 +463,22 @@ static const uint8_t syscfg_block[64] = {
 };
 
 static uint8_t fake_flashrom_byte(uint32_t addr) {
-    /* Partition 0: System (Factory info, starts at 0x1A000) */
+    /* Partition 0: System (Factory info, starts at 0x1A000 and mirror at 0x1A0A0) */
     if(addr >= 0x1A000 && addr < 0x1A005) {
         const char *region = "00110"; /* USA NTSC */
         return (uint8_t)region[addr - 0x1A000];
     }
-    if(addr >= 0x1A005 && addr < 0x1A018) {
-        const char *serial = "0000000000000000000";
-        return (uint8_t)serial[addr - 0x1A005];
+    if(addr >= 0x1A005 && addr < 0x1A010) {
+        const char *magic = "Dreamcast  "; /* 11 bytes */
+        return (uint8_t)magic[addr - 0x1A005];
+    }
+    if(addr >= 0x1A0A0 && addr < 0x1A0A5) {
+        const char *region = "00110";
+        return (uint8_t)region[addr - 0x1A0A0];
+    }
+    if(addr >= 0x1A0A5 && addr < 0x1A0B0) {
+        const char *magic = "Dreamcast  ";
+        return (uint8_t)magic[addr - 0x1A0A5];
     }
 
     /* Partition 2: Block 1 / User Settings (starts at 0x1C000) */
@@ -540,7 +549,8 @@ static int kos_system_dispatch(uint32_t arg0, uint32_t arg1,
     (void)arg1; (void)arg2; (void)function;
     if(arg0 == 0) {
         /* MISC normal init: set GD DMA start, clear normal interrupts and set border color */
-        *(volatile uint32_t *)0xA05F7404UL = 0x0C010000UL + 0x00100000UL;
+        uint32_t gdstard = wince_get_gdstard();
+        *(volatile uint32_t *)0xA05F7404UL = gdstard; /* SB_GDSTARD */
         *(volatile uint32_t *)0xA05F6808UL = 0;           /* SB_IML2NRM = 0 */
         *(volatile uint32_t *)0xA05F8040UL = 0x00C0BEBCUL; /* VO_BORDER_COL */
         return 0x00C0BEBC;
@@ -629,18 +639,34 @@ void gdrom_install_syscall(void) {
     *(volatile uintptr_t *)0x8C0000B0UL = (uintptr_t)&kos_sysinfo_dispatch;
     *(volatile uintptr_t *)0x8C0000B4UL = (uintptr_t)&kos_biofont_dispatch;
     *(volatile uintptr_t *)0x8C0000B8UL = (uintptr_t)&kos_flashrom_dispatch;
-    *(volatile uintptr_t *)0x8C0000BCUL = (uintptr_t)&gdrom_syscall_dispatch;
-    *(volatile uintptr_t *)0x8C0000C0UL = (uintptr_t)&gdrom_syscall_dispatch;
+    /* Install executable trampoline at 0x8C0010F0 for direct gd2 entry calls
+       (used by WinCE games like Midway, Ooga Booga, and San Francisco Rush):
+       0x10F0: mov.l @(4, PC), r0  (0xD001)
+       0x10F2: jmp   @r0           (0x402B)
+       0x10F4: nop                 (0x0009)
+       0x10F6: nop                 (0x0009)
+       0x10F8: &gdrom_syscall_dispatch
+    */
+    volatile uint16_t *tramp_c = (volatile uint16_t *)0x8C0010F0UL;
+    volatile uint16_t *tramp_u = (volatile uint16_t *)0xAC0010F0UL;
+    tramp_c[0] = 0xD001;
+    tramp_c[1] = 0x402B;
+    tramp_c[2] = 0x0009;
+    tramp_c[3] = 0x0009;
+    *(volatile uint32_t *)&tramp_c[4] = (uint32_t)&gdrom_syscall_dispatch;
+
+    for(int i = 0; i < 6; i++) {
+        tramp_u[i] = tramp_c[i];
+    }
+
+    *(volatile uintptr_t *)0x8C0000BCUL = 0x8C0010F0UL;
+    *(volatile uintptr_t *)0x8C0000C0UL = 0x8C0010F0UL;
     *(volatile uintptr_t *)0x8C0000E0UL = (uintptr_t)&kos_system_dispatch;
 
     *(volatile uintptr_t *)0xAC0000B0UL = (uintptr_t)&kos_sysinfo_dispatch;
     *(volatile uintptr_t *)0xAC0000B4UL = (uintptr_t)&kos_biofont_dispatch;
     *(volatile uintptr_t *)0xAC0000B8UL = (uintptr_t)&kos_flashrom_dispatch;
-    *(volatile uintptr_t *)0xAC0000BCUL = (uintptr_t)&gdrom_syscall_dispatch;
-    *(volatile uintptr_t *)0xAC0000C0UL = (uintptr_t)&gdrom_syscall_dispatch;
+    *(volatile uintptr_t *)0xAC0000BCUL = 0x8C0010F0UL;
+    *(volatile uintptr_t *)0xAC0000C0UL = 0x8C0010F0UL;
     *(volatile uintptr_t *)0xAC0000E0UL = (uintptr_t)&kos_system_dispatch;
-
-    /* Entrypoint 0x8C0010F0 for direct gd2 entry calls */
-    *(volatile uintptr_t *)0x8C0010F0UL = (uintptr_t)&gdrom_syscall_dispatch;
-    *(volatile uintptr_t *)0xAC0010F0UL = (uintptr_t)&gdrom_syscall_dispatch;
 }
