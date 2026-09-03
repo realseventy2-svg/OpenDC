@@ -1,370 +1,168 @@
 # Custom Dreamcast Firmware Development Guide
 
-## Purpose
+## Purpose & Scope
 
-This project combines two different Dreamcast software stages:
+OpenDC integrates two essential Dreamcast execution layers:
+1. **Freestanding SH-4 Stage 1 Bootloader**: A bare-metal ROM stage executing from `0xA0000000`, containing low-level G1/ATA hardware drivers, GD-ROM command state machines, ISO9660 multi-track parsers, binary descramblers, and authentic Dreamcast retail BIOS exception and syscall engines.
+2. **KallistiOS Custom BIOS Payload (Stage 2)**: An extensible dashboard, recovery interface, and secondary application payload loaded at `0x8C010000`.
 
-1. A freestanding SH-4 bootloader located at the beginning of the BIOS image.
-2. A KallistiOS-based custom BIOS payload loaded by the bootloader.
+OpenDC has evolved beyond a dashboard into a **complete standalone bootloader** capable of booting retail Katana GD-ROM titles and KallistiOS homebrew without relying on the Sega retail boot ROM.
 
-The intended long-term goal is to let the bootloader provide GD-ROM services
-to the custom BIOS. The custom BIOS should then be able to detect a disc and
-boot a game without depending on the retail BIOS GD-ROM implementation.
+---
 
-The current project is not yet a replacement GD-ROM BIOS. It is a working
-custom-BIOS experiment with an experimental raw GD-ROM transport layer and a
-build system that combines the two stages.
+## Memory & Image Layout
 
-## Memory and image layout
+The console starts execution from ROM address `0xA0000000`.
 
-The Dreamcast starts execution from the ROM address `0xA0000000`.
-
-The combined BIOS image is 2 MiB and is organized as follows:
+The combined 2 MiB BIOS image is structured as follows:
 
 ```text
-ROM offset 0x000000  Bootloader ROM code
-ROM offset 0x010000  Custom KOS BIOS payload
-ROM offset 0x200000  End of BIOS image
+ROM offset 0x000000  Bootloader Stage 1 (SH-4 bare-metal kernel & drivers)
+ROM offset 0x010000  KallistiOS Custom BIOS Payload (Dashboard / Apps)
+ROM offset 0x070000  End of custom code / Retail font tables & BIOS services
+ROM offset 0x200000  2 MiB total ROM boundary
 ```
 
-The bootloader copies the payload from ROM address `0xA0010000` to RAM address
-`0x8C010000`, initializes the stack/cache state, and jumps to the KOS entry
-point.
-
-The bootloader publishes its optional GD-ROM service table in RAM at:
+### Low-Memory Vectors & Runtime ABI
 
 ```text
-0x8C00F000
+Address         Component / Role
+0x8C000000      VBR Base: 2048-byte Authentic Sega Dreamcast Exception Engine
+0x8C0000B0      BIOS Syscall Vector: sysinfo (system props & region data)
+0x8C0000B4      BIOS Syscall Vector: biofont (ROM font renderer)
+0x8C0000B8      BIOS Syscall Vector: flashrom (partition & user settings)
+0x8C0000BC      BIOS Syscall Vector: gdrom (G1 ATA packet commands)
+0x8C0000C0      BIOS Syscall Vector: gdrom2 (secondary GD-ROM entrypoint)
+0x8C0000E0      BIOS Syscall Vector: system/misc (SYS_MISC initialization)
+0x8C000100      General Exception Entrypoint (routes via EXPEVT table)
+0x8C0001C8      OS Exception Dispatch Table (registered by OS / WinCE)
+0x8C000400      TLB Miss Exception Entrypoint (routes to page table handler)
+0x8C000600      Interrupt Entrypoint (routes Holly ASIC & TMU interrupts)
+0x8C0010F0      Direct GD-ROM Entrypoint Trampoline (used by WinCE & Midway)
+0x8C008000      IP.BIN staging destination (16 sectors / 32 KiB)
+0x8C008300      Authentic Sega License screen entrypoint
+0x8C010000      Primary game binary (1ST_READ.BIN / 0WINCEOS.BIN)
+0x8CE00000      BIOS runtime helper copy destination (4 KiB)
+0x8CE01000      Windows CE Sector 0 ROMHDR header table mirror
+0x8D000000      Initial stack pointer (Katana / Homebrew handoff)
 ```
 
-This address is below the KOS payload destination and is not part of the
-payload copy range.
+---
 
-## Source layout
-
-The two source trees are physically contained in this unified project because
-they use different execution models. They are built by separate Makefiles and
-then combined by the top-level Makefile.
-
-### `bootloader`
-
-Location:
+## Source Architecture
 
 ```text
-projects/OpenDC/bootloader
+projects/OpenDC/bootloader/src/
+├── crt0.s           Bare-metal reset handler, SDRAM initialization, cache setup (CCR), VBR binding
+├── payload.c        PVR2 display engine, splash presentation, and exception table installation
+├── retail_vectors.h Authentic 2048-byte Sega Dreamcast retail BIOS exception dispatcher
+├── ata.c / ata.h    G1 ATA bus hardware register transport (PIO & register access)
+├── gdrom.c / .h     GD-ROM packet command state machine, TOC parser, sector streaming
+├── iso9660.c / .h   ISO9660 PVD parser, multi-track high-density extent resolution
+├── scramble.c / .h  Dreamcast 2MB sector interleaving reversal algorithm
+├── syscalls.c / .h  BIOS syscall dispatchers (SYSINFO, BIOFONT, FLASHROM, GD-ROM, MISC)
+├── wince.c / .h     Modular Windows CE subsystem (ROMHDR parser, SB_GDSTARD, checksums)
+├── boot.c / .h      Unified game launch controller (Katana, WinCE, Homebrew)
+└── linker.ld        Linker script defining ROM and RAM sections
 ```
 
-This is freestanding SH-4 code. It does not use KallistiOS, the C runtime,
-threads, filesystem services, or BIOS syscalls.
-
-Important files:
-
-- `src/crt0.s` — reset entry, SDRAM setup, cache setup, stack setup, and C handoff.
-- `src/payload.c` — video splash and stage-2 chainload logic.
-- `src/gdrom.c` — experimental direct G1/ATA transport.
-- `src/gdrom.h` — transport API and service-table definition.
-- `linker.ld` — ROM/RAM placement and entry-point layout.
-- `Makefile` — standalone bootloader build.
-
-### `bios`
-
-Location:
-
-```text
-projects/OpenDC/bios
-```
-
-This is a normal KallistiOS application linked as a BIOS payload. Its custom
-`crt0.s` and `src/entry.s` are not used by the current Makefile. KallistiOS
-provides the startup and runtime environment.
-
-Important files:
-
-- `src/main.c` — custom dashboard, disc probe, and game-launch path.
-- `src/bootloader_gdrom.h` — matching definition of the bootloader service ABI.
-- `Makefile` — KOS payload build and BIOS injection.
-- `res/boot_loader_custom.bios` — temporary base image used during packaging.
-
-The current game launch path still loads `rungd.bin` and transfers control to
-the established BIOS-compatible launcher. This is intentional fallback code.
-
-### `OpenDC`
-
-Location:
-
-```text
-projects/OpenDC
-```
-
-This directory is the unified build coordinator and contains both source
-trees. Its Makefile builds the bootloader, copies the resulting 2 MiB image as
-the BIOS base, builds the KOS payload, injects that payload at the 64 KiB
-offset, and produces:
-
-```text
-projects/OpenDC/boot_loader_custom.bios
-```
-
-## Building
-
-The project uses the KallistiOS environment inside WSL. Run the commands from
-PowerShell:
-
-```powershell
-wsl -d <DISTRO> -e /path/to/KallistiOS/scripts/kos-exec.sh /path/to/KallistiOS/projects/OpenDC make clean
-```
-
-```powershell
-wsl -d <DISTRO> -e /path/to/KallistiOS/scripts/kos-exec.sh /path/to/KallistiOS/projects/OpenDC make
-```
-
-Validate all generated image sizes:
-
-```powershell
-wsl -d <DISTRO> -e /path/to/KallistiOS/scripts/kos-exec.sh /path/to/KallistiOS/projects/OpenDC make check
-```
-
-Expected image size:
-
-```text
-2097152 bytes
-```
-
-The unified build performs these operations automatically; no manual copy
-command is required:
-
-```text
-build bootloader/dc_boot.bin
-copy dc_boot.bin to bios/res/boot_loader_custom.bios
-build bios/custom_bios.bin
-inject custom_bios.bin at offset 0x10000
-copy final image to OpenDC/boot_loader_custom.bios
-```
-
-The build must be performed in WSL because the Makefiles use the SH-4
-cross-compiler, GNU make, `dd`, and KallistiOS utility paths under `/opt`.
-
-## Emulator testing
-
-Flycast does not provide a host filesystem API to the Dreamcast bootloader. A
-CDI file is exposed to the emulated machine as a virtual GD-ROM drive.
-
-After building, load the environment:
-
-```powershell
-cd C:\path\to\KallistiOS
-. .\kos-env.ps1
-```
-
-Then boot a CDI with the unified BIOS:
-
-```powershell
-kos-bootcustom D:\path\to\game.cdi
-```
-
-This tests the emulator's virtual GD-ROM together with the KOS/BIOS launch
-path. It does not prove that the standalone raw driver works on a physical
-drive.
-
-## Current GD-ROM design
-
-The bootloader's GD-ROM module uses the Dreamcast G1 ATA register block. It
-currently provides:
-
-- PIO timing setup;
-- device selection;
-- bounded status polling;
-- ATA PACKET transaction setup;
-- 12-byte packet transmission;
-- PIO data-phase reads;
-- experimental Sega `GET_TOC` (`0x14`) support;
-- experimental Sega `CD_READ` (`0x30`) support;
-- a fixed-address service table for the custom BIOS.
-
-The custom BIOS validates the service-table magic/version and can attempt a raw
-TOC probe. If the table is absent or the probe fails, it falls back to the KOS
-filesystem path.
-
-The service table is an ABI, not a KallistiOS driver. KOS functions such as
-`cdrom_read_sectors()` do not automatically use it.
-
-## Service-table ABI
-
-The bootloader publishes this structure at `0x8C00F000`:
-
-```c
-typedef struct {
-    uint32_t magic;
-    uint32_t version;
-    uint32_t size;
-    int (*init)(void);
-    uint8_t (*status)(void);
-    int (*drive_ready)(void);
-    int (*read_toc)(void *buffer, uint8_t session);
-    int (*read_fad)(void *buffer, uint32_t fad, uint16_t sectors);
-} gdrom_service_table_t;
-```
-
-The custom BIOS must check all of the following before calling the table:
-
-```text
-magic   == 0x4744524F
-version == 1
-size    >= sizeof(gdrom_service_table_t)
-```
-
-Function pointers refer to code in the bootloader ROM. The ROM remains mapped
-after the KOS payload starts, so the custom BIOS can call those functions.
-
-## What is still missing
-
-### 1. Verified GD-ROM initialization
-
-The current packet transport is not a complete drive initialization routine.
-The final implementation must establish the correct sequence for:
-
-- drive reset/wakeup;
-- repeated initialization/status commands;
-- sector/data mode selection;
-- drive readiness and media status;
-- command completion and error recovery.
-
-Calling the raw driver during reset is unsafe. All waits must remain bounded.
-
-### 2. Complete PIO and DMA behavior
-
-The current implementation only provides a basic PIO path. A production
-implementation needs to handle:
-
-- multiple data phases;
-- byte-count changes between phases;
-- command and data interrupts;
-- DMA alignment and protection registers;
-- DMA completion and overrun errors;
-- cache maintenance;
-- abort and reset recovery.
-
-### 3. Reliable TOC parsing
-
-The custom BIOS currently treats a successful TOC response as sufficient to
-identify a data track. It still needs robust parsing for:
-
-- session count;
-- first and last track;
-- lead-out;
-- audio/data control flags;
-- CD and GD media differences;
-- invalid or incomplete TOC responses.
-
-### 4. ISO9660 access
-
-The custom BIOS does not yet use the raw service to browse the disc. It needs a
-small read-only ISO9660 implementation capable of:
-
-1. reading the primary volume descriptor;
-2. locating the root directory record;
-3. finding `1ST_READ.BIN`;
-4. reading its extent and length;
-5. handling sector boundaries and file sizes.
-
-### 5. Game loading and descrambling
-
-A raw game loader must load the binary into a safe staging area, apply the
-Dreamcast scrambling reversal, copy it to its required address, configure the
-handoff registers/stack, invalidate caches, and jump to the game entry point.
-
-The current BIOS still uses the proven `rungd.bin` launcher for this purpose.
-
-### 6. Stage-2 packaging validation
-
-The bootloader expects a payload at ROM offset `0x10000`. Every final image
-must be checked to ensure that:
-
-- the bootloader code is present at the beginning;
-- the KOS payload is present at offset `0x10000`;
-- the payload does not exceed its available ROM window;
-- the final image is exactly 2 MiB.
-
-The KOS payload window is limited. Excessive audio, assets, or debugging code
-can produce a BIOS that builds successfully but cannot boot correctly.
-
-## Current limitations
-
-- The raw GD-ROM path is experimental and has not been validated on physical
-  hardware.
-- Flycast CDI testing can hide hardware timing and initialization problems.
-- A successful bootloader splash does not prove that the GD-ROM service works.
-- A successful TOC read does not prove that game sectors can be read reliably.
-- The custom BIOS still depends on `rungd.bin` for actual game launching.
-- The service table is not compatible with KOS `cdrom_*()` calls automatically.
-- No interrupt-driven GD-ROM service is currently exposed.
-- No DMA-backed service is currently exposed.
-- The bootloader has no filesystem, allocator, or general-purpose runtime.
-- The bootloader must not overwrite a physical BIOS without a recoverable
-  replacement method and a verified image.
-
-## Reference sources
-
-Original OpenDC code and documentation are released under the MIT License in
-[`LICENSE`](LICENSE). This does not change the licenses of KallistiOS,
-DreamDash, Libronin, iceGDROM, or any BIOS and firmware images used during
-development.
-
-### KallistiOS
-
-Use these files for local hardware definitions and API behavior:
-
-- [`g1ata.c`](../../kos/kernel/arch/dreamcast/hardware/g1ata.c)
-- [`cdrom.c`](../../kos/kernel/arch/dreamcast/hardware/cdrom.c)
-- [`syscalls.c`](../../kos/kernel/arch/dreamcast/hardware/syscalls.c)
-
-KOS `cdrom.c` is not a freestanding replacement. It depends on KOS runtime
-services and BIOS GD-ROM syscalls.
-
-### Libronin
-
-The checked-in reference is:
-
-```text
-projects/OpenDC/bootloader/reference/libronin
-```
-
-Its `gddrive.s` provides BIOS syscall wrappers at `0x8C0000BC`; it is useful
-for command names and legacy behavior, but it is not itself a raw G1 driver.
-
-### iceGDROM
-
-The checked-in reference is:
-
-```text
-projects/OpenDC/bootloader/reference/iceGDROM
-```
-
-The most relevant file is:
-
-```text
-rv32/source/ide.c
-```
-
-It documents the Sega Packet Interface commands used by the FPGA emulator,
-including TOC and CD read packet formats. Its FPGA and RISC-V code cannot be
-compiled directly for the Dreamcast SH-4.
-
-## Recommended development order
-
-The safest development sequence is:
-
-1. Keep the working KOS/`rungd.bin` launcher enabled.
-2. Validate the combined image layout with `make check`.
-3. Add a visible raw-driver diagnostic showing status and return codes.
-4. Validate drive initialization without a disc.
-5. Validate TOC reading with a CDI in Flycast.
-6. Validate one known FAD sector against expected bytes.
-7. Read and validate `IP.BIN`.
-8. Implement the minimal ISO9660 lookup for `1ST_READ.BIN`.
-9. Load and descramble one game binary into a staging buffer.
-10. Add the raw game handoff behind a build-time or menu option.
-11. Test on multiple CDI images and, only afterward, physical hardware.
-
-Do not remove the fallback launcher until the raw path can recover cleanly from
-an empty drive, an invalid disc, a changed disc, a read error, and a reset.
+---
+
+## Subsystem Details
+
+### 1. Unified Game Launcher (`boot.c`)
+- **Direct Multi-Format Detection**:
+  1. Inspects disc structure via `iso9660.c`.
+  2. Resolves boot binary (`1ST_READ.BIN` or `0WINCEOS.BIN`) across single-session CDI or multi-track high-density GDI tracks (e.g. Track 3 PVD directing extents into Track 5).
+  3. Reverses Dreamcast proprietary byte scrambling in RAM.
+  4. Checks for Windows CE signature (`wince_detect`). If detected, activates the Windows CE subsystem.
+  5. Loads 16 sectors of `IP.BIN` into `0x8C008000`.
+  6. Installs syscall vectors, exception tables, and hardware access registers.
+  7. Transfers control to `0xAC008300` (Sega License Screen) or `0x8C010000` (Homebrew direct boot).
+
+### 2. Syscall & Exception Engine (`syscalls.c`, `retail_vectors.h`)
+- **Authentic Exception Dispatcher**: Installs the genuine 2048-byte Sega Dreamcast retail exception dispatch engine (`0x0000..0x0800`) directly from the retail BIOS.
+- **Hardware Routing**:
+  - Vector `0x100` (General Exception) and Vector `0x400` (TLB Miss) decode `EXPEVT`, lookup the OS handler registered at `0x8C0001C8`, preserve full CPU state, and restore via `rte`.
+  - Vector `0x600` acknowledges and dispatches Holly ASIC and TMU interrupts.
+- **Direct Trampoline (`0x8C0010F0`)**: Windows CE and legacy Midway titles execute direct function calls to `0x8C0010F0`. An SH-4 machine code trampoline (`mov.l @(4, PC), r0; jmp @r0; nop; nop; &gdrom_syscall_dispatch`) guarantees valid execution.
+- **FlashROM Emulation**: Emulates factory partition 0 (`0x1A000` and `0x1A0A0`) with authentic region code `"00110"` and serial `"Dreamcast  "`. Partition 2 user settings are emulated with verified CRC-16 checksums (`0x0340`).
+
+### 3. Modular Windows CE Subsystem (`wince.c`, `wince.h`)
+- **Isolation**: Keeps all Windows CE specific requirements decoupled from standard Katana and Homebrew paths.
+- **ROMHDR / TOC**: Parses Microsoft `ROMHDR` structures (`0x43454345` `"ECEC"`), determining `physfirst`, `physlast`, `ulRAMStart`, and `ulRAMFree`.
+- **Dynamic `SB_GDSTARD`**: Dynamically calculates `physfirst + ulRAMFree` required by WinCE `IP.BIN` verification while preserving default `0x0C110000` for Katana.
+- **Security Checksum**: Computes the 98-word balancing checksum across `0x8C0010F0` and writes the balancing values at `0x8C003174`.
+
+---
+
+## Current Roadmap: What's Achieved vs What's Left
+
+### Core Bootloader & Architecture
+
+| Feature / Subsystem | Status | Category | Details |
+| :--- | :--- | :--- | :--- |
+| **Freestanding 2MB BIOS Build** | **Complete** | Core | Assembles cleanly with `make check`; verified exactly 2,097,152 bytes. |
+| **Low-Level SDRAM & Cache Setup** | **Complete** | Core | Proper SH-4 CCR configuration (0x092B enables OCRAM at 0x7E001000 for IP.BIN). |
+| **Retail Exception Dispatch Engine** | **Complete** | Core | Full 2048-byte retail dispatcher handling `0x100`, `0x400`, and `0x600`. |
+| **BIOS Syscall Vectors** | **Complete** | Core | Complete vector table at `0x8C0000B0..0x8C0000E0` and `0xAC0000B0..0xAC0000E0`. |
+| **Direct GD-ROM Trampoline** | **Complete** | Core | Executable SH-4 machine code trampoline at `0x8C0010F0`. |
+| **Soft Reset (ABXY+Start)** | *In Progress* | Core | Intercepting controller soft-reset combo to return to dashboard/bootloader cleanly. |
+| **Dual-BIOS / Flash Chip Flashing** | *Planned* | Hardware | Pinout verification and timing for MX29LV160T / MX29F1610 EEPROMs. |
+| **SCIF / Serial Port GDB Stub** | *Planned* | Debug | Real-time interactive kernel debugging via the Dreamcast serial port. |
+
+### Disc, Transport & File Systems
+
+| Feature / Subsystem | Status | Category | Details |
+| :--- | :--- | :--- | :--- |
+| **G1 ATA Low-Level PIO Driver** | **Complete** | Storage | High-reliability PIO sector reading and command submission. |
+| **GD-ROM Packet State Machine** | **Complete** | Storage | SPI packet commands: Request Sense, Req Mode, Read CD, Read TOC. |
+| **ISO9660 PVD & Extent Parser** | **Complete** | Filesystem | Traverses PVD, directory records, and multi-track high-density extents (Track 3 $\to$ Track 5). |
+| **Dreamcast Binary Descrambler** | **Complete** | Security | 2MB Katana sector interleaving reversal algorithm. |
+| **Region-Free Disc Patching** | **Complete** | Feature | Bypasses region lock (USA/JAP/PAL) for all retail GD-ROM and CDI discs. |
+| **GD-ROM Drive Tray / Media Change** | *In Progress* | Storage | Polling drive status for disc insertion, lid open/close, and spin-up ready states. |
+| **GD-ROM Asynchronous DMA Mode** | *Planned* | Storage | `GDCC_DMAREAD` via G1 Bus DMAC for background streaming without CPU polling. |
+| **CDDA Digital Audio Playback** | *Not Implemented* | Audio | Optical drive CDDA playback commands via SPI audio packets for games with audio tracks. |
+| **Joliet & Rock Ridge Extensions** | *Not Implemented* | Filesystem | Long filename support and deep nested directory traversal for homebrew CDIs. |
+| **Multi-Disc Swapping Support** | *Planned* | Feature | Real-time prompt and re-initialization sequence for multi-disc RPGs and adventures. |
+
+### Game Compatibility & OS Engines
+
+| Feature / Subsystem | Status | Category | Details |
+| :--- | :--- | :--- | :--- |
+| **Authentic Sega License Screen** | **Complete** | Boot Flow | Authentic 2-second TMU timer and transition into Bootstrap 1 & Bootstrap 2. |
+| **Katana Retail GDI Games** | **Complete** | Compatibility | Fully boots commercial titles (*Sonic Adventure 2*) into full 3D gameplay. |
+| **KallistiOS Homebrew CDI Discs** | **Complete** | Compatibility | Direct boot to `0x8C010000` fully working (*240p Test Suite*). |
+| **MIL-CD Exploit Compatibility** | **Complete** | Compatibility | Compatible with standard multisession CD-ROM homebrew discs. |
+| **Windows CE Detection & Headers** | **Complete** | Windows CE | Modular `wince.c` parsing `ROMHDR` and dynamic `SB_GDSTARD`. |
+| **Windows CE Security Checksum** | **Complete** | Windows CE | 98-word Midway / SF Rush checksum balancing verified = 0. |
+| **Windows CE MMU Page-Table Binding** | *In Progress* | Windows CE | Microkernel (`nk.exe`) handoff and `CCN_TTB` virtual address translation. |
+| **Windows CE Asynchronous Driver Hooks** | *Planned* | Windows CE | Handling async GD-ROM packet callbacks expected by WinCE device drivers. |
+| **Uncompressed NK Kernel Relocation** | *Planned* | Windows CE | Support for non-standard homebrew CE builds with uncompressed `nk.exe` kernels. |
+
+### Hardware, Peripherals & Misc
+
+| Feature / Subsystem | Status | Category | Details |
+| :--- | :--- | :--- | :--- |
+| **FlashROM Factory Identity Emulation** | **Complete** | Hardware | Returns `"00110Dreamcast  "` at `0x1A000` and mirror `0x1A0A0`. |
+| **FlashROM User Settings Emulation** | **Complete** | Hardware | System configuration block with valid CRC-16 checksum (`0x0340`). |
+| **Video Cable / Output Sensing** | **Complete** | Hardware | Detects VGA (31kHz) vs RGB/Composite (15kHz) via `BSC_PDTRA`. |
+| **FlashROM Physical Write Persistence** | *Not Implemented* | Hardware | Saving user preferences (language, audio, time) back to physical flash chip. |
+| **Maple Bus Controller & Peripherals** | *In Progress* | Hardware | Initializing standard controllers, keyboards, mice, and jump packs. |
+| **VMU LCD Icon & Screen Animations** | *Planned* | Peripheral | Displaying custom OpenDC boot logo on VMU LCD screens during startup. |
+| **AICA ARM7 Sound CPU Firmcode** | *In Progress* | Audio | AICA sound chip reset and initial driver upload. |
+| **RTC Calendar Clock Sync** | *In Progress* | Hardware | Reading and synchronizing RTC time with FlashROM timestamp. |
+| **Broadband Adapter / LAN Init** | *Not Implemented* | Network | Initializing BBA (HIT-0400) or 56k dial-up modem for network-capable titles. |
+| **16:9 Anamorphic Widescreen Forcing** | *Planned* | Misc | Optional boot-time anamorphic widescreen aspect ratio patch for 3D games. |
+
+---
+
+## Technical Focus: Windows CE Microkernel Completion
+
+To bring Windows CE titles (*Midway Arcade Hits*, *Resident Evil 2*, *Rainbow Six*) to full in-game execution:
+
+1. **MMU Page Table Walking (`CCN_TTB`)**:
+   Windows CE activates the SH-4 MMU (`CCN_MMUCR.AT = 1`). User space (`0x00000000..0x7FFFFFFF`) is accessed through virtual memory pages mapped via `CCN_TTB`. When a TLB miss occurs, the CPU jumps to `0x8C000400`. The handler must look up the page directory and page tables indexed by `CCN_TTB`, populate `CCN_PTEH` and `CCN_PTEL`, and execute `ldtlb` to resume execution without faulting.
+
+2. **Stage-0 to Microkernel Stack Handoff**:
+   Ensure `r15` stack alignment and VBR register handoff strictly conform to the Microsoft CE kernel loader expectations (`r15 = 0x8C00F400` or `0x8C000000`).
