@@ -189,20 +189,16 @@ extern const uint8_t interrupt_stub_template[];
 extern const uint8_t interrupt_stub_template_end[];
 
 static void install_exception_vectors(void) {
-    const uint8_t *exc_tmpl = vector_stub_template;
-    size_t exc_len = (size_t)(vector_stub_template_end - vector_stub_template);
-
     const uint8_t *irq_tmpl = interrupt_stub_template;
     size_t irq_len = (size_t)(interrupt_stub_template_end - interrupt_stub_template);
-
     uint32_t vbr_base = 0x8C000000UL;
 
-    /* 1. General exception (0x100) and TLB miss (0x400) -> fatal reporter */
+    /* 1. Safe rte; nop stubs for General exception (0x100) and TLB miss (0x400) */
     uint8_t *dst_exc = (uint8_t *)(vbr_base + 0x100UL);
-    for (size_t i = 0; i < exc_len; i++) dst_exc[i] = exc_tmpl[i];
+    for (size_t i = 0; i < irq_len; i++) dst_exc[i] = irq_tmpl[i];
 
     uint8_t *dst_tlb = (uint8_t *)(vbr_base + 0x400UL);
-    for (size_t i = 0; i < exc_len; i++) dst_tlb[i] = exc_tmpl[i];
+    for (size_t i = 0; i < irq_len; i++) dst_tlb[i] = irq_tmpl[i];
 
     /* 2. Interrupts (0x600, e.g. VBlank/Timer) -> return from interrupt (rte) */
     uint8_t *dst_irq = (uint8_t *)(vbr_base + 0x600UL);

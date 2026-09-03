@@ -49,14 +49,31 @@ int gdrom_boot_game(uint32_t data_fad) {
     *(volatile uint32_t *)0xA05F688CUL = 0x00000000; /* SB_SDSTAW */
     *(volatile uint32_t *)0xA05F8040UL = 0x00000000; /* VO_BORDER_COL */
 
-    /* 5. Flush & enable SH-4 caches (CCR = 0x092B) */
+    /* 5. Copy BIOS runtime helper routines (4096 bytes) from Flash ROM 0xA0004000 to 0x8CE00000 */
+    const uint32_t *src_rom = (const uint32_t *)0xA0004000UL;
+    uint32_t *dst_ram = (uint32_t *)0x8CE00000UL;
+    uint32_t *dst_uncached = (uint32_t *)0xACE00000UL;
+    for(size_t i = 0; i < 0x400; i++) {
+        dst_ram[i] = src_rom[i];
+        dst_uncached[i] = src_rom[i];
+    }
+
+    /* 6. Apply retail BIOS security DRM patches to IP.BIN (bypasses security fail reset) */
+    *(volatile uint16_t *)(0x8C008300UL + 0x0DD8) = 0x5113;
+    *(volatile uint16_t *)(0x8C008300UL + 0x14BC) = 0x0009; /* nop */
+    *(volatile uint16_t *)(0x8C008300UL + 0x1578) = 0xE030; /* mov #48, r0 */
+    *(volatile uint16_t *)(0xAC008300UL + 0x0DD8) = 0x5113;
+    *(volatile uint16_t *)(0xAC008300UL + 0x14BC) = 0x0009;
+    *(volatile uint16_t *)(0xAC008300UL + 0x1578) = 0xE030;
+
+    /* 7. Flush & enable SH-4 caches (CCR = 0x092B enables OCRAM at 0x7E001000 for IP.BIN) */
     *(volatile uint32_t *)0xFF00001CUL = 0x0000092BUL;
     __asm__ volatile("nop\n\t" "nop\n\t" "nop\n\t" "nop\n\t"
                      "nop\n\t" "nop\n\t" "nop\n\t" "nop" ::: "memory");
 
-    /* 6. Determine boot entrypoint:
-          Katana games boot through IP.BIN bootstrap at 0xAC008300 (or 0x8C008300).
-          If IP.BIN has code at 0x8C008300, jump to 0xAC008300; otherwise fallback to 0x8C010000. */
+    /* 8. Determine boot entrypoint:
+          Commercial discs contain Sega license display code at 0x8C008300.
+          Homebrew discs (CDI) have 0s at 0x8C008300 and boot directly from 0x8C010000. */
     uint32_t boot_entry = 0x8C010000UL;
     uint32_t *ip_entry = (uint32_t *)0x8C008300UL;
     if(*ip_entry != 0 && *ip_entry != 0xFFFFFFFFUL) {
@@ -104,7 +121,7 @@ int gdrom_boot_game(uint32_t data_fad) {
         "7:  .long 0x8C000010\n\t"
         "8:  .long 0xAC0005D8\n\t"
         "9:  .long 0xAC00940C\n\t"
-        "10: .long 0x8C008300\n\t"
+        "10: .long 0xAC008300\n\t"
         "11: .long 0xF4000000\n\t"
         "12: .long 0xF4002000\n\t"
         :

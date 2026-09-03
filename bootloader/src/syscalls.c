@@ -277,7 +277,7 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             if(!arg0) return -1;
             kos_drive_status_t *status = (kos_drive_status_t *)kos_buffer_address((void *)arg0);
             status->status = KOS_STATUS_STANDBY;
-            status->disc_type = KOS_DISC_GDROM;
+            status->disc_type = (gdrom_get_cached_data_fad() >= 45000U) ? KOS_DISC_GDROM : 0x10;
             return 0;
         }
 
@@ -539,10 +539,15 @@ static int kos_system_dispatch(uint32_t arg0, uint32_t arg1,
                                uint32_t arg2, uint32_t function) {
     (void)arg1; (void)arg2; (void)function;
     if(arg0 == 0) {
-        /* MISC normal init: clear normal interrupts and set border color */
+        /* MISC normal init: set GD DMA start, clear normal interrupts and set border color */
+        *(volatile uint32_t *)0xA05F7404UL = 0x0C010000UL + 0x00100000UL;
         *(volatile uint32_t *)0xA05F6808UL = 0;           /* SB_IML2NRM = 0 */
         *(volatile uint32_t *)0xA05F8040UL = 0x00C0BEBCUL; /* VO_BORDER_COL */
         return 0x00C0BEBC;
+    }
+    if(arg0 == 2) {
+        /* MISC check disk: return 0 = disc ready */
+        return 0;
     }
     return 0;
 }
@@ -554,6 +559,15 @@ void gdrom_install_syscall(void) {
         low_stubs[i]     = 0x000B; /* rts */
         low_stubs[i + 1] = 0x0009; /* nop */
     }
+
+    /* System drive status global variables checked by IP.BIN */
+    uint32_t disc_type = (gdrom_get_cached_data_fad() >= 45000U) ? 0x80 : 0x10;
+    *(volatile uint32_t *)0x8C000040UL = 0;
+    *(volatile uint32_t *)0x8C000048UL = 2; /* STANDBY */
+    *(volatile uint32_t *)0x8C00004CUL = disc_type;
+    *(volatile uint32_t *)0xAC000040UL = 0;
+    *(volatile uint32_t *)0xAC000048UL = 2;
+    *(volatile uint32_t *)0xAC00004CUL = disc_type;
 
     /* 2. Exception & Interrupt stubs for SH-4 VBR at 0x8C000000:
           0x8C000100: General Exception -> rte; nop
