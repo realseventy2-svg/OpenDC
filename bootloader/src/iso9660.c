@@ -11,18 +11,12 @@ uint32_t read_le32_unaligned(const uint8_t *p) {
 }
 
 uint32_t lba_to_fad(uint32_t lba, uint32_t data_fad) {
-    if(data_fad >= 45000U) {
-        /* High-Density Track 3 (GDI): Extents >= 44000 are absolute disc LBAs.
-           Since Track 3 physical data starts at FAD 45150 (45000 + 150),
-           every disc LBA requires adding the 150 sector lead-in. */
-        if(lba >= 44000U) {
-            return lba + 150U;
-        }
-        /* Relative sector within Track 3 */
-        return data_fad + lba;
+    if(lba >= 44000U) {
+        /* Absolute disc LBA (e.g. GDI Track 3 LBA or MIL-CD 76-minute session LBA >= 344000) */
+        return lba + 150U;
     }
 
-    if(lba >= 10000U && lba < 44000U) {
+    if(lba >= 10000U) {
         /* Multi-session CDI: ISO LBAs were generated with -C 0,11702 */
         if(data_fad >= 11800U) {
             return data_fad + (lba - 11702U);
@@ -30,6 +24,8 @@ uint32_t lba_to_fad(uint32_t lba, uint32_t data_fad) {
             return lba + 150U;
         }
     }
+
+    /* Relative sector within Track */
     return data_fad + lba;
 }
 
@@ -63,6 +59,7 @@ uint32_t iso_get_ip_fad(void) {
 
 int iso_load_1st_read(uint32_t data_fad) {
     uint8_t *sector = (uint8_t *)0x8C004000UL;
+    uint8_t *ip_sector = (uint8_t *)0x8C006000UL;
     uint32_t file_fad  = 0;
     uint32_t file_size = 0;
     uint32_t pvd_fad   = 0;
@@ -70,12 +67,12 @@ int iso_load_1st_read(uint32_t data_fad) {
     char wince_os = '0';
     cached_ip_fad = 0;
 
-    /* 1. Read IP.BIN (sector 0 at data_fad) to determine target boot executable and OS type */
-    if(gdrom_read_fad(sector, data_fad, 1) == GDROM_OK) {
-        wince_os = (char)sector[0x3E];
+    /* 1. Read IP.BIN (sector 0 at data_fad) into dedicated buffer to determine target boot executable and OS type */
+    if(gdrom_read_fad(ip_sector, data_fad, 1) == GDROM_OK) {
+        wince_os = (char)ip_sector[0x3E];
         int len = 0;
         for(int i = 0; i < 16; i++) {
-            char c = (char)sector[0x60 + i];
+            char c = (char)ip_sector[0x60 + i];
             if(c > ' ') {
                 boot_file[len++] = c;
             } else if(len > 0) {
@@ -172,7 +169,7 @@ int iso_load_1st_read(uint32_t data_fad) {
     if(is_gdi) {
         /* Official GD-ROM / GDI High-Density format (Area 1) */
         load_res = gdi_load_binary(file_fad, file_size, dest, is_wince);
-    } else if(homebrew_cdi_detect(sector)) {
+    } else if(homebrew_cdi_detect(ip_sector)) {
         /* KallistiOS / Homebrew CDI format */
         load_res = homebrew_cdi_load(file_fad, file_size, dest);
     } else {

@@ -79,7 +79,7 @@ int gdrom_boot_game(uint32_t data_fad) {
           Homebrew discs (CDI) have 0s at 0x8C008300 and boot directly from 0x8C010000. */
     uint32_t boot_entry = 0x8C010000UL;
     uint32_t *ip_entry = (uint32_t *)0x8C008300UL;
-    if(gdrom_get_cached_disc_type() == 0x80 && *ip_entry != 0 && *ip_entry != 0xFFFFFFFFUL) {
+    if(*ip_entry != 0 && *ip_entry != 0xFFFFFFFFUL) {
         boot_entry = 0xAC008300UL;
         if(*(volatile uint16_t *)(0x8C008300UL + 0x0DD8) == 0xE100 &&
            *(volatile uint16_t *)(0x8C008300UL + 0x14BC) == 0xBE25) {

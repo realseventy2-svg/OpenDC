@@ -11,8 +11,8 @@ int selfboot_cdi_detect(const uint8_t *ip_sector) {
         return 1;
     }
 
-    /* Check for commercial bootstrap code at 0x8C008300 */
-    const uint32_t *ip_entry = (const uint32_t *)0x8C008300UL;
+    /* Check for commercial bootstrap code at ip_sector + 0x0300 */
+    const uint32_t *ip_entry = (const uint32_t *)(ip_sector + 0x0300);
     if(*ip_entry != 0 && *ip_entry != 0xFFFFFFFFUL) {
         return 1;
     }
@@ -33,8 +33,12 @@ int selfboot_cdi_load(uint32_t file_fad, uint32_t file_size, uint8_t *dest) {
     const uint16_t *op = (const uint16_t *)staging;
     int is_unscrambled = 0;
 
-    /* Katana SDK crt0 NOP sled (0x0009 at op[0] or op[1]) or standard entry */
-    if(op[0] == 0x0009 || op[1] == 0x0009) {
+    /* Entrypoint detection:
+       - KallistiOS crt0 (mov.l @(disp,PC), r0; stc sr, r1; mov.l r1, @r0)
+       - Katana SDK crt0 NOP sled (0x0009 at op[0] or op[1]) */
+    if((op[0] & 0xFF00) == 0xD000 && op[1] == 0x0102 && op[2] == 0x2012) {
+        is_unscrambled = 1;
+    } else if(op[0] == 0x0009 || op[1] == 0x0009) {
         is_unscrambled = 1;
     }
 

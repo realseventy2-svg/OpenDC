@@ -15,7 +15,7 @@ void gdrom_descramble(const uint8_t *src, uint8_t *dst, uint32_t filesz) {
     uint32_t src_pos = 0;
     uint32_t remaining = filesz;
     uint8_t *cur_dst = dst;
-    uint16_t *idx = (uint16_t *)0x8CE00000UL;
+    uint16_t *idx = (uint16_t *)0x8CF00000UL;
 
     scramble_srand(filesz);
 

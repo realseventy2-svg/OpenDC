@@ -32,8 +32,8 @@ int homebrew_cdi_detect(const uint8_t *ip_sector) {
         return 1;
     }
 
-    /* Check if IP.BIN bootstrap code at 0x8C008300 is empty/zeroed (standard makeip output) */
-    const uint32_t *ip_entry = (const uint32_t *)0x8C008300UL;
+    /* Check if IP.BIN bootstrap code at ip_sector + 0x0300 is empty/zeroed (standard makeip output) */
+    const uint32_t *ip_entry = (const uint32_t *)(ip_sector + 0x0300);
     if(*ip_entry == 0 || *ip_entry == 0xFFFFFFFFUL) {
         return 1;
     }
