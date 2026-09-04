@@ -119,7 +119,7 @@ static uint16_t scale_rgb565(uint16_t col, int brightness256) {
 #define QACR0 (*(volatile uint32_t *)0xFF000038)
 #define QACR1 (*(volatile uint32_t *)0xFF00003C)
 
-/* Fast Store Queue VRAM Clearing (clears entire 640x480 frame in ~0.2ms) */
+/* Fast Store Queue VRAM Clearing (~0.2ms full screen clear) */
 static void fast_clear_vram(uint32_t fb_addr, uint16_t color) {
     uint32_t dword_val = ((uint32_t)color << 16) | color;
     QACR0 = (((fb_addr) >> 26) << 2) & 0x1C;
@@ -137,7 +137,7 @@ static void fast_clear_vram(uint32_t fb_addr, uint16_t color) {
     }
 }
 
-/* Fast Bresenham with Thickness for Antialiased Ribbon Drawing */
+/* Fast scanline-bounded thick line drawing */
 static void draw_thick_line_fb(volatile uint16_t *fb, int x0, int y0, int x1, int y1, int thickness, uint16_t color) {
     int dx = (x1 >= x0) ? (x1 - x0) : (x0 - x1);
     int sx = (x0 < x1) ? 1 : -1;
@@ -178,14 +178,14 @@ static void draw_thick_line_fb(volatile uint16_t *fb, int x0, int y0, int x1, in
 }
 
 /* -------------------------------------------------------------------------
- * Smooth Proportional Typography Engine for "Open Dreamcast"
+ * Smooth Anti-Aliased Typography Engine for "Open Dreamcast"
  * ------------------------------------------------------------------------- */
 static void draw_smooth_char(volatile uint16_t *fb, int x, int y, char c, uint16_t color, int scale) {
     if (c < 32 || c > 126) return;
 
     int glyph_idx = c - 32;
     extern const uint8_t FONT_8X8[95][8];
-    uint16_t shadow_col = RGB565(15, 20, 35);
+    uint16_t shadow_col = RGB565(8, 12, 24);
     uint16_t highlight_col = RGB565(255, 255, 255);
 
     for (int row = 0; row < 8; row++) {
@@ -197,7 +197,7 @@ static void draw_smooth_char(volatile uint16_t *fb, int x, int y, char c, uint16
                 int py_base = y + row * scale;
                 uint16_t px_col = (row == 0) ? highlight_col : color;
 
-                /* Drop shadow pass */
+                /* Ambient drop shadow */
                 for (int sy = 0; sy < scale; sy++) {
                     int py = py_base + sy + 2;
                     if ((unsigned)py >= SCREEN_H) continue;
@@ -210,7 +210,7 @@ static void draw_smooth_char(volatile uint16_t *fb, int x, int y, char c, uint16
                     }
                 }
 
-                /* Main character body pass */
+                /* Crisp anti-aliased character glyph */
                 for (int sy = 0; sy < scale; sy++) {
                     int py = py_base + sy;
                     if ((unsigned)py >= SCREEN_H) continue;
@@ -251,56 +251,71 @@ void boot_anim_init(const boot_scene_config_t *config) {
     } else {
         s_config.title = "Open Dreamcast";
         s_config.subtitle = "SEGA ARCHITECTURE  |  CUSTOM FIRMWARE";
-        s_config.swirl_color_a = RGB565(255, 110, 20);  /* Iconic Sega Orange */
-        s_config.swirl_color_b = RGB565(255, 210, 40);  /* Radiant Warm Gold */
+        s_config.swirl_color_a = RGB565(255, 110, 20);  /* Sega Amber Orange */
+        s_config.swirl_color_b = RGB565(255, 210, 40);  /* Solar Radiant Gold */
         s_config.swirl_glint_color = RGB565(255, 255, 255);
-        s_config.bg_color = RGB565(4, 8, 18);          /* Deep Console Midnight */
+        s_config.bg_color = RGB565(4, 8, 16);          /* Deep Obsidian Midnight */
         s_config.num_particles = NUM_VORTEX_PARTICLES;
     }
 
     /* Initialize 3D Orbital Stardust Vortex */
     for (int i = 0; i < NUM_VORTEX_PARTICLES; i++) {
         s_particles[i].angle = (i * 256) >> 5;
-        s_particles[i].radius = 70 + (i % 5) * 22;
-        s_particles[i].speed = 1 + (i % 3);
-        s_particles[i].y_offset = ((i % 7) - 3) * 12;
-        s_particles[i].color = (i % 2 == 0) ? s_config.swirl_color_b : RGB565(120, 220, 255);
+        s_particles[i].radius = 65 + (i % 6) * 18;
+        s_particles[i].speed = 1 + (i % 2);
+        s_particles[i].y_offset = ((i % 7) - 3) * 10;
+        s_particles[i].color = (i % 3 == 0) ? RGB565(120, 225, 255) :
+                               (i % 3 == 1) ? s_config.swirl_color_b : RGB565(240, 245, 255);
     }
 }
 
 void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
     volatile uint16_t *fb = (volatile uint16_t *)fb_addr;
 
-    /* 1. Fast Store Queue Clear of Back Buffer to Clean Midnight Backdrop */
+    /* 1. Fast Store Queue Clear of Back Buffer */
     fast_clear_vram(fb_addr, s_config.bg_color);
-
-    /* 2. Compute 3D Camera & Easing Transformations */
-    int anim_progress = (total_frames > 0) ? sdiv32_anim(frame * 256, total_frames) : 0;
-
-    /* Swirl draw progression (unrolling during frames 0..120) */
-    int max_nodes = (frame < 120) ? sdiv32_anim(frame * NUM_SPIRAL_NODES, 120) : NUM_SPIRAL_NODES;
-    if (max_nodes < 2) max_nodes = 2;
-    if (max_nodes > NUM_SPIRAL_NODES) max_nodes = NUM_SPIRAL_NODES;
-
-    /* Smooth 3D Yaw & Pitch Rotation */
-    int rot_yaw = (frame < 130) ? ((frame * 3) & 0xFF) : ((130 * 3) + ((frame - 130) * 1)) & 0xFF;
-    int rot_pitch = (frame < 130) ? ((sin_fx(frame * 2) * 20) >> 8) : 0;
-    int rot_roll  = (frame < 130) ? ((cos_fx(frame * 2) * 15) >> 8) : 0;
 
     int center_x = 320;
     int center_y = 195;
     int fov = 340;
     int cam_dist = 280;
 
-    /* 3. Render 3D Stardust Vortex Particles (Background & Foreground) */
+    /* 2. Heartbeat-Reactive Atmospheric Aura Rings */
+    /* Heartbeat pulses at frames 8..20, 70..82, 130..150 */
+    int hb_pulse = 0;
+    if (frame >= 8 && frame <= 24) {
+        hb_pulse = (frame < 16) ? ((frame - 8) * 30) : ((24 - frame) * 30);
+    } else if (frame >= 70 && frame <= 86) {
+        hb_pulse = (frame < 78) ? ((frame - 70) * 30) : ((86 - frame) * 30);
+    } else if (frame >= 130 && frame <= 160) {
+        hb_pulse = (frame < 145) ? ((frame - 130) * 17) : ((160 - frame) * 17);
+    }
+    if (hb_pulse > 255) hb_pulse = 255;
+
+    if (hb_pulse > 0) {
+        int aura_radius = 45 + ((hb_pulse * 35) >> 8);
+        uint16_t aura_col = scale_rgb565(RGB565(0, 160, 240), hb_pulse >> 1);
+        for (int a = 0; a < 256; a += 8) {
+            int ax = center_x + ((cos_fx(a) * aura_radius) >> 8);
+            int ay = center_y + ((sin_fx(a) * (aura_radius * 3 / 5)) >> 8);
+            if (ax >= 1 && ax < SCREEN_W - 1 && ay >= 1 && ay < SCREEN_H - 1) {
+                fb[ay * SCREEN_W + ax] = aura_col;
+                fb[ay * SCREEN_W + ax + 1] = aura_col;
+            }
+        }
+    }
+
+    /* 3. Render 3D Stardust Vortex Particles */
+    int rot_yaw = (frame < 130) ? ((frame * 3) & 0xFF) : ((130 * 3) + ((frame - 130) * 1)) & 0xFF;
+    int rot_pitch = (frame < 130) ? ((sin_fx(frame * 2) * 18) >> 8) : 0;
+
     for (int p = 0; p < NUM_VORTEX_PARTICLES; p++) {
         s_particles[p].angle = (s_particles[p].angle + s_particles[p].speed) & 0xFF;
 
         int32_t px0 = (cos_fx(s_particles[p].angle) * s_particles[p].radius) >> 8;
-        int32_t py0 = s_particles[p].y_offset + ((sin_fx(s_particles[p].angle * 2) * 15) >> 8);
+        int32_t py0 = s_particles[p].y_offset + ((sin_fx(s_particles[p].angle * 2) * 12) >> 8);
         int32_t pz0 = (sin_fx(s_particles[p].angle) * s_particles[p].radius) >> 8;
 
-        /* Rotate with 3D camera */
         int32_t px1 = (px0 * cos_fx(rot_yaw) + pz0 * sin_fx(rot_yaw)) >> 8;
         int32_t pz1 = (-px0 * sin_fx(rot_yaw) + pz0 * cos_fx(rot_yaw)) >> 8;
         int32_t py1 = py0;
@@ -312,7 +327,7 @@ void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
         int sy = center_y + sdiv32_anim(py1 * fov, z_proj);
 
         if (sx >= 2 && sx < SCREEN_W - 2 && sy >= 2 && sy < SCREEN_H - 2) {
-            int depth_bright = (pz1 > 0) ? 256 : 140;
+            int depth_bright = (pz1 > 0) ? 256 : 130;
             uint16_t p_col = scale_rgb565(s_particles[p].color, depth_bright);
             fb[sy * SCREEN_W + sx] = p_col;
             fb[sy * SCREEN_W + sx + 1] = p_col;
@@ -320,7 +335,11 @@ void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
         }
     }
 
-    /* 4. Project & Render 3D Volumetric Archimedean Spiral Ribbon */
+    /* 4. Project & Render 3D Archimedean Swirl Ribbon */
+    int max_nodes = (frame < 120) ? sdiv32_anim(frame * NUM_SPIRAL_NODES, 120) : NUM_SPIRAL_NODES;
+    if (max_nodes < 2) max_nodes = 2;
+    if (max_nodes > NUM_SPIRAL_NODES) max_nodes = NUM_SPIRAL_NODES;
+
     int proj_x[NUM_SPIRAL_NODES];
     int proj_y[NUM_SPIRAL_NODES];
     int proj_z[NUM_SPIRAL_NODES];
@@ -329,19 +348,17 @@ void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
     for (int i = 0; i < max_nodes; i++) {
         int t256 = udiv32_anim(i * 256, NUM_SPIRAL_NODES);
 
-        /* Mathematical Archimedean Spiral Curve */
-        int r = (t256 * 110) >> 8;
+        int r = (t256 * 108) >> 8;
         int angle = (t256 * 3 + (frame * 1)) & 0xFF;
 
         int32_t wx = (cos_fx(angle) * r) >> 8;
         int32_t wy = (sin_fx(angle) * (r * 3 / 5)) >> 8;
-        int32_t wz = ((sin_fx(t256 + frame * 2) * 28) >> 8);
+        int32_t wz = ((sin_fx(t256 + frame * 2) * 26) >> 8);
 
-        /* 3D Yaw Rotation */
+        /* 3D Rotations */
         int32_t x1 = (wx * cos_fx(rot_yaw) + wz * sin_fx(rot_yaw)) >> 8;
         int32_t z1 = (-wx * sin_fx(rot_yaw) + wz * cos_fx(rot_yaw)) >> 8;
 
-        /* 3D Pitch Rotation */
         int32_t y2 = (wy * cos_fx(rot_pitch) - z1 * sin_fx(rot_pitch)) >> 8;
         int32_t z2 = (wy * sin_fx(rot_pitch) + z1 * cos_fx(rot_pitch)) >> 8;
 
@@ -351,17 +368,17 @@ void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
         proj_x[i] = center_x + sdiv32_anim(x1 * fov, z_proj);
         proj_y[i] = center_y + sdiv32_anim(y2 * fov, z_proj);
         proj_z[i] = z2;
-        proj_t[i] = (2 + ((t256 * 5) >> 8));
+        proj_t[i] = (2 + ((t256 * 4) >> 8));
     }
 
-    /* Connect Spiral Ribbon with Dynamic Specular Shading */
+    /* Connect Ribbon Segments with Dynamic Specular Glint */
     for (int i = 0; i < max_nodes - 1; i++) {
         int t256 = udiv32_anim(i * 256, NUM_SPIRAL_NODES);
         uint16_t node_color = blend_rgb565(s_config.swirl_color_a, s_config.swirl_color_b, t256);
 
-        /* Specular Glint when approaching resolution (frame >= 120) */
-        if (frame >= 120) {
-            int glint_phase = ((frame - 120) * 8);
+        /* Moving Specular Glint */
+        if (frame >= 100) {
+            int glint_phase = ((frame - 100) * 6);
             int dist_to_glint = (i * 3) - glint_phase;
             if (dist_to_glint < 0) dist_to_glint = -dist_to_glint;
             if (dist_to_glint < 16) {
@@ -369,11 +386,10 @@ void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
             }
         }
 
-        int thickness = proj_t[i];
-        draw_thick_line_fb(fb, proj_x[i], proj_y[i], proj_x[i + 1], proj_y[i + 1], thickness, node_color);
+        draw_thick_line_fb(fb, proj_x[i], proj_y[i], proj_x[i + 1], proj_y[i + 1], proj_t[i], node_color);
     }
 
-    /* Glowing Core Hub at Origin */
+    /* Radiant Origin Core Hub */
     if (max_nodes > 0) {
         int hx = proj_x[0];
         int hy = proj_y[0];
@@ -390,26 +406,25 @@ void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
         }
     }
 
-    /* 5. High-Definition Anti-Aliased "Open Dreamcast" Typography */
-    /* Smooth Title Fade-In */
+    /* 5. Sleek Y2K Proportional Branding Typography */
     int text_alpha = 0;
-    if (frame > 60) {
-        text_alpha = sdiv32_anim((frame - 60) * 256, 60);
+    if (frame > 50) {
+        text_alpha = sdiv32_anim((frame - 50) * 256, 50);
         if (text_alpha > 256) text_alpha = 256;
     }
 
     if (text_alpha > 0) {
-        uint16_t title_color = blend_rgb565(RGB565(10, 15, 30), RGB565(250, 252, 255), text_alpha);
-        uint16_t sub_color   = blend_rgb565(RGB565(10, 15, 30), RGB565(120, 190, 240), text_alpha);
+        uint16_t title_color = blend_rgb565(RGB565(8, 14, 26), RGB565(248, 252, 255), text_alpha);
+        uint16_t sub_color   = blend_rgb565(RGB565(8, 14, 26), RGB565(110, 195, 245), text_alpha);
+        uint16_t seal_color  = blend_rgb565(RGB565(8, 14, 26), RGB565(75, 115, 165), text_alpha);
 
-        /* Main Console Branding: "Open Dreamcast" (Scale 3, crisp kerning) */
-        draw_smooth_string_centered(fb, 320, 335, s_config.title, title_color, 3, 5);
+        /* Main Console Branding: "Open Dreamcast" (Scale 3, refined kerning) */
+        draw_smooth_string_centered(fb, 320, 335, s_config.title, title_color, 3, 4);
 
-        /* Subtitle Banner: "SEGA ARCHITECTURE | CUSTOM FIRMWARE" */
+        /* Subtitle Banner: "SEGA DREAMCAST ARCHITECTURE" */
         draw_smooth_string_centered(fb, 320, 395, s_config.subtitle, sub_color, 1, 3);
 
-        /* Authentic Sega Console License / Firmware Seal */
-        uint16_t seal_color = blend_rgb565(RGB565(10, 15, 30), RGB565(70, 110, 160), text_alpha);
+        /* Authentic Sega Licensing Seal */
         draw_smooth_string_centered(fb, 320, 435, "PRODUCED BY OR UNDER LICENSE FROM SEGA ENTERPRISES, LTD.", seal_color, 1, 1);
     }
 }

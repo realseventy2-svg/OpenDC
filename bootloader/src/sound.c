@@ -2,34 +2,21 @@
 #include <stdint.h>
 
 /* =========================================================================
-   AUTHENTIC SEGA DREAMCAST STARTUP ACOUSTIC SOUND ENGINE
-   =========================================================================
-   Composed by Ryuichi Sakamoto (1998)
-   Faithfully reconstructed on direct Yamaha AICA 64-Channel SPU hardware.
+ * Y2K ATMOSPHERIC PAD & POLE LEAD AIRBELL SOUND ENGINE
+ * =========================================================================
+ * Composition:
+ *   - Lead Melody: Noisy sine-wave "airbell" pole lead hitting:
+ *       D7 -> E5 -> B6 -> B5 -> E6 -> Db7
+ *   - Synth Pad: Warm ethereal chord background holding:
+ *       A4, B4, D5, and F#5 throughout the sequence.
+ *   - Bass & Heartbeat:
+ *       Low E4/E2 bass tone + distorted heavy-EQ heartbeat thump pulse.
+ *   - Airy Noise:
+ *       Filtered cymbal wash fading in halfway with spatial stereo reverb.
+ *
+ * Direct Yamaha AICA 64-Channel Hardware Synthesizer.
+ * ========================================================================= */
 
-   Structure:
-     1. Swirl Drawing Phase (0 - 2.0s):
-        Delicate 8-note acoustic chime arpeggio:
-        B5 -> D6 -> G6 -> F#6 -> D6 -> B5 -> A5 -> D5
-        Accompanied by a swelling warm Gmaj7 -> Dsus4 acoustic pad in stereo.
-
-     2. Swirl Resolution / Logo Drop Phase (2.2s - 4.5s):
-        Iconic deep orchestral sub-bass drop (D1 + D2),
-        Blooming Dmaj9 acoustic string/Rhodes chord (A3, D4, F#4, C#5, E5),
-        and resolving high glass chime accord (F#6 + A6) with spatial echoes.
-
-   Timbres are synthesized via 4 multi-harmonic 16-bit PCM wavetables in
-   SPU RAM:
-     - Table 0: Acoustic Celesta / Music Box / Glockenspiel (Rich Overtones)
-     - Table 1: Warm Acoustic Rhodes / Electric Piano
-     - Table 2: Lush Orchestral String Ensemble Pad
-     - Table 3: Deep Resonant Acoustic Sub-Bass
-   ========================================================================= */
-
-/* -------------------------------------------------------------------------
- * MIDI (21..108) -> Yamaha AICA Hardware Pitch Register Table
- * Format: (OCT << 11) | FNS
- * ------------------------------------------------------------------------- */
 static const uint16_t MIDI_PITCH_TABLE[88] = {
     /* 21..26 (A0..D1)   */ 0x691C, 0x696A, 0x69BC, 0x6A13, 0x6A70, 0x6AD2,
     /* 27..32 (D#1..G#1) */ 0x6B39, 0x6BA7, 0x700E, 0x704C, 0x708D, 0x70D2,
@@ -48,7 +35,6 @@ static const uint16_t MIDI_PITCH_TABLE[88] = {
     /* 105..108 (A7..C8) */ 0x211C, 0x216A, 0x21BC, 0x2213
 };
 
-/* 8.8 Fixed-Point Sine Quarter-Wave Table */
 static const int16_t sin_quarter_table[65] = {
       0,   6,  12,  18,  25,  31,  37,  43,
      49,  56,  62,  68,  74,  80,  86,  92,
@@ -76,44 +62,46 @@ static int32_t clamp16(int32_t value) {
 }
 
 /* -------------------------------------------------------------------------
- * Multi-Harmonic Acoustic Physical Modeling Waveforms
+ * Y2K Atmospheric Waveform Generators
  * ------------------------------------------------------------------------- */
 
-/* 1. Acoustic Celesta / Glockenspiel / Music Box (Harmonics f1, f2, f3, f4, f5) */
-static int16_t make_acoustic_chime(int i) {
-    int32_t f1 = sin_fx(i);
-    int32_t f2 = sin_fx(i * 2);
-    int32_t f3 = sin_fx(i * 3);
-    int32_t f4 = sin_fx(i * 4);
-    int32_t f5 = sin_fx(i * 5);
-    int32_t val = (f1 * 84) + (f2 * 26) + (f3 * 12) + (f4 * 5) + (f5 * 2);
-    return (int16_t)clamp16(val);
-}
-
-/* 2. Warm Acoustic Rhodes Electric Piano / Mellow Body */
-static int16_t make_rhodes_body(int i) {
-    int32_t r1 = sin_fx(i);
-    int32_t r2 = sin_fx(i * 2);
-    int32_t r3 = sin_fx(i * 3);
-    int32_t val = (r1 * 92) + (r2 * 22) + (r3 * 10);
-    return (int16_t)clamp16(val);
-}
-
-/* 3. Lush Orchestral String Ensemble Pad */
-static int16_t make_orchestral_pad(int i) {
+/* 1. Pole Lead / Airbell: Noisy sine-wave with breathy air overtones */
+static int16_t make_airbell_lead(int i) {
     int32_t s1 = sin_fx(i);
-    int32_t s2 = sin_fx(i * 2);
     int32_t s3 = sin_fx(i * 3);
-    int32_t s4 = sin_fx(i * 4);
-    int32_t val = (s1 * 75) + (s2 * 32) + (s3 * 16) + (s4 * 8);
+    int32_t s5 = sin_fx(i * 5);
+    /* Subtle high-frequency air flutter */
+    int32_t noise = ((i * 37 + 11) % 41) - 20;
+    int32_t val = (s1 * 95) + (s3 * 18) + (s5 * 8) + (noise * 12);
     return (int16_t)clamp16(val);
 }
 
-/* 4. Deep Resonant Acoustic Sub-Bass */
-static int16_t make_sub_bass(int i) {
+/* 2. Warm Atmospheric Synth Pad: Rich mellow chord body */
+static int16_t make_warm_pad(int i) {
+    int32_t p1 = sin_fx(i);
+    int32_t p2 = sin_fx(i * 2);
+    int32_t p3 = sin_fx(i * 3);
+    int32_t val = (p1 * 88) + (p2 * 26) + (p3 * 10);
+    return (int16_t)clamp16(val);
+}
+
+/* 3. Distorted Heartbeat Pulse / Sub-Bass Thump */
+static int16_t make_heartbeat_thump(int i) {
     int32_t b1 = sin_fx(i);
-    int32_t b2 = sin_fx(i * 2);
-    int32_t val = (b1 * 110) + (b2 * 16);
+    /* Saturated non-linear distortion curve */
+    int32_t sat = (b1 * 140) / 100;
+    if (sat > 200)  sat = 200;
+    if (sat < -200) sat = -200;
+    int32_t val = (sat * 110) + (sin_fx(i * 2) * 20);
+    return (int16_t)clamp16(val);
+}
+
+/* 4. Filtered Airy Cymbal Wash / Noise */
+static int16_t make_airy_wash(int i) {
+    /* Resonant band-filtered white noise approximation */
+    int32_t n = ((i * 107 + 73) % 255) - 128;
+    int32_t s = sin_fx(i * 4);
+    int32_t val = (n * 70) + (s * 35);
     return (int16_t)clamp16(val);
 }
 
@@ -136,17 +124,17 @@ void sound_init(void) {
         AICA_CHN_REG(ch, 0x24) = 0x0000;
     }
 
-    /* 4. Synthesize 4 acoustic 256-sample 16-bit PCM wavetables in SPU RAM */
-    volatile int16_t *wav_chime  = (volatile int16_t *)(AICA_RAM_BASE + 0);
-    volatile int16_t *wav_rhodes = (volatile int16_t *)(AICA_RAM_BASE + 512);
-    volatile int16_t *wav_string = (volatile int16_t *)(AICA_RAM_BASE + 1024);
-    volatile int16_t *wav_sub    = (volatile int16_t *)(AICA_RAM_BASE + 1536);
+    /* 4. Synthesize 4 16-bit PCM wavetables in SPU RAM */
+    volatile int16_t *wav_airbell   = (volatile int16_t *)(AICA_RAM_BASE + 0);
+    volatile int16_t *wav_pad       = (volatile int16_t *)(AICA_RAM_BASE + 512);
+    volatile int16_t *wav_heartbeat = (volatile int16_t *)(AICA_RAM_BASE + 1024);
+    volatile int16_t *wav_wash      = (volatile int16_t *)(AICA_RAM_BASE + 1536);
 
     for (int i = 0; i < 256; i++) {
-        wav_chime[i]  = make_acoustic_chime(i);
-        wav_rhodes[i] = make_rhodes_body(i);
-        wav_string[i] = make_orchestral_pad(i);
-        wav_sub[i]    = make_sub_bass(i);
+        wav_airbell[i]   = make_airbell_lead(i);
+        wav_pad[i]       = make_warm_pad(i);
+        wav_heartbeat[i] = make_heartbeat_thump(i);
+        wav_wash[i]      = make_airy_wash(i);
     }
 
     s_seq_frame = 0;
@@ -166,10 +154,10 @@ void sound_play_note(int ch, int midi_note, int volume, int pan, int wavetable_i
     uint32_t smp_offset;
 
     switch (wavetable_id) {
-        case 1:  smp_offset = 512;  break; /* Rhodes */
-        case 2:  smp_offset = 1024; break; /* Strings */
-        case 3:  smp_offset = 1536; break; /* Sub-Bass */
-        default: smp_offset = 0;    break; /* Chime */
+        case 1:  smp_offset = 512;  break; /* Warm Pad */
+        case 2:  smp_offset = 1024; break; /* Heartbeat / Bass */
+        case 3:  smp_offset = 1536; break; /* Airy Wash */
+        default: smp_offset = 0;    break; /* Airbell Pole Lead */
     }
 
     /* Stop previous voice on channel */
@@ -178,23 +166,23 @@ void sound_play_note(int ch, int midi_note, int volume, int pan, int wavetable_i
     AICA_CHN_REG(ch, 0x08) = 0;
     AICA_CHN_REG(ch, 0x0C) = 256;
 
-    /* Acoustic Hardware ADSR Configuration */
+    /* Hardware ADSR Envelopes */
     if (wavetable_id == 0) {
-        /* Acoustic Chime / Bell: Fast strike, singing long acoustic decay */
-        AICA_CHN_REG(ch, 0x10) = 0x0794; /* AR=0x1E, D1R=0x14 */
-        AICA_CHN_REG(ch, 0x14) = 0x206E; /* DL=0x08, D2R=0x03, RR=0x0E */
+        /* Pole Lead Airbell: Crisp strike, singing ethereal decay */
+        AICA_CHN_REG(ch, 0x10) = 0x0796; /* AR=0x1E, D1R=0x16 */
+        AICA_CHN_REG(ch, 0x14) = 0x306E; /* DL=0x0C, D2R=0x03, RR=0x0E */
     } else if (wavetable_id == 1) {
-        /* Acoustic Rhodes: Warm hammer attack, organic sustain */
-        AICA_CHN_REG(ch, 0x10) = 0x0710; /* AR=0x1C, D1R=0x10 */
-        AICA_CHN_REG(ch, 0x14) = 0x404C; /* DL=0x10, D2R=0x02, RR=0x0C */
+        /* Warm Atmospheric Pad: Swelling organic attack, long sustain */
+        AICA_CHN_REG(ch, 0x10) = 0x0302; /* AR=0x0C, D1R=0x02 */
+        AICA_CHN_REG(ch, 0x14) = 0x7826; /* DL=0x1E, D2R=0x01, RR=0x06 */
     } else if (wavetable_id == 2) {
-        /* Orchestral String Pad: Swelling lush attack, warm body */
-        AICA_CHN_REG(ch, 0x10) = 0x0304; /* AR=0x0C, D1R=0x04 */
-        AICA_CHN_REG(ch, 0x14) = 0x7828; /* DL=0x1E, D2R=0x01, RR=0x08 */
+        /* Heartbeat Thump / Bass: Fast punchy transient, quick release */
+        AICA_CHN_REG(ch, 0x10) = 0x079E; /* AR=0x1E, D1R=0x1E */
+        AICA_CHN_REG(ch, 0x14) = 0x104F; /* DL=0x04, D2R=0x04, RR=0x0F */
     } else {
-        /* Sub-Bass: Solid low impact, deep resonance */
-        AICA_CHN_REG(ch, 0x10) = 0x0786; /* AR=0x1E, D1R=0x06 */
-        AICA_CHN_REG(ch, 0x14) = 0x704A; /* DL=0x1C, D2R=0x02, RR=0x0A */
+        /* Airy Noise Wash: Slow ethereal swell and delay tail */
+        AICA_CHN_REG(ch, 0x10) = 0x0201; /* AR=0x08, D1R=0x01 */
+        AICA_CHN_REG(ch, 0x14) = 0x6024; /* DL=0x18, D2R=0x01, RR=0x04 */
     }
 
     AICA_CHN_REG(ch, 0x18) = pitch;
@@ -219,7 +207,7 @@ void sound_stop(void) {
 }
 
 /* -------------------------------------------------------------------------
- * Canonical Sega Dreamcast Boot Audio Sequencer (60 FPS VBlank Tick)
+ * Y2K Sound Sequencer (60 FPS VBlank Tick)
  * ------------------------------------------------------------------------- */
 void sound_tick(void) {
     if (!s_sound_initialized) return;
@@ -228,92 +216,113 @@ void sound_tick(void) {
 
     switch (tick) {
         /* ==============================================================
-         * PHASE 1: THE ICONIC DRAWING OF THE SEGA DREAMCAST SPIRAL (0..120)
-         * Delicate acoustic chime arpeggio: B5 -> D6 -> G6 -> F#6 -> D6 -> B5 -> A5 -> D5
+         * 1. SYNTH PAD: Warm chord holding A4, B4, D5, F#5 throughout
          * ============================================================== */
-        case 8:
-            /* Note 1: B5 (71) */
-            sound_play_note(0, 71, 13, 0x1A, 0); /* Left */
-            sound_play_note(1, 71, 10, 0x06, 0); /* Stereo Chorus Right */
-            /* Background Pad: G3 + D4 */
-            sound_play_note(2, 55,  9, 0x1C, 2); /* G3 String Left */
-            sound_play_note(3, 62,  9, 0x04, 2); /* D4 String Right */
-            break;
-
-        case 22:
-            /* Note 2: D6 (74) */
-            sound_play_note(4, 74, 13, 0x08, 0); /* Right */
-            sound_play_note(5, 74, 10, 0x18, 0); /* Stereo Chorus Left */
-            break;
-
-        case 36:
-            /* Note 3: G6 (79) */
-            sound_play_note(6, 79, 14, 0x00, 0); /* Center Peak */
-            break;
-
-        case 50:
-            /* Note 4: F#6 (78) */
-            sound_play_note(0, 78, 13, 0x18, 0); /* Left */
-            sound_play_note(1, 78, 10, 0x08, 0); /* Right */
-            break;
-
-        case 64:
-            /* Note 5: D6 (74) */
-            sound_play_note(4, 74, 12, 0x0A, 0); /* Right */
-            /* Pad transition: A3 + D4 */
-            sound_play_note(2, 57,  9, 0x1A, 2); /* A3 String Left */
-            sound_play_note(3, 62,  9, 0x06, 2); /* D4 String Right */
-            break;
-
-        case 78:
-            /* Note 6: B5 (71) */
-            sound_play_note(5, 71, 12, 0x00, 0); /* Center */
-            break;
-
-        case 92:
-            /* Note 7: A5 (69) */
-            sound_play_note(0, 69, 13, 0x16, 0); /* Left */
-            sound_play_note(1, 69, 10, 0x0A, 0); /* Right */
-            break;
-
-        case 106:
-            /* Note 8: D5 (62) - Resolving Arpeggio Anchor */
-            sound_play_note(4, 62, 13, 0x00, 0); /* Center */
-            sound_play_note(5, 62, 11, 0x14, 1); /* Rhodes Warmth */
+        case 2:
+            /* Warm Pad Chord: A4 (69), B4 (71), D5 (74), F#5 (78) in stereo */
+            sound_play_note(0, 69, 11, 0x1C, 1); /* A4  (Left) */
+            sound_play_note(1, 71, 10, 0x04, 1); /* B4  (Right) */
+            sound_play_note(2, 74, 11, 0x18, 1); /* D5  (Left) */
+            sound_play_note(3, 78, 10, 0x08, 1); /* F#5 (Right) */
             break;
 
         /* ==============================================================
-         * PHASE 2: LOGO DROP CLIMAX & BREATHTAKING DMAJ9 CHORD RESOLUTION (130)
-         * Deep orchestral sub drop + Wide Dmaj9 bloom + High chime accord
+         * 2. BASS & HEARTBEAT: Distorted EQ pulse ("lub-dub" thumps)
+         * ============================================================== */
+        case 8:
+            /* Heartbeat 1 - Pulse A (Low E2/E4 thump) */
+            sound_play_note(4, 40, 14, 0x14, 2); /* E2 Heavy Sub Left */
+            sound_play_note(5, 64, 13, 0x0C, 2); /* E4 Punch Right */
+            break;
+
+        case 16:
+            /* Heartbeat 1 - Pulse B */
+            sound_play_note(4, 40, 12, 0x10, 2);
+            sound_play_note(5, 64, 11, 0x10, 2);
+            break;
+
+        /* ==============================================================
+         * 3. LEAD MELODY: Noisy sine "airbell" pole lead
+         *    Notes: D7 -> E5 -> B6 -> B5 -> E6 -> Db7
+         * ============================================================== */
+        case 24:
+            /* Melody 1: D7 (98) */
+            sound_play_note(6, 98, 14, 0x18, 0); /* D7 Left */
+            sound_play_note(7, 98, 11, 0x08, 0); /* D7 Spatial Right */
+            break;
+
+        case 44:
+            /* Melody 2: E5 (76) */
+            sound_play_note(8, 76, 13, 0x0A, 0); /* E5 Right */
+            sound_play_note(9, 76, 10, 0x16, 0); /* E5 Left */
+            break;
+
+        case 64:
+            /* Melody 3: B6 (95) */
+            sound_play_note(6, 95, 14, 0x1A, 0); /* B6 Left */
+            sound_play_note(7, 95, 11, 0x06, 0); /* B6 Right */
+            break;
+
+        /* ==============================================================
+         * 4. AIRY NOISE & SECOND HEARTBEAT (HALFWAY SWELL)
+         * ============================================================== */
+        case 70:
+            /* Heartbeat 2 - Pulse A */
+            sound_play_note(4, 40, 14, 0x14, 2);
+            sound_play_note(5, 64, 13, 0x0C, 2);
+
+            /* Filtered airy cymbal wash fades in */
+            sound_play_note(10, 72, 12, 0x1E, 3); /* Wash Left */
+            sound_play_note(11, 72, 12, 0x02, 3); /* Wash Right */
+            break;
+
+        case 78:
+            /* Heartbeat 2 - Pulse B */
+            sound_play_note(4, 40, 12, 0x10, 2);
+            sound_play_note(5, 64, 11, 0x10, 2);
+            break;
+
+        case 84:
+            /* Melody 4: B5 (83) */
+            sound_play_note(8, 83, 13, 0x08, 0); /* B5 Right */
+            sound_play_note(9, 83, 10, 0x18, 0); /* B5 Left */
+            break;
+
+        case 104:
+            /* Melody 5: E6 (88) */
+            sound_play_note(6, 88, 14, 0x16, 0); /* E6 Left */
+            sound_play_note(7, 88, 11, 0x0A, 0); /* E6 Right */
+            break;
+
+        case 124:
+            /* Melody 6: Db7 (97) - Resolving Climax Note */
+            sound_play_note(8, 97, 15, 0x00, 0); /* Db7 Center Peak */
+            sound_play_note(9, 97, 12, 0x14, 0); /* Db7 Stereo Spread */
+            break;
+
+        /* ==============================================================
+         * 5. CLIMAX BLOOM & SPATIAL REVERB / DELAY TAIL (130+)
          * ============================================================== */
         case 130:
-            /* 1. Deep Orchestral Sub-Bass Drop (D1 + D2) */
-            sound_play_note(6, 26, 15, 0x16, 3); /* D1 Sub Left */
-            sound_play_note(7, 38, 14, 0x0A, 3); /* D2 Sub Right */
+            /* Heartbeat 3 - Climax Pulse & Low E Bass Foundation */
+            sound_play_note(4, 40, 15, 0x10, 2); /* Deep E2 Sub */
+            sound_play_note(5, 64, 14, 0x10, 2); /* E4 Bass Sustained */
 
-            /* 2. Warm Dmaj9 Acoustic Rhodes Body */
-            sound_play_note(8, 45, 12, 0x18, 1); /* A2 Rhodes Left */
-            sound_play_note(9, 54, 12, 0x08, 1); /* F#3 Rhodes Right */
-
-            /* 3. Wide Orchestral String Ensemble Bloom (A3, D4, C#5, E5) */
-            sound_play_note(10, 57, 12, 0x1E, 2); /* A3 String Far Left */
-            sound_play_note(11, 62, 12, 0x02, 2); /* D4 String Far Right */
-            sound_play_note(12, 73, 11, 0x18, 2); /* C#5 String Left */
-            sound_play_note(13, 76, 11, 0x08, 2); /* E5 String Right */
-
-            /* 4. High Celestial Chime Accord (F#6 + A6) */
-            sound_play_note(14, 90, 14, 0x14, 0); /* F#6 Chime Left */
-            sound_play_note(15, 93, 14, 0x0C, 0); /* A6 Chime Right */
+            /* Pad crescendo bloom */
+            sound_play_note(0, 69, 13, 0x1E, 1); /* A4 */
+            sound_play_note(1, 71, 12, 0x02, 1); /* B4 */
+            sound_play_note(2, 74, 13, 0x1A, 1); /* D5 */
+            sound_play_note(3, 78, 12, 0x06, 1); /* F#5 */
             break;
 
-        /* Phase 3: Spatial Diffuse Acoustic Reverb Echoes */
-        case 160:
-            sound_play_note(0, 90, 8, 0x0E, 0); /* F#6 Echo Right */
-            sound_play_note(1, 93, 8, 0x12, 0); /* A6 Echo Left */
+        /* Spatial diffuse echoes of resolving Db7 / E6 */
+        case 155:
+            sound_play_note(6, 97, 8, 0x0E, 0); /* Db7 Echo Right */
+            sound_play_note(7, 88, 7, 0x12, 0); /* E6 Echo Left */
             break;
 
-        case 190:
-            sound_play_note(4, 93, 5, 0x00, 0); /* A6 Diffuse Center Tail */
+        case 180:
+            sound_play_note(8, 97, 5, 0x14, 0); /* Db7 Diffuse Tail */
             break;
 
         default:
