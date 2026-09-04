@@ -282,24 +282,6 @@ static void draw_glass_logo_fb(volatile uint16_t *fb, int cx, int cy, int global
     int start_y = cy - half_h;
     uint16_t bg_col = RGB565(246, 249, 253);
 
-    /* Ambient glass drop shadow onto frosted glass (Fast write-only) */
-    for (int dy = 0; dy < 12; dy++) {
-        int py = start_y + BOOT_LOGO_H - 8 + dy;
-        if (py < 0 || py >= SCREEN_H) continue;
-        volatile uint16_t *dst_row = fb + (py * SCREEN_W);
-        int shadow_alpha = (dy < 6) ? (dy * 7) : ((12 - dy) * 7);
-        shadow_alpha = (shadow_alpha * global_alpha) >> 8;
-        if (shadow_alpha <= 0) continue;
-
-        uint16_t shadow_pix = blend_rgb565(bg_col, RGB565(120, 150, 180), shadow_alpha);
-        for (int dx = 14; dx < BOOT_LOGO_W - 14; dx++) {
-            int px = start_x + dx;
-            if (px >= 0 && px < SCREEN_W) {
-                dst_row[px] = shadow_pix;
-            }
-        }
-    }
-
     /* Precompute Specular Sweep Position for this frame */
     int sweep = (frame >= 25) ? (((frame - 25) * 5) % (BOOT_LOGO_W + BOOT_LOGO_H + 40)) : -100;
 

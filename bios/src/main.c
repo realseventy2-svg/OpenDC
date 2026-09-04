@@ -574,11 +574,6 @@ static void draw_3d_glass_swirl(const theme_t *theme, float center_x, float cent
     float x = center_x - w * 0.5f;
     float y = center_y - h * 0.5f + float_y;
 
-    /* Ambient glass drop shadow */
-    draw_quad_gradient(x + 4.0f, y + h - 6.0f, w - 8.0f, 14.0f, 2.2f,
-                       PVR_PACK_COLOR(0.35f, 0.0f, 0.04f, 0.12f), PVR_PACK_COLOR(0.35f, 0.0f, 0.04f, 0.12f),
-                       PVR_PACK_COLOR(0.0f, 0.0f, 0.0f, 0.0f), PVR_PACK_COLOR(0.0f, 0.0f, 0.0f, 0.0f));
-
     /* Pulsing caustic glow aura around glass logo */
     float pulse = fabsf(sinf(frame * 0.03f));
     uint32_t glow_col = PVR_PACK_COLOR(0.20f + pulse * 0.25f, 0.4f, 0.8f, 1.0f);
