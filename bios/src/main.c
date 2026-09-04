@@ -412,37 +412,42 @@ static void draw_text_shadow(float start_x, float start_y, float scale, const ch
    DYNAMIC THEMED GRAPHICS ENGINE
    ========================================================================= */
 
-/* 1. Luminous Frutiger Aero Sky & Atmospheric Clouds */
+/* 1. Luminous Sky & Atmospheric Clouds */
 static void draw_sky_atmosphere(const theme_t *theme, int frame) {
-    /* 1a. Base Ambient Sky Horizon Gradient */
-    draw_quad_gradient(0, 0, 640, 240, 0.4f, theme->sky_top, theme->sky_top, theme->sky_mid, theme->sky_mid);
-    draw_quad_gradient(0, 240, 640, 240, 0.4f, theme->sky_mid, theme->sky_mid, theme->sky_bot, theme->sky_bot);
+    /* Base Full-Screen Sky Gradient at z=0.40f (Furthest back in PVR camera depth) */
+    draw_quad_gradient(0, 0, 640, 240, 0.40f, theme->sky_top, theme->sky_top, theme->sky_mid, theme->sky_mid);
+    draw_quad_gradient(0, 240, 640, 240, 0.40f, theme->sky_mid, theme->sky_mid, theme->sky_bot, theme->sky_bot);
 
-    /* 1b. Soft Atmospheric Cloud Billows in Upper Sky */
-    int num_clouds = 16;
-    float cw = 640.0f / (float)num_clouds;
-    for (int i = 0; i < num_clouds; i++) {
-        float x1 = i * cw;
-        float x2 = (i + 1) * cw;
-        float c_wave1 = sinf(i * 0.45f + frame * 0.008f) * 16.0f + cosf(i * 0.20f - frame * 0.005f) * 10.0f;
-        float c_wave2 = sinf((i + 1) * 0.45f + frame * 0.008f) * 16.0f + cosf((i + 1) * 0.20f - frame * 0.005f) * 10.0f;
+    /* Soft Atmospheric Cloud Billows — 3 slow-drifting wispy layers at z=0.45f */
+    for (int layer = 0; layer < 3; layer++) {
+        int num_wisps = 14;
+        float cw = 640.0f / (float)num_wisps;
+        float layer_y  = 50.0f + layer * 45.0f;
+        float layer_spd = 0.004f + layer * 0.002f;
+        float layer_a   = 0.22f - layer * 0.04f;
 
-        float cy1 = 80.0f + c_wave1;
-        float cy2 = 80.0f + c_wave2;
-        float ch1 = 55.0f + sinf(i * 0.35f + frame * 0.006f) * 14.0f;
-        float ch2 = 55.0f + sinf((i + 1) * 0.35f + frame * 0.006f) * 14.0f;
+        for (int i = 0; i < num_wisps; i++) {
+            float drift  = sinf(i * 0.72f + layer * 1.4f + frame * layer_spd) * 20.0f
+                         + cosf(i * 0.28f - frame * layer_spd * 0.6f) * 12.0f;
+            float drift2 = sinf((i+1)*0.72f + layer*1.4f + frame*layer_spd) * 20.0f
+                         + cosf((i+1)*0.28f - frame*layer_spd*0.6f) * 12.0f;
+            float x1 = i * cw, x2 = (i+1) * cw;
+            float y1 = layer_y + drift;
+            float y2 = layer_y + drift2;
+            float h1 = 32.0f + sinf(i * 0.5f + frame * 0.003f) * 10.0f;
+            float h2 = 32.0f + sinf((i+1) * 0.5f + frame * 0.003f) * 10.0f;
 
-        uint32_t col_cloud_top = PVR_PACK_COLOR(0.28f, 0.90f, 0.96f, 1.0f);
-        uint32_t col_cloud_bot = PVR_PACK_COLOR(0.00f, 0.70f, 0.90f, 1.0f);
-
-        draw_quad_mesh(x1, cy1 - ch1, x2, cy2 - ch2, x1, cy1 + ch1, x2, cy2 + ch2, 0.45f,
-                       col_cloud_top, col_cloud_top, col_cloud_bot, col_cloud_bot);
+            uint32_t wisp_top = PVR_PACK_COLOR(layer_a, 0.94f, 0.96f, 1.0f);
+            uint32_t wisp_bot = PVR_PACK_COLOR(0.0f,    0.85f, 0.90f, 1.0f);
+            draw_quad_mesh(x1, y1-h1, x2, y2-h2, x1, y1+h1, x2, y2+h2, 0.45f,
+                           wisp_top, wisp_top, wisp_bot, wisp_bot);
+        }
     }
 
-    /* 1c. Subtle Ambient Celestial Sun Bloom */
+    /* Ambient celestial sun bloom at z=0.50f */
     float sun_x = 480.0f + sinf(frame * 0.008f) * 12.0f;
-    float sun_y = 55.0f + cosf(frame * 0.010f) * 8.0f;
-    draw_quad_gradient(sun_x - 180, sun_y - 180, 360, 360, 0.5f,
+    float sun_y = 55.0f  + cosf(frame * 0.010f) * 8.0f;
+    draw_quad_gradient(sun_x - 180, sun_y - 180, 360, 360, 0.50f,
                        theme->sun_fade, theme->sun_fade, theme->sun_fade, theme->sun_core);
 }
 
@@ -451,9 +456,9 @@ static void draw_3d_water_environment(const theme_t *theme, int frame) {
     const int NUM_RINGS = 20;
     const int NUM_SECTORS = 32;
     const float CX = 320.0f;
-    const float CY = 355.0f;
-    const float MAX_RX = 315.0f;
-    const float MAX_RY = 120.0f;
+    const float CY = 345.0f;
+    const float MAX_RX = 325.0f;
+    const float MAX_RY = 125.0f;
 
     float spd = theme->wave_speed;
     float amp = theme->wave_amplitude;
@@ -483,7 +488,7 @@ static void draw_3d_water_environment(const theme_t *theme, int frame) {
         float elev = total_wave * (1.0f - center_well * 0.5f) * 6.0f * amp;
 
         /* Dynamic Liquid Color & Caustic Specular Highlights */
-        float base_a = (tr < 0.82f) ? (0.68f + total_wave * 0.18f) : (0.68f * (1.0f - tr) / 0.18f);
+        float base_a = (tr < 0.82f) ? (0.70f + total_wave * 0.18f) : (0.70f * (1.0f - tr) / 0.18f);
         if (base_a < 0.0f) base_a = 0.0f;
         if (base_a > 0.95f) base_a = 0.95f;
 
@@ -522,7 +527,7 @@ static void draw_3d_water_environment(const theme_t *theme, int frame) {
         }
     }
 
-    /* Render 3D Water Surface Polygon Strips */
+    /* Render 3D Water Surface Polygon Strips — z=0.75f sits behind UI panels at z=2.0f */
     for (int r = 0; r < NUM_RINGS; r++) {
         for (int s = 0; s < NUM_SECTORS; s++) {
             draw_quad_mesh(grid[r][s].x,     grid[r][s].y,
