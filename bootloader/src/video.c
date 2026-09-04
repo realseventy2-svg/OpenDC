@@ -175,6 +175,35 @@ void video_fill_rect(int x, int y, int w, int h, uint16_t color) {
     }
 }
 
+void video_draw_pixel(int x, int y, uint16_t color) {
+    if ((unsigned)x < SCREEN_WIDTH && (unsigned)y < SCREEN_HEIGHT) {
+        volatile uint16_t *fb = (volatile uint16_t *)VRAM_BASE;
+        fb[y * SCREEN_WIDTH + x] = color;
+    }
+}
+
+void video_draw_line(int x0, int y0, int x1, int y1, uint16_t color) {
+    int dx = (x1 >= x0) ? (x1 - x0) : (x0 - x1);
+    int sx = (x0 < x1) ? 1 : -1;
+    int dy = (y1 >= y0) ? (y0 - y1) : (y1 - y0);
+    int sy = (y0 < y1) ? 1 : -1;
+    int err = dx + dy;
+
+    while (1) {
+        video_draw_pixel(x0, y0, color);
+        if (x0 == x1 && y0 == y1) break;
+        int e2 = 2 * err;
+        if (e2 >= dy) {
+            err += dy;
+            x0 += sx;
+        }
+        if (e2 <= dx) {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
 void video_draw_char(int x, int y, char c, uint16_t color, int scale) {
     uint8_t uc = (uint8_t)c;
     if (uc < 32 || uc > 126) return;

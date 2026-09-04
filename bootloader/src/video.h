@@ -26,6 +26,8 @@ void video_wait_vblank(void);
 void video_wait_seconds(int seconds);
 void video_clear(uint16_t color);
 void video_fill_rect(int x, int y, int w, int h, uint16_t color);
+void video_draw_pixel(int x, int y, uint16_t color);
+void video_draw_line(int x0, int y0, int x1, int y1, uint16_t color);
 void video_draw_char(int x, int y, char c, uint16_t color, int scale);
 void video_draw_string(int x, int y, const char *str, uint16_t color, int scale);
 void video_draw_string_centered(int center_x, int y, const char *str, uint16_t color, int scale);

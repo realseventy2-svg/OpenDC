@@ -4,6 +4,16 @@
 #include "syscalls.h"
 #include "wince.h"
 
+static int s_sega_license_enabled = 1;
+
+void boot_set_sega_license_enabled(int enabled) {
+    s_sega_license_enabled = enabled;
+}
+
+int boot_get_sega_license_enabled(void) {
+    return s_sega_license_enabled;
+}
+
 int gdrom_boot_game(uint32_t data_fad) {
     if(data_fad == 0)
         data_fad = gdrom_get_cached_data_fad();
@@ -76,7 +86,7 @@ int gdrom_boot_game(uint32_t data_fad) {
     uint32_t boot_entry = 0x8C010000UL;
     uint32_t *ip_entry = (uint32_t *)0x8C008300UL;
 
-    if(*ip_entry != 0 && *ip_entry != 0xFFFFFFFFUL) {
+    if(s_sega_license_enabled && *ip_entry != 0 && *ip_entry != 0xFFFFFFFFUL) {
         /* Boot through IP.BIN to display the authentic Sega License screen */
         boot_entry = 0xAC008300UL;
 

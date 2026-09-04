@@ -2,6 +2,7 @@
 #include "retail_vectors.h"
 #include "video.h"
 #include "screen.h"
+#include "boot.h"
 
 /* Provided by crt0.s: exception and interrupt vector stubs */
 extern const uint8_t vector_stub_template[];
@@ -74,6 +75,10 @@ void main(void) {
 
     /* 2. Initialize modular boot theme and render splash screen */
     screen_init(&BOOT_THEME_DEFAULT);
+    const boot_theme_t *theme = screen_get_theme();
+    if (theme) {
+        boot_set_sega_license_enabled(theme->sega_license_enabled);
+    }
     screen_draw_splash();
 
     /* 3. Bring up the GD-ROM drive and probe disc */
@@ -86,10 +91,10 @@ void main(void) {
     /* 4. Update modular UI with disc status and diagnostics */
     screen_draw_disc_status(toc_result == GDROM_OK, iso_result == GDROM_OK, iso_fad, iso_head);
 
-    /* 5. Configurable splash delay */
-    const boot_theme_t *theme = screen_get_theme();
-    if (theme && theme->splash_delay_seconds > 0) {
-        video_wait_seconds(theme->splash_delay_seconds);
+    /* 5. 60 FPS Animated 3D Spinning Cube Splash (4 Seconds = 240 Frames) */
+    int frames = (theme && theme->splash_delay_seconds > 0) ? (theme->splash_delay_seconds * 60) : 0;
+    if (frames > 0) {
+        screen_animate_splash(frames);
     }
 
     /* 6. If a bootable disc is detected, start the game */
