@@ -790,7 +790,7 @@ int main(int argc, char **argv) {
         /* Top Banner Typography */
         draw_text_shadow(95.0f, 24.0f, 1.00f, "OpenDC Dashboard",
                          theme->text_title, theme->text_title_shadow);
-        draw_text_smooth(95.0f, 52.0f, 0.58f, "Custom Firmware 2.0  |  Sega Dreamcast",
+        draw_text_smooth(95.0f, 52.0f, 0.58f, "Sega Dreamcast | Firmware 0.1b",
                          theme->text_sub);
 
         /* Top-Right Live Clock */

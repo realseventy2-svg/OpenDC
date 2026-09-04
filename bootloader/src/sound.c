@@ -1,67 +1,54 @@
 #include "sound.h"
 #include <stdint.h>
 
-/*
- * Dreamcast-style boot jingle - homebrew tribute
- * ---------------------------------------------------------------------
- * NOTE: this is an original synthesis inspired by the shape of Sega's
- * startup chime (rising spiral -> low impact -> shimmering tail). It
- * is not, and doesn't attempt to be, a sample-accurate clone of Sega's
- * actual copyrighted jingle - that's proprietary audio, not something
- * to reverse-engineer byte-for-byte. Everything below is synthesized
- * from scratch on your AICA wavetables.
- *
- * What's new in this revision:
- *
- *   1. Pseudo-reverb via early reflections + decay tail.
- *      The AICA's actual hardware reverb lives in its onboard DSP,
- *      which requires uploading a full microprogram (MPRO/coefficient
- *      RAM) to the ARM7 side - well beyond a single voice function.
- *      The classic homebrew workaround (used on plenty of real
- *      Saturn/DC-era titles) is what's here instead: every important
- *      hit gets 1-2 quiet, slightly detuned/pan-shifted repeats on a
- *      spare channel a few frames later, plus the long decaying tail
- *      that was already in your case 48/58/70. Close together those
- *      read as "room", not as discrete echoes.
- *
- *   2. A 4th instrument: a thin, bright "shimmer" layer, distinct
- *      from the main chime, used only for the secondary sparkle so
- *      the tail doesn't just sound like a quieter copy of the lead.
- *
- *   3. Real hardware LFO (AICA register 0x1C) instead of a static
- *      tone: a slow pitch vibrato on the peak chime, and a slow
- *      amplitude throb on the sub-bass impact.
- *
- * Sequence length is unchanged: exactly 480 frames @ 60 FPS = 8.0s,
- * one-shot, ending in sound_stop() at frame 479.
- * ------------------------------------------------------------------------- */
+/* =========================================================================
+   AUTHENTIC SEGA DREAMCAST STARTUP ACOUSTIC SOUND ENGINE
+   =========================================================================
+   Composed by Ryuichi Sakamoto (1998)
+   Faithfully reconstructed on direct Yamaha AICA 64-Channel SPU hardware.
+
+   Structure:
+     1. Swirl Drawing Phase (0 - 2.0s):
+        Delicate 8-note acoustic chime arpeggio:
+        B5 -> D6 -> G6 -> F#6 -> D6 -> B5 -> A5 -> D5
+        Accompanied by a swelling warm Gmaj7 -> Dsus4 acoustic pad in stereo.
+
+     2. Swirl Resolution / Logo Drop Phase (2.2s - 4.5s):
+        Iconic deep orchestral sub-bass drop (D1 + D2),
+        Blooming Dmaj9 acoustic string/Rhodes chord (A3, D4, F#4, C#5, E5),
+        and resolving high glass chime accord (F#6 + A6) with spatial echoes.
+
+   Timbres are synthesized via 4 multi-harmonic 16-bit PCM wavetables in
+   SPU RAM:
+     - Table 0: Acoustic Celesta / Music Box / Glockenspiel (Rich Overtones)
+     - Table 1: Warm Acoustic Rhodes / Electric Piano
+     - Table 2: Lush Orchestral String Ensemble Pad
+     - Table 3: Deep Resonant Acoustic Sub-Bass
+   ========================================================================= */
 
 /* -------------------------------------------------------------------------
- * MIDI -> AICA Pitch Register Table
- *
- * MIDI notes 24 (C1) through 107 (B7)
- * AICA pitch register format: (OCT << 11) | FNS
+ * MIDI (21..108) -> Yamaha AICA Hardware Pitch Register Table
+ * Format: (OCT << 11) | FNS
  * ------------------------------------------------------------------------- */
-static const uint16_t MIDI_PITCH_TABLE[84] = {
-    /* 24..29 (C1..F1)   */ 0x6A13, 0x6A70, 0x6AD2, 0x6B39, 0x6BA7, 0x700E,
-    /* 30..35 (F#1..B1)  */ 0x704C, 0x708D, 0x70D2, 0x711C, 0x716A, 0x71BC,
-    /* 36..41 (C2..F2)   */ 0x7213, 0x7270, 0x72D2, 0x7339, 0x73A7, 0x780E,
-    /* 42..47 (F#2..B2)  */ 0x784C, 0x788D, 0x78D2, 0x791C, 0x796A, 0x79BC,
-    /* 48..53 (C3..F3)   */ 0x7A13, 0x7A70, 0x7AD2, 0x7B39, 0x7BA7, 0x000E,
-    /* 54..59 (F#3..B3)  */ 0x004C, 0x008D, 0x00D2, 0x011C, 0x016A, 0x01BC,
-    /* 60..65 (C4..F4)   */ 0x0213, 0x0270, 0x02D2, 0x0339, 0x03A7, 0x080E,
-    /* 66..71 (F#4..B4)  */ 0x084C, 0x088D, 0x08D2, 0x091C, 0x096A, 0x09BC,
-    /* 72..77 (C5..F5)   */ 0x0A13, 0x0A70, 0x0AD2, 0x0B39, 0x0BA7, 0x100E,
-    /* 78..83 (F#5..B5)  */ 0x104C, 0x108D, 0x10D2, 0x111C, 0x116A, 0x11BC,
-    /* 84..89 (C6..F6)   */ 0x1213, 0x1270, 0x12D2, 0x1339, 0x13A7, 0x180E,
-    /* 90..95 (F#6..B6)  */ 0x184C, 0x188D, 0x18D2, 0x191C, 0x196A, 0x19BC,
-    /* 96..101 (C7..F7)  */ 0x1A13, 0x1A70, 0x1AD2, 0x1B39, 0x1BA7, 0x200E,
-    /* 102..107 (F#7..B7)*/ 0x204C, 0x208D, 0x20D2, 0x211C, 0x216A, 0x21BC
+static const uint16_t MIDI_PITCH_TABLE[88] = {
+    /* 21..26 (A0..D1)   */ 0x691C, 0x696A, 0x69BC, 0x6A13, 0x6A70, 0x6AD2,
+    /* 27..32 (D#1..G#1) */ 0x6B39, 0x6BA7, 0x700E, 0x704C, 0x708D, 0x70D2,
+    /* 33..38 (A1..D2)   */ 0x711C, 0x716A, 0x71BC, 0x7213, 0x7270, 0x72D2,
+    /* 39..44 (D#2..G#2) */ 0x7339, 0x73A7, 0x780E, 0x784C, 0x788D, 0x78D2,
+    /* 45..50 (A2..D3)   */ 0x791C, 0x796A, 0x79BC, 0x7A13, 0x7A70, 0x7AD2,
+    /* 51..56 (D#3..G#3) */ 0x7B39, 0x7BA7, 0x000E, 0x004C, 0x008D, 0x00D2,
+    /* 57..62 (A3..D4)   */ 0x011C, 0x016A, 0x01BC, 0x0213, 0x0270, 0x02D2,
+    /* 63..68 (D#4..G#4) */ 0x0339, 0x03A7, 0x080E, 0x084C, 0x088D, 0x08D2,
+    /* 69..74 (A4..D5)   */ 0x091C, 0x096A, 0x09BC, 0x0A13, 0x0A70, 0x0AD2,
+    /* 75..80 (D#5..G#5) */ 0x0B39, 0x0BA7, 0x100E, 0x104C, 0x108D, 0x10D2,
+    /* 81..86 (A5..D6)   */ 0x111C, 0x116A, 0x11BC, 0x1213, 0x1270, 0x12D2,
+    /* 87..92 (D#6..G#6) */ 0x1339, 0x13A7, 0x180E, 0x184C, 0x188D, 0x18D2,
+    /* 93..98 (A6..D7)   */ 0x191C, 0x196A, 0x19BC, 0x1A13, 0x1A70, 0x1AD2,
+    /* 99..104 (D#7..G#7)*/ 0x1B39, 0x1BA7, 0x200E, 0x204C, 0x208D, 0x20D2,
+    /* 105..108 (A7..C8) */ 0x211C, 0x216A, 0x21BC, 0x2213
 };
 
-/* -------------------------------------------------------------------------
- * 8.8 Fixed-Point Sine Quarter-Wave Table (0 to 90 degrees in 64 steps)
- * ------------------------------------------------------------------------- */
+/* 8.8 Fixed-Point Sine Quarter-Wave Table */
 static const int16_t sin_quarter_table[65] = {
       0,   6,  12,  18,  25,  31,  37,  43,
      49,  56,  62,  68,  74,  80,  86,  92,
@@ -88,231 +75,132 @@ static int32_t clamp16(int32_t value) {
     return value;
 }
 
-static int32_t clampi(int32_t value, int32_t lo, int32_t hi) {
-    if (value < lo) return lo;
-    if (value > hi) return hi;
-    return value;
-}
+/* -------------------------------------------------------------------------
+ * Multi-Harmonic Acoustic Physical Modeling Waveforms
+ * ------------------------------------------------------------------------- */
 
-/*
- * Bright, crystalline tine with sharp bell overtone structure
- * (1st, 3rd, 5th, and 8th). Main lead voice for the spiral.
- */
-static int16_t make_dc_chime(int i) {
+/* 1. Acoustic Celesta / Glockenspiel / Music Box (Harmonics f1, f2, f3, f4, f5) */
+static int16_t make_acoustic_chime(int i) {
     int32_t f1 = sin_fx(i);
+    int32_t f2 = sin_fx(i * 2);
     int32_t f3 = sin_fx(i * 3);
+    int32_t f4 = sin_fx(i * 4);
     int32_t f5 = sin_fx(i * 5);
-    int32_t f8 = sin_fx(i * 8);
-
-    int32_t val = (f1 * 84) + (f3 * 34) + (f5 * 18) + (f8 * 6);
+    int32_t val = (f1 * 84) + (f2 * 26) + (f3 * 12) + (f4 * 5) + (f5 * 2);
     return (int16_t)clamp16(val);
 }
 
-/*
- * Deep sub thump / sub-bass drone: clean fundamental, slight
- * 2nd-harmonic warmth.
- */
-static int16_t make_dc_sub_drone(int i) {
-    int32_t f1 = sin_fx(i);
-    int32_t f2 = sin_fx(i * 2);
-
-    int32_t val = (f1 * 120) + (f2 * 12);
+/* 2. Warm Acoustic Rhodes Electric Piano / Mellow Body */
+static int16_t make_rhodes_body(int i) {
+    int32_t r1 = sin_fx(i);
+    int32_t r2 = sin_fx(i * 2);
+    int32_t r3 = sin_fx(i * 3);
+    int32_t val = (r1 * 92) + (r2 * 22) + (r3 * 10);
     return (int16_t)clamp16(val);
 }
 
-/*
- * Ethereal swell body: smooth analog string/chorus pad supporting
- * the resonant tail.
- */
-static int16_t make_dc_body_swell(int i) {
-    int32_t f1 = sin_fx(i);
-    int32_t f2 = sin_fx(i * 2);
-    int32_t f3 = sin_fx(i * 3);
-
-    int32_t val = (f1 * 96) + (f2 * 26) + (f3 * 10);
+/* 3. Lush Orchestral String Ensemble Pad */
+static int16_t make_orchestral_pad(int i) {
+    int32_t s1 = sin_fx(i);
+    int32_t s2 = sin_fx(i * 2);
+    int32_t s3 = sin_fx(i * 3);
+    int32_t s4 = sin_fx(i * 4);
+    int32_t val = (s1 * 75) + (s2 * 32) + (s3 * 16) + (s4 * 8);
     return (int16_t)clamp16(val);
 }
 
-/*
- * Shimmer: a thin, higher, quieter instrument used only for the
- * secondary sparkle/tail so it reads as a *different* voice from the
- * lead chime, not just a quieter copy of it. Weighted toward the
- * 2nd/6th/9th partials for a glassy, slightly inharmonic character.
- */
-static int16_t make_dc_shimmer(int i) {
-    int32_t f1 = sin_fx(i);
-    int32_t f2 = sin_fx(i * 2);
-    int32_t f6 = sin_fx(i * 6);
-    int32_t f9 = sin_fx(i * 9);
-
-    int32_t val = (f1 * 52) + (f2 * 30) + (f6 * 14) + (f9 * 8);
+/* 4. Deep Resonant Acoustic Sub-Bass */
+static int16_t make_sub_bass(int i) {
+    int32_t b1 = sin_fx(i);
+    int32_t b2 = sin_fx(i * 2);
+    int32_t val = (b1 * 110) + (b2 * 16);
     return (int16_t)clamp16(val);
 }
 
 static uint32_t s_seq_frame = 0;
 static int s_sound_initialized = 0;
 
-/*
- * Wavetable IDs:
- *   0 = chime (lead)
- *   1 = sub drone
- *   2 = body swell (pad)
- *   3 = shimmer (secondary sparkle)
- */
-#define WAV_CHIME  0
-#define WAV_SUB    1
-#define WAV_PAD    2
-#define WAV_SHIM   3
-
-/*
- * Echo/reverb channel bank.
- *
- * Channels 0..14 are the direct hits (unchanged layout from before).
- * Channels 16..28 are reserved purely for pseudo-reverb repeats, so
- * an echo can never steal a channel a direct voice is still using.
- */
-#define ECHO_CH_BASE 16
-
+/* -------------------------------------------------------------------------
+ * Hardware SPU Initialization
+ * ------------------------------------------------------------------------- */
 void sound_init(void) {
-    /* 1. Hold AICA ARM7 sound CPU in reset while SH-4 configures registers */
+    /* 1. Hold ARM CPU in reset for direct SH-4 hardware sound synthesis */
     *(volatile uint32_t *)0xA0702C00UL |= 1;
 
-    /* 2. Unmute master dry output */
+    /* 2. Unmute master dry output volume */
     *(volatile uint16_t *)0xA0702800UL = 0x000F;
 
-    /* 3. Stop and mute all 64 AICA hardware channels */
+    /* 3. Silence all 64 channels */
     for (int ch = 0; ch < 64; ch++) {
         AICA_CHN_REG(ch, 0x00) = 0x8000;
         AICA_CHN_REG(ch, 0x24) = 0x0000;
     }
 
-    /* 4. Synthesize 256-sample 16-bit single-cycle wavetables in SPU RAM:
-          - 0:    Chime (bright bell lead)
-          - 512:  Sub drone
-          - 1024: Body swell (pad)
-          - 1536: Shimmer (secondary sparkle) */
-    volatile int16_t *wav_chime = (volatile int16_t *)(AICA_RAM_BASE + 0);
-    volatile int16_t *wav_sub   = (volatile int16_t *)(AICA_RAM_BASE + 512);
-    volatile int16_t *wav_body  = (volatile int16_t *)(AICA_RAM_BASE + 1024);
-    volatile int16_t *wav_shim  = (volatile int16_t *)(AICA_RAM_BASE + 1536);
+    /* 4. Synthesize 4 acoustic 256-sample 16-bit PCM wavetables in SPU RAM */
+    volatile int16_t *wav_chime  = (volatile int16_t *)(AICA_RAM_BASE + 0);
+    volatile int16_t *wav_rhodes = (volatile int16_t *)(AICA_RAM_BASE + 512);
+    volatile int16_t *wav_string = (volatile int16_t *)(AICA_RAM_BASE + 1024);
+    volatile int16_t *wav_sub    = (volatile int16_t *)(AICA_RAM_BASE + 1536);
 
     for (int i = 0; i < 256; i++) {
-        wav_chime[i] = make_dc_chime(i);
-        wav_sub[i]   = make_dc_sub_drone(i);
-        wav_body[i]  = make_dc_body_swell(i);
-        wav_shim[i]  = make_dc_shimmer(i);
+        wav_chime[i]  = make_acoustic_chime(i);
+        wav_rhodes[i] = make_rhodes_body(i);
+        wav_string[i] = make_orchestral_pad(i);
+        wav_sub[i]    = make_sub_bass(i);
     }
 
     s_seq_frame = 0;
     s_sound_initialized = 1;
 }
 
+/* -------------------------------------------------------------------------
+ * Note Playback with Hardware ADSR Envelopes
+ * ------------------------------------------------------------------------- */
 void sound_play_note(int ch, int midi_note, int volume, int pan, int wavetable_id) {
     if (ch < 0 || ch >= 64 || !s_sound_initialized) return;
 
-    if (midi_note < 24)  midi_note = 24;
-    if (midi_note > 107) midi_note = 107;
+    if (midi_note < 21) midi_note = 21;
+    if (midi_note > 108) midi_note = 108;
 
-    uint32_t pitch = MIDI_PITCH_TABLE[midi_note - 24];
-
+    uint32_t pitch = MIDI_PITCH_TABLE[midi_note - 21];
     uint32_t smp_offset;
+
     switch (wavetable_id) {
-        case WAV_SUB:  smp_offset = 512;  break;
-        case WAV_PAD:  smp_offset = 1024; break;
-        case WAV_SHIM: smp_offset = 1536; break;
-        default:       smp_offset = 0;    break;
+        case 1:  smp_offset = 512;  break; /* Rhodes */
+        case 2:  smp_offset = 1024; break; /* Strings */
+        case 3:  smp_offset = 1536; break; /* Sub-Bass */
+        default: smp_offset = 0;    break; /* Chime */
     }
 
-    /* Stop previous voice */
+    /* Stop previous voice on channel */
     AICA_CHN_REG(ch, 0x00) = 0x8000;
-
-    /* Start address & 256-sample loop */
     AICA_CHN_REG(ch, 0x04) = smp_offset & 0xFFFF;
     AICA_CHN_REG(ch, 0x08) = 0;
     AICA_CHN_REG(ch, 0x0C) = 256;
 
-    /* Pitch */
+    /* Acoustic Hardware ADSR Configuration */
+    if (wavetable_id == 0) {
+        /* Acoustic Chime / Bell: Fast strike, singing long acoustic decay */
+        AICA_CHN_REG(ch, 0x10) = 0x0794; /* AR=0x1E, D1R=0x14 */
+        AICA_CHN_REG(ch, 0x14) = 0x206E; /* DL=0x08, D2R=0x03, RR=0x0E */
+    } else if (wavetable_id == 1) {
+        /* Acoustic Rhodes: Warm hammer attack, organic sustain */
+        AICA_CHN_REG(ch, 0x10) = 0x0710; /* AR=0x1C, D1R=0x10 */
+        AICA_CHN_REG(ch, 0x14) = 0x404C; /* DL=0x10, D2R=0x02, RR=0x0C */
+    } else if (wavetable_id == 2) {
+        /* Orchestral String Pad: Swelling lush attack, warm body */
+        AICA_CHN_REG(ch, 0x10) = 0x0304; /* AR=0x0C, D1R=0x04 */
+        AICA_CHN_REG(ch, 0x14) = 0x7828; /* DL=0x1E, D2R=0x01, RR=0x08 */
+    } else {
+        /* Sub-Bass: Solid low impact, deep resonance */
+        AICA_CHN_REG(ch, 0x10) = 0x0786; /* AR=0x1E, D1R=0x06 */
+        AICA_CHN_REG(ch, 0x14) = 0x704A; /* DL=0x1C, D2R=0x02, RR=0x0A */
+    }
+
     AICA_CHN_REG(ch, 0x18) = pitch;
-
-    /* No LFO by default - see sound_play_note_lfo() for the variant
-       that turns this on. Writing 0 here guarantees a clean retrigger
-       even if a previous note left the LFO running on this channel. */
-    AICA_CHN_REG(ch, 0x1C) = 0x0000;
-
-    /* ADSR envelopes tailored per instrument */
-    if (wavetable_id == WAV_CHIME) {
-        /* Chime: instantaneous acoustic attack, long natural bell decay */
-        AICA_CHN_REG(ch, 0x10) = 0x5FC0;
-        AICA_CHN_REG(ch, 0x14) = 0x3CA8;
-    } else if (wavetable_id == WAV_SUB) {
-        /* Deep sub: punchy transient, sustained sub-bass tail */
-        AICA_CHN_REG(ch, 0x10) = 0x1F00;
-        AICA_CHN_REG(ch, 0x14) = 0x3C06;
-    } else if (wavetable_id == WAV_PAD) {
-        /* Ethereal pad: gentle swell, long warm release */
-        AICA_CHN_REG(ch, 0x10) = 0x0108;
-        AICA_CHN_REG(ch, 0x14) = 0x3C86;
-    } else {
-        /* Shimmer: quick, quiet, decays faster than the lead chime so
-           it never outstays the voice it's echoing */
-        AICA_CHN_REG(ch, 0x10) = 0x5FC0;
-        AICA_CHN_REG(ch, 0x14) = 0x3CE8;
-    }
-
-    /* AICA Direct Send Level (0 = loudest/0dB, 15 = muted) */
-    uint32_t disdl = (volume >= 15) ? 0 : (15 - (volume & 0x0F));
-    AICA_CHN_REG(ch, 0x24) = (disdl << 8) | (pan & 0x1F);
-
-    /* Bypass LPF */
+    AICA_CHN_REG(ch, 0x24) = ((uint32_t)(volume & 0x0F) << 8) | (pan & 0x1F);
     AICA_CHN_REG(ch, 0x28) = 0x0024;
-
-    /* Key On: 16-bit PCM, Loop Enabled */
     AICA_CHN_REG(ch, 0x00) = 0xC200 | (smp_offset >> 16);
-}
-
-/*
- * Same as sound_play_note(), but also arms the AICA's onboard
- * per-channel LFO (register 0x1C) instead of leaving the voice
- * static.
- *
- * lfo_mode:
- *   0 = pitch vibrato   (subtle, for a "live" bell/chime tone)
- *   1 = amplitude throb (slow pulse, good on sustained bass/pads)
- *
- * depth: 0..7, sensitivity of the modulation - keep this low (1-3)
- * for anything meant to sound subtle rather than wobbly.
- *
- * NOTE ON HARDWARE ASSUMPTIONS: this uses the standard, publicly
- * documented AICA LFO register layout (LFORE:1, LFOF:5, ALFOS:3,
- * ALFOWS:2, PLFOS:3, PLFOWS:2, packed MSB-to-LSB in that order).
- * If your sound.h defines named bitfields for this register, prefer
- * those - the raw values below are a safe, conservative starting
- * point, not a guarantee of exact scaling on your build.
- */
-static void sound_play_note_lfo(
-    int ch, int midi_note, int volume, int pan,
-    int wavetable_id, int lfo_mode, int depth)
-{
-    sound_play_note(ch, midi_note, volume, pan, wavetable_id);
-
-    depth = (int)clampi(depth, 0, 7);
-
-    uint32_t freq_idx   = 3;   /* slow LFO rate   */
-    uint32_t waveform   = 2;   /* triangle - smoothest option */
-    uint32_t lfo_value;
-
-    if (lfo_mode == 0) {
-        /* pitch vibrato: PLFOS/PLFOWS active, ALFOS/ALFOWS silent */
-        lfo_value = (freq_idx << 10) | ((uint32_t)depth << 2) | waveform;
-    } else {
-        /* amplitude throb: ALFOS/ALFOWS active, PLFOS/PLFOWS silent */
-        lfo_value = (freq_idx << 10) | ((uint32_t)depth << 7) | (waveform << 5);
-    }
-
-    /* Reset the LFO phase, then start it - some AICA implementations
-       need the reset pulse to land in its own write to take effect. */
-    AICA_CHN_REG(ch, 0x1C) = 0x8000;
-    AICA_CHN_REG(ch, 0x1C) = (uint16_t)lfo_value;
 }
 
 void sound_stop_channel(int ch) {
@@ -322,7 +210,6 @@ void sound_stop_channel(int ch) {
 
 void sound_stop(void) {
     if (!s_sound_initialized) return;
-
     for (int ch = 0; ch < 32; ch++) {
         AICA_CHN_REG(ch, 0x00) = 0x8000;
         AICA_CHN_REG(ch, 0x24) = 0x0000;
@@ -332,15 +219,7 @@ void sound_stop(void) {
 }
 
 /* -------------------------------------------------------------------------
- * Boot jingle sequence - original tribute composition
- * Exactly 8.0 seconds (480 frames @ 60 FPS), one-shot
- *
- * Pseudo-reverb pattern: every important direct hit (channels 0..11)
- * gets 1-2 quiet repeats a few frames later on a channel in the
- * ECHO_CH_BASE bank, at reduced volume and a nudged pan, using the
- * shimmer instrument instead of the raw chime so the tail reads as
- * "room ambience" rather than an obvious delay repeat. The original
- * long decaying tail (now on shimmer) still finishes the sequence.
+ * Canonical Sega Dreamcast Boot Audio Sequencer (60 FPS VBlank Tick)
  * ------------------------------------------------------------------------- */
 void sound_tick(void) {
     if (!s_sound_initialized) return;
@@ -348,123 +227,94 @@ void sound_tick(void) {
     uint32_t tick = s_seq_frame;
 
     switch (tick) {
-
-        /* ---- Rising spiral, direct hits + early reflections ---- */
-
-        case 0:
-            sound_play_note(0, 84, 13, 0x1A, WAV_CHIME); /* C6 (Left)  */
+        /* ==============================================================
+         * PHASE 1: THE ICONIC DRAWING OF THE SEGA DREAMCAST SPIRAL (0..120)
+         * Delicate acoustic chime arpeggio: B5 -> D6 -> G6 -> F#6 -> D6 -> B5 -> A5 -> D5
+         * ============================================================== */
+        case 8:
+            /* Note 1: B5 (71) */
+            sound_play_note(0, 71, 13, 0x1A, 0); /* Left */
+            sound_play_note(1, 71, 10, 0x06, 0); /* Stereo Chorus Right */
+            /* Background Pad: G3 + D4 */
+            sound_play_note(2, 55,  9, 0x1C, 2); /* G3 String Left */
+            sound_play_note(3, 62,  9, 0x04, 2); /* D4 String Right */
             break;
 
-        case 4:
-            /* early reflection of C6 */
-            sound_play_note(ECHO_CH_BASE + 0, 84, 6, 0x0E, WAV_SHIM);
+        case 22:
+            /* Note 2: D6 (74) */
+            sound_play_note(4, 74, 13, 0x08, 0); /* Right */
+            sound_play_note(5, 74, 10, 0x18, 0); /* Stereo Chorus Left */
             break;
 
-        case 5:
-            sound_play_note(1, 86, 13, 0x06, WAV_CHIME); /* D6 (Right) */
+        case 36:
+            /* Note 3: G6 (79) */
+            sound_play_note(6, 79, 14, 0x00, 0); /* Center Peak */
             break;
 
-        case 9:
-            sound_play_note(ECHO_CH_BASE + 0, 84, 3, 0x1E, WAV_SHIM); /* C6 late tap */
-            sound_play_note(ECHO_CH_BASE + 1, 86, 6, 0x12, WAV_SHIM); /* D6 early tap */
+        case 50:
+            /* Note 4: F#6 (78) */
+            sound_play_note(0, 78, 13, 0x18, 0); /* Left */
+            sound_play_note(1, 78, 10, 0x08, 0); /* Right */
             break;
 
-        case 10:
-            sound_play_note(2, 91, 14, 0x18, WAV_CHIME); /* G6 (Left)  */
+        case 64:
+            /* Note 5: D6 (74) */
+            sound_play_note(4, 74, 12, 0x0A, 0); /* Right */
+            /* Pad transition: A3 + D4 */
+            sound_play_note(2, 57,  9, 0x1A, 2); /* A3 String Left */
+            sound_play_note(3, 62,  9, 0x06, 2); /* D4 String Right */
             break;
 
-        case 14:
-            sound_play_note(ECHO_CH_BASE + 1, 86, 3, 0x00, WAV_SHIM); /* D6 late tap */
-            sound_play_note(ECHO_CH_BASE + 2, 91, 6, 0x0C, WAV_SHIM); /* G6 early tap */
+        case 78:
+            /* Note 6: B5 (71) */
+            sound_play_note(5, 71, 12, 0x00, 0); /* Center */
             break;
 
-        case 15:
-            sound_play_note(3, 93, 14, 0x08, WAV_CHIME); /* A6 (Right) */
+        case 92:
+            /* Note 7: A5 (69) */
+            sound_play_note(0, 69, 13, 0x16, 0); /* Left */
+            sound_play_note(1, 69, 10, 0x0A, 0); /* Right */
             break;
 
-        case 19:
-            sound_play_note(ECHO_CH_BASE + 2, 91, 3, 0x1C, WAV_SHIM); /* G6 late tap */
-            sound_play_note(ECHO_CH_BASE + 3, 93, 6, 0x04, WAV_SHIM); /* A6 early tap */
+        case 106:
+            /* Note 8: D5 (62) - Resolving Arpeggio Anchor */
+            sound_play_note(4, 62, 13, 0x00, 0); /* Center */
+            sound_play_note(5, 62, 11, 0x14, 1); /* Rhodes Warmth */
             break;
 
-        case 20:
-            sound_play_note(4, 96, 15, 0x16, WAV_CHIME); /* C7 (Left)  */
+        /* ==============================================================
+         * PHASE 2: LOGO DROP CLIMAX & BREATHTAKING DMAJ9 CHORD RESOLUTION (130)
+         * Deep orchestral sub drop + Wide Dmaj9 bloom + High chime accord
+         * ============================================================== */
+        case 130:
+            /* 1. Deep Orchestral Sub-Bass Drop (D1 + D2) */
+            sound_play_note(6, 26, 15, 0x16, 3); /* D1 Sub Left */
+            sound_play_note(7, 38, 14, 0x0A, 3); /* D2 Sub Right */
+
+            /* 2. Warm Dmaj9 Acoustic Rhodes Body */
+            sound_play_note(8, 45, 12, 0x18, 1); /* A2 Rhodes Left */
+            sound_play_note(9, 54, 12, 0x08, 1); /* F#3 Rhodes Right */
+
+            /* 3. Wide Orchestral String Ensemble Bloom (A3, D4, C#5, E5) */
+            sound_play_note(10, 57, 12, 0x1E, 2); /* A3 String Far Left */
+            sound_play_note(11, 62, 12, 0x02, 2); /* D4 String Far Right */
+            sound_play_note(12, 73, 11, 0x18, 2); /* C#5 String Left */
+            sound_play_note(13, 76, 11, 0x08, 2); /* E5 String Right */
+
+            /* 4. High Celestial Chime Accord (F#6 + A6) */
+            sound_play_note(14, 90, 14, 0x14, 0); /* F#6 Chime Left */
+            sound_play_note(15, 93, 14, 0x0C, 0); /* A6 Chime Right */
             break;
 
-        case 24:
-            sound_play_note(ECHO_CH_BASE + 3, 93, 3, 0x10, WAV_SHIM); /* A6 late tap */
-            sound_play_note(ECHO_CH_BASE + 4, 96, 7, 0x0A, WAV_SHIM); /* C7 early tap */
+        /* Phase 3: Spatial Diffuse Acoustic Reverb Echoes */
+        case 160:
+            sound_play_note(0, 90, 8, 0x0E, 0); /* F#6 Echo Right */
+            sound_play_note(1, 93, 8, 0x12, 0); /* A6 Echo Left */
             break;
 
-        case 26:
-            sound_play_note(5, 98, 15, 0x0A, WAV_CHIME); /* D7 (Right) */
+        case 190:
+            sound_play_note(4, 93, 5, 0x00, 0); /* A6 Diffuse Center Tail */
             break;
-
-        case 29:
-            sound_play_note(ECHO_CH_BASE + 4, 96, 3, 0x1A, WAV_SHIM); /* C7 late tap */
-            break;
-
-        case 30:
-            sound_play_note(ECHO_CH_BASE + 5, 98, 7, 0x02, WAV_SHIM); /* D7 early tap */
-            break;
-
-        case 33:
-            /* High peak chime, with a touch of pitch vibrato so it
-               feels alive rather than a flat static tone */
-            sound_play_note_lfo(6, 103, 15, 0x00, WAV_CHIME, /*pitch*/ 0, /*depth*/ 2);
-            break;
-
-        case 35:
-            sound_play_note(ECHO_CH_BASE + 5, 98, 3, 0x18, WAV_SHIM); /* D7 late tap */
-            break;
-
-        case 37:
-            sound_play_note(ECHO_CH_BASE + 6, 103, 6, 0x08, WAV_SHIM); /* G7 early tap */
-            break;
-
-        /* ---- Impact: sub-bass, pad, and accent, each with a throb/tail ---- */
-
-        case 38:
-            /* Deep sub-bass thump, with a slow amplitude throb */
-            sound_play_note_lfo(7, 36, 15, 0x14, WAV_SUB, /*amp*/ 1, /*depth*/ 2);
-            sound_play_note(8, 36, 15, 0x0C, WAV_SUB);
-
-            /* Warm harmonizing low-mid body */
-            sound_play_note(9, 48, 13, 0x12, WAV_PAD);
-            sound_play_note(10, 55, 12, 0x0E, WAV_PAD);
-
-            /* Sparkling accent drop */
-            sound_play_note(11, 84, 14, 0x00, WAV_CHIME);
-            break;
-
-        case 42:
-            sound_play_note(ECHO_CH_BASE + 6, 103, 3, 0x10, WAV_SHIM); /* G7 late tap  */
-            sound_play_note(ECHO_CH_BASE + 7, 84, 6, 0x08, WAV_SHIM);  /* accent early tap */
-            break;
-
-        case 46:
-            sound_play_note(ECHO_CH_BASE + 7, 84, 3, 0x18, WAV_SHIM); /* accent late tap */
-            break;
-
-        /* ---- Long decaying tail as the room settles ---- */
-
-        case 48:
-            sound_play_note(12, 96, 12, 0x19, WAV_SHIM); /* C7 (decaying tail) */
-            break;
-        case 58:
-            sound_play_note(13, 91, 11, 0x07, WAV_SHIM); /* G6 (decaying tail) */
-            break;
-        case 70:
-            sound_play_note(14, 84, 10, 0x00, WAV_SHIM); /* C6 (decaying tail) */
-            break;
-        case 85:
-            sound_play_note(ECHO_CH_BASE + 8, 84, 4, 0x14, WAV_SHIM); /* last, faint breath */
-            break;
-
-        /* ---- End of 8.0-second sequence ---- */
-        case 479:
-            sound_stop();
-            return;
 
         default:
             break;

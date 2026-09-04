@@ -16,7 +16,7 @@ const boot_theme_t BOOT_THEME_DEFAULT = {
     .subtitle           = "CUSTOM BOOT ROM",
     .version_text       = "OpenDC v1.0",
 
-    .splash_delay_seconds = BOOT_DURATION_CINEMATIC, /* 4 seconds */
+    .splash_delay_seconds = BOOT_DURATION_EXTENDED,
     .splash_delay_frames  = 0,
     .show_diagnostics     = 1,
     .show_progress_bar    = 1,
