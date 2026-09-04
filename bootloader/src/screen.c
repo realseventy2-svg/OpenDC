@@ -17,8 +17,8 @@ const boot_theme_t BOOT_THEME_DEFAULT = {
     .subtitle           = "SEGA DREAMCAST ARCHITECTURE",
     .version_text       = "Custom Boot Firmware",
 
-    .splash_delay_seconds = 12,
-    .splash_delay_frames  = 240,
+    .splash_delay_seconds = 8,
+    .splash_delay_frames  = 0,
     .show_diagnostics     = 0,
     .show_progress_bar    = 0,
 
@@ -47,7 +47,7 @@ const boot_theme_t BOOT_THEME_MINIMAL = {
     .version_text       = NULL,
 
     .splash_delay_seconds = BOOT_DURATION_INSTANT, /* 0 seconds (Instant boot) */
-    .splash_delay_frames  = 240,
+    .splash_delay_frames  = 0,
     .show_diagnostics     = 0,
     .show_progress_bar    = 1,
 
@@ -76,7 +76,7 @@ const boot_theme_t BOOT_THEME_DARK = {
     .version_text       = "OpenDC Custom BIOS",
 
     .splash_delay_seconds = BOOT_DURATION_DEFAULT, /* 4 seconds */
-    .splash_delay_frames  = 240,
+    .splash_delay_frames  = 0,
     .show_diagnostics     = 1,
     .show_progress_bar    = 1,
 
@@ -105,7 +105,7 @@ const boot_theme_t BOOT_THEME_CINEMATIC = {
     .version_text       = "OpenDC Ambient Bios",
 
     .splash_delay_seconds = BOOT_DURATION_CINEMATIC, /* 16 seconds (full ambient cycle) */
-    .splash_delay_frames  = 240,
+    .splash_delay_frames  = 0,
     .show_diagnostics     = 1,
     .show_progress_bar    = 1,
 
@@ -238,11 +238,11 @@ int screen_get_boot_duration_frames(void) {
         return s_custom_duration_frames;
     }
     if (current_theme) {
-        if (current_theme->splash_delay_frames > 0) {
-            return current_theme->splash_delay_frames;
-        }
         if (current_theme->splash_delay_seconds > 0) {
             return current_theme->splash_delay_seconds * 60;
+        }
+        if (current_theme->splash_delay_frames > 0) {
+            return current_theme->splash_delay_frames;
         }
     }
     return 0;
@@ -372,6 +372,10 @@ void screen_animate_splash(int duration_frames) {
     cfg.num_particles = 32;
 
     boot_anim_init(&cfg);
+
+    if (current_theme->music_enabled) {
+        sound_set_duration(duration_frames);
+    }
 
     /* Start with Page 0 displayed, draw into Page 1 (back buffer) */
     video_set_target_buffer(video_get_back_fb());

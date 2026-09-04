@@ -14,6 +14,9 @@
 /* Initialize AICA hardware, master volume, and generate ambient wavetables */
 void sound_init(void);
 
+/* Set the total boot duration frames for sequencer scaling and fade-out */
+void sound_set_duration(int total_frames);
+
 /* Advance the ambient MIDI sequencer by 1 frame (called at 60 FPS on VBlank) */
 void sound_tick(void);
 
