@@ -3,59 +3,33 @@
 #include "scramble.h"
 
 int cdi_is_valid_sh4_entry(const uint8_t *code, size_t len) {
-    if(!code || len < 4) return 0;
+    if(!code || len < 8) return 0;
 
     const uint16_t *op = (const uint16_t *)code;
-    uint16_t op0 = op[0];
-    uint16_t op1 = op[1];
 
-    /* Reject known invalid/empty header markers */
-    if(op0 == 0x0000 || op0 == 0xFFFF) return 0;
-
-    /* 1. NOP sled (0x0009): standard for KallistiOS SDK and Katana tools */
-    if(op0 == 0x0009 || op1 == 0x0009) {
+    /* 1. NOP sled (Katana SDK crt0 & generic Dreamcast tools):
+          0x0009 at op[0] or op[1] */
+    if(op[0] == 0x0009 || op[1] == 0x0009) {
         return 1;
     }
 
-    /* 2. PC-relative load: mov.l @(disp, PC), Rn (0xDxxx) */
-    if((op0 & 0xF000) == 0xD000) {
+    /* 2. KallistiOS crt0 entrypoint signature:
+          mov.l @(disp, PC), r0  (0xD0xx)
+          stc   sr, r1           (0x0102)
+          mov.l r1, @r0          (0x2012) */
+    if((op[0] & 0xFF00) == 0xD000 && op[1] == 0x0102 && op[2] == 0x2012) {
         return 1;
     }
 
-    /* 3. Branch: bra label (0xAxxx) or bsr label (0xBxxx) with valid delay slot */
-    if((op0 & 0xE000) == 0xA000) {
-        if(op1 != 0x0000 && op1 != 0xFFFF) {
-            return 1;
-        }
-    }
-
-    /* 4. Control register or stack operations: ldc/lds/sts/jsr/jmp (0x4xxx) */
-    if((op0 & 0xF000) == 0x4000) {
+    /* 3. Standard SH-4 startup sequence (mov.l literal load + ldc/sts to control register):
+          op[0] is mov.l @(disp, PC), Rn (0xDxxx) and op[1] is ldc/lds/sts (0x4xxx) */
+    if((op[0] & 0xF000) == 0xD000 && (op[1] & 0xF000) == 0x4000) {
         return 1;
     }
 
-    /* 5. Immediate load: mov #imm, Rn (0xExxx) */
-    if((op0 & 0xF000) == 0xE000) {
-        return 1;
-    }
-
-    /* 6. PC-relative word load: mov.w @(disp, PC), Rn (0x9xxx) */
-    if((op0 & 0xF000) == 0x9000) {
-        return 1;
-    }
-
-    /* 7. Memory / Register operations: mov.b/w/l (0x6xxx, 0x2xxx) */
-    if((op0 & 0xF000) == 0x6000 || (op0 & 0xF000) == 0x2000) {
-        return 1;
-    }
-
-    /* 8. Arithmetic & Logic: add, tst, and, xor, or (0x7xxx, 0xCxxx) */
-    if((op0 & 0xF000) == 0x7000 || (op0 & 0xF000) == 0xC000) {
-        return 1;
-    }
-
-    /* 9. Conditional branches: bt, bf, bt/s, bf/s (0x8xxx) */
-    if((op0 & 0xF000) == 0x8000) {
+    /* 4. Branch to entrypoint:
+          bra label (0xAxxx) followed by NOP delay slot (0x0009) */
+    if((op[0] & 0xF000) == 0xA000 && op[1] == 0x0009) {
         return 1;
     }
 

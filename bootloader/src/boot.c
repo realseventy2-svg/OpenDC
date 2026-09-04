@@ -131,7 +131,7 @@ int gdrom_boot_game(uint32_t data_fad) {
         ".align 4\n\t"
         "1:  .long 0x8D000000\n\t"
         "2:  .long 0xAC00043C\n\t"
-        "3:  .long 0x400000F0\n\t"
+        "3:  .long 0x40000000\n\t"
         "4:  .long 0x00040001\n\t"
         "5:  .long 0x8C000000\n\t"
         "6:  .long 0x8C000000\n\t"
