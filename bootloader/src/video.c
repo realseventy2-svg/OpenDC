@@ -149,10 +149,13 @@ void video_init(void) {
 }
 
 void video_wait_vblank(void) {
-    volatile uint32_t timeout = 1000000;
-    while (!(PVR_SYNC_STATUS & 0x01FF) && --timeout != 0) { }
-    timeout = 1000000;
-    while ((PVR_SYNC_STATUS & 0x01FF) && --timeout != 0) { }
+    /* 1. If currently in VBlank (bit 13 is vsync status), wait until it ends */
+    volatile uint32_t timeout = 2000000;
+    while ((PVR_SYNC_STATUS & (1 << 13)) && --timeout != 0) { }
+
+    /* 2. Wait until next VBlank begins */
+    timeout = 2000000;
+    while (!(PVR_SYNC_STATUS & (1 << 13)) && --timeout != 0) { }
 }
 
 void video_wait_seconds(int seconds) {
@@ -175,9 +178,16 @@ uint32_t video_get_back_fb(void) {
 }
 
 void video_flip_buffer(void) {
+    /* 1. Wait for cathode ray / rasterizer to enter vertical blanking */
     video_wait_vblank();
+
+    /* 2. Atomic swap of displayed surface */
     s_current_page ^= 1;
-    PVR_FB_ADDR = (s_current_page == 0) ? 0x00000000UL : 0x00100000UL;
+    uint32_t fb_offset = (s_current_page == 0) ? 0x00000000UL : 0x00100000UL;
+    PVR_FB_ADDR    = fb_offset;
+    PVR_FB_IL_ADDR = fb_offset;
+
+    /* 3. Update drawing pointer to point to the inactive back buffer */
     s_draw_fb = (s_current_page == 0) ? (volatile uint16_t *)VRAM_PAGE_1 : (volatile uint16_t *)VRAM_PAGE_0;
 }
 

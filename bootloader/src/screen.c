@@ -373,26 +373,27 @@ void screen_animate_splash(int duration_frames) {
 
     boot_anim_init(&cfg);
 
-    video_sync_buffers();
+    /* Start with Page 0 displayed, draw into Page 1 (back buffer) */
     video_set_target_buffer(video_get_back_fb());
 
     for (int frame = 0; frame < duration_frames; frame++) {
-        /* Advance AICA authentic startup sound */
+        /* 1. Advance SPU Sound */
         if (current_theme->music_enabled) {
             sound_tick();
         }
 
-        /* Render full 3D spiral ribbon, stardust vortex, and anti-aliased branding */
-        boot_anim_render_frame(frame, duration_frames, video_get_back_fb());
+        /* 2. Render complete frame exclusively into the inactive back buffer */
+        uint32_t back_fb = video_get_back_fb();
+        boot_anim_render_frame(frame, duration_frames, back_fb);
 
-        /* Hardware double-buffer flip on VBlank with zero tearing */
+        /* 3. Atomically flip displayed surface on hardware VBlank */
         video_flip_buffer();
-        video_set_target_buffer(video_get_back_fb());
     }
 
-    /* Clean handoff */
-    video_sync_buffers();
-    video_set_target_buffer(VRAM_PAGE_0);
+    /* Clean handoff: wait for VBlank, restore display to Page 0 */
+    video_wait_vblank();
     *(volatile uint32_t *)0xA05F8050UL = 0x00000000UL;
+    *(volatile uint32_t *)0xA05F8054UL = 0x00000000UL;
+    video_set_target_buffer(VRAM_PAGE_0);
     boot_anim_shutdown();
 }
