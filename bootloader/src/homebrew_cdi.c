@@ -1,42 +1,47 @@
-#include "cdi.h"
+#include "homebrew_cdi.h"
 #include "gdrom.h"
 #include "scramble.h"
 
-int cdi_is_valid_sh4_entry(const uint8_t *code, size_t len) {
-    if(!code || len < 8) return 0;
+static int str_contains(const char *src, size_t max_len, const char *sub) {
+    if(!src || !sub) return 0;
+    size_t sub_len = 0;
+    while(sub[sub_len]) sub_len++;
 
-    const uint16_t *op = (const uint16_t *)code;
+    for(size_t i = 0; i + sub_len <= max_len; i++) {
+        int match = 1;
+        for(size_t j = 0; j < sub_len; j++) {
+            char c1 = src[i + j];
+            char c2 = sub[j];
+            if(c1 >= 'a' && c1 <= 'z') c1 -= ('a' - 'A');
+            if(c2 >= 'a' && c2 <= 'z') c2 -= ('a' - 'A');
+            if(c1 != c2) { match = 0; break; }
+        }
+        if(match) return 1;
+    }
+    return 0;
+}
 
-    /* 1. NOP sled (Katana SDK crt0 & generic Dreamcast tools):
-          0x0009 at op[0] or op[1] */
-    if(op[0] == 0x0009 || op[1] == 0x0009) {
+int homebrew_cdi_detect(const uint8_t *ip_sector) {
+    if(!ip_sector) return 0;
+
+    /* Check for KallistiOS maker/title signatures in IP.BIN header */
+    if(str_contains((const char *)(ip_sector + 0x10), 16, "KallistiOS") ||
+       str_contains((const char *)(ip_sector + 0x70), 16, "KallistiOS") ||
+       str_contains((const char *)(ip_sector + 0x80), 32, "KallistiOS") ||
+       str_contains((const char *)(ip_sector + 0x80), 32, "Dreamcast App")) {
         return 1;
     }
 
-    /* 2. KallistiOS crt0 entrypoint signature:
-          mov.l @(disp, PC), r0  (0xD0xx)
-          stc   sr, r1           (0x0102)
-          mov.l r1, @r0          (0x2012) */
-    if((op[0] & 0xFF00) == 0xD000 && op[1] == 0x0102 && op[2] == 0x2012) {
-        return 1;
-    }
-
-    /* 3. Standard SH-4 startup sequence (mov.l literal load + ldc/sts to control register):
-          op[0] is mov.l @(disp, PC), Rn (0xDxxx) and op[1] is ldc/lds/sts (0x4xxx) */
-    if((op[0] & 0xF000) == 0xD000 && (op[1] & 0xF000) == 0x4000) {
-        return 1;
-    }
-
-    /* 4. Branch to entrypoint:
-          bra label (0xAxxx) followed by NOP delay slot (0x0009) */
-    if((op[0] & 0xF000) == 0xA000 && op[1] == 0x0009) {
+    /* Check if IP.BIN bootstrap code at 0x8C008300 is empty/zeroed (standard makeip output) */
+    const uint32_t *ip_entry = (const uint32_t *)0x8C008300UL;
+    if(*ip_entry == 0 || *ip_entry == 0xFFFFFFFFUL) {
         return 1;
     }
 
     return 0;
 }
 
-int cdi_load_binary(uint32_t file_fad, uint32_t file_size, uint8_t *dest) {
+int homebrew_cdi_load(uint32_t file_fad, uint32_t file_size, uint8_t *dest) {
     volatile uint16_t *fb = (volatile uint16_t *)0xA5000000UL;
     uint32_t total_sectors = (file_size + 2047U) / 2048U;
     uint8_t *staging = (uint8_t *)0x8C700000UL;
@@ -46,11 +51,19 @@ int cdi_load_binary(uint32_t file_fad, uint32_t file_size, uint8_t *dest) {
         return GDROM_DEVICE_ERR;
     }
 
-    int is_unscrambled = cdi_is_valid_sh4_entry(staging, 2048);
+    const uint16_t *op = (const uint16_t *)staging;
+    int is_unscrambled = 0;
+
+    /* KallistiOS crt0 entrypoint signature (mov.l @(disp,PC), r0; stc sr, r1; mov.l r1, @r0) */
+    if((op[0] & 0xFF00) == 0xD000 && op[1] == 0x0102 && op[2] == 0x2012) {
+        is_unscrambled = 1;
+    } else if(op[0] == 0x0009 || op[1] == 0x0009) {
+        /* NOP sled entrypoint */
+        is_unscrambled = 1;
+    }
 
     if(is_unscrambled) {
-        /* Homebrew / Modern CDI: Binary is raw SH-4 machine code.
-           Copy sector 0 into 0x8C010000 and stream remaining sectors directly. */
+        /* Raw / Unscrambled KOS binary: stream directly into destination */
         for(int b = 0; b < 2048; b++) {
             dest[b] = staging[b];
         }
@@ -75,8 +88,8 @@ int cdi_load_binary(uint32_t file_fad, uint32_t file_size, uint8_t *dest) {
             }
         }
     } else {
-        /* Commercial Self-Boot CDI (Retail Rip): Binary is PRNG scrambled.
-           Stream all sectors into staging buffer and run gdrom_descramble(). */
+        /* Scrambled KOS binary (generated via make-cdi.sh scramble step):
+           Stream all sectors into staging buffer and descramble into 0x8C010000 */
         uint32_t read_count = 1;
         while(read_count < total_sectors) {
             uint32_t batch = total_sectors - read_count;
@@ -97,7 +110,6 @@ int cdi_load_binary(uint32_t file_fad, uint32_t file_size, uint8_t *dest) {
             }
         }
 
-        /* Descramble staging buffer into 0x8C010000 */
         gdrom_descramble(staging, dest, file_size);
     }
 

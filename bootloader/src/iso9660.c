@@ -1,7 +1,9 @@
 #include "iso9660.h"
 #include "gdrom.h"
 #include "scramble.h"
-#include "cdi.h"
+#include "gdi_loader.h"
+#include "homebrew_cdi.h"
+#include "selfboot_cdi.h"
 
 uint32_t read_le32_unaligned(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
@@ -166,66 +168,20 @@ int iso_load_1st_read(uint32_t data_fad) {
                     filename_match(boot_file, 8, "0WINCEOS"));
     int is_gdi   = (gdrom_get_cached_disc_type() == 0x80);
 
-    if(is_wince && is_gdi) {
-        /* Windows CE retail loading:
-           1. First 2048 bytes placed at 0x8CE01000 (WinCE boot header).
-           2. Remaining binary placed at 0x8C010000. */
-        if(gdrom_read_fad((void *)0x8CE01000UL, file_fad, 1) != GDROM_OK)
-            return GDROM_DEVICE_ERR;
-
-        /* Also mirror to uncached 0xACE01000 */
-        const uint32_t *hdr_c = (const uint32_t *)0x8CE01000UL;
-        uint32_t *hdr_u = (uint32_t *)0xACE01000UL;
-        for(size_t i = 0; i < 512; i++) {
-            hdr_u[i] = hdr_c[i];
-        }
-
-        uint32_t rem_sectors = (file_size > 2048U) ? ((file_size - 2048U + 2047U) / 2048U) : 0;
-        uint32_t read_count = 0;
-        while(read_count < rem_sectors) {
-            uint32_t batch = rem_sectors - read_count;
-            if(batch > 16U) batch = 16U;
-            if(gdrom_read_fad(dest + (read_count * 2048U),
-                              file_fad + 1U + read_count,
-                              (uint16_t)batch) != GDROM_OK) {
-                return GDROM_DEVICE_ERR;
-            }
-            read_count += batch;
-
-            uint32_t progress_w = (read_count >> 3);
-            if(progress_w > 400U) progress_w = 400U;
-            for(int y = 468; y < 474; y++) {
-                for(uint32_t x = 0; x < progress_w; x++) {
-                    fb[y * 640 + (120 + x)] = 0x07E0;
-                }
-            }
-        }
-    } else if(is_gdi) {
-        /* Katana SDK / GDI high-density loading directly into 0x8C010000 */
-        uint32_t total_sectors = (file_size + 2047U) / 2048U;
-        uint32_t read_count = 0;
-        while(read_count < total_sectors) {
-            uint32_t batch = total_sectors - read_count;
-            if(batch > 16U) batch = 16U;
-            if(gdrom_read_fad(dest + (read_count * 2048U),
-                              file_fad + read_count,
-                              (uint16_t)batch) != GDROM_OK) {
-                return GDROM_DEVICE_ERR;
-            }
-            read_count += batch;
-
-            uint32_t progress_w = (read_count >> 3);
-            if(progress_w > 400U) progress_w = 400U;
-            for(int y = 468; y < 474; y++) {
-                for(uint32_t x = 0; x < progress_w; x++) {
-                    fb[y * 640 + (120 + x)] = 0x07E0;
-                }
-            }
-        }
+    int load_res = GDROM_DEVICE_ERR;
+    if(is_gdi) {
+        /* Official GD-ROM / GDI High-Density format (Area 1) */
+        load_res = gdi_load_binary(file_fad, file_size, dest, is_wince);
+    } else if(homebrew_cdi_detect(sector)) {
+        /* KallistiOS / Homebrew CDI format */
+        load_res = homebrew_cdi_load(file_fad, file_size, dest);
     } else {
-        /* Self-Boot CDI loading (commercial scrambled or homebrew unscrambled) */
-        int res = cdi_load_binary(file_fad, file_size, dest);
-        if(res != GDROM_OK) return res;
+        /* Commercial Self-Boot (MIL-CD / Retail Rip) CDI format */
+        load_res = selfboot_cdi_load(file_fad, file_size, dest);
+    }
+
+    if(load_res != GDROM_OK) {
+        return load_res;
     }
 
     /* Turn progress bar CYAN upon completion */
