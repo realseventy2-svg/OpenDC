@@ -18,7 +18,7 @@ LDFLAGS = -m4-single-only -ml -nostdlib \
           -Wl,-T,linker.ld \
           -Wl,--gc-sections
 
-OBJS = crt0.o payload.o ata.o gdrom.o iso9660.o gdi_loader.o homebrew_cdi.o selfboot_cdi.o scramble.o syscalls.o wince.o boot.o
+OBJS = crt0.o video.o screen.o payload.o ata.o gdrom.o iso9660.o gdi_loader.o homebrew_cdi.o selfboot_cdi.o scramble.o syscalls.o wince.o boot.o
 
 .PHONY: all clean rom
 
@@ -28,7 +28,13 @@ rom: dc_boot.bin
 crt0.o: src/crt0.s
 	$(CC) $(CFLAGS) -c $< -o $@
 
-payload.o: src/payload.c
+video.o: src/video.c src/video.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+screen.o: src/screen.c src/screen.h src/video.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+payload.o: src/payload.c src/video.h src/screen.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 ata.o: src/ata.c src/ata.h
@@ -37,16 +43,16 @@ ata.o: src/ata.c src/ata.h
 gdrom.o: src/gdrom.c src/gdrom.h src/ata.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-iso9660.o: src/iso9660.c src/iso9660.h src/gdrom.h src/scramble.h src/gdi_loader.h src/homebrew_cdi.h src/selfboot_cdi.h
+iso9660.o: src/iso9660.c src/iso9660.h src/gdrom.h src/scramble.h src/gdi_loader.h src/homebrew_cdi.h src/selfboot_cdi.h src/screen.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-gdi_loader.o: src/gdi_loader.c src/gdi_loader.h src/gdrom.h
+gdi_loader.o: src/gdi_loader.c src/gdi_loader.h src/gdrom.h src/screen.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-homebrew_cdi.o: src/homebrew_cdi.c src/homebrew_cdi.h src/gdrom.h src/scramble.h
+homebrew_cdi.o: src/homebrew_cdi.c src/homebrew_cdi.h src/gdrom.h src/scramble.h src/screen.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-selfboot_cdi.o: src/selfboot_cdi.c src/selfboot_cdi.h src/gdrom.h src/scramble.h
+selfboot_cdi.o: src/selfboot_cdi.c src/selfboot_cdi.h src/gdrom.h src/scramble.h src/screen.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 scramble.o: src/scramble.c src/scramble.h

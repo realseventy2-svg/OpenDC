@@ -1,6 +1,7 @@
 #include "selfboot_cdi.h"
 #include "gdrom.h"
 #include "scramble.h"
+#include "screen.h"
 
 int selfboot_cdi_detect(const uint8_t *ip_sector) {
     if(!ip_sector) return 0;
@@ -41,7 +42,6 @@ static int is_raw_sh4_binary(const uint8_t *data) {
 }
 
 int selfboot_cdi_load(uint32_t file_fad, uint32_t file_size, uint8_t *dest) {
-    volatile uint16_t *fb = (volatile uint16_t *)0xA5000000UL;
     uint32_t total_sectors = (file_size + 2047U) / 2048U;
     uint32_t padded_size = total_sectors * 2048U;
 
@@ -61,15 +61,7 @@ int selfboot_cdi_load(uint32_t file_fad, uint32_t file_size, uint8_t *dest) {
             return GDROM_DEVICE_ERR;
         }
         read_count += batch;
-
-        /* Visual Progress bar */
-        uint32_t progress_w = (read_count >> 3);
-        if(progress_w > 400U) progress_w = 400U;
-        for(int y = 468; y < 474; y++) {
-            for(uint32_t x = 0; x < progress_w; x++) {
-                fb[y * 640 + (120 + x)] = 0x07E0; /* GREEN */
-            }
-        }
+        screen_update_progress(read_count, total_sectors);
     }
 
     /* Check if the binary is already clean SH-4 machine code */

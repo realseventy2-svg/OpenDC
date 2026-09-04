@@ -4,6 +4,7 @@
 #include "gdi_loader.h"
 #include "homebrew_cdi.h"
 #include "selfboot_cdi.h"
+#include "screen.h"
 
 uint32_t read_le32_unaligned(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
@@ -147,7 +148,6 @@ int iso_load_1st_read(uint32_t data_fad) {
     if(file_size > 0x00D00000UL)
         return GDROM_BAD_ARG;
 
-    volatile uint16_t *fb = (volatile uint16_t *)0xA5000000UL;
     uint8_t *dest = (uint8_t *)0x8C010000UL;
     int is_wince = (wince_os == '1' ||
                     filename_match(boot_file, 12, "0WINCEOS.BIN") ||
@@ -170,12 +170,8 @@ int iso_load_1st_read(uint32_t data_fad) {
         return load_res;
     }
 
-    /* Turn progress bar CYAN upon completion */
-    for(int y = 468; y < 474; y++) {
-        for(int x = 120; x < 520; x++) {
-            fb[y * 640 + x] = 0x07FF; /* CYAN */
-        }
-    }
+    /* Complete progress bar */
+    screen_finish_progress();
 
     return GDROM_OK;
 }

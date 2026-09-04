@@ -1,9 +1,8 @@
 #include "gdi_loader.h"
 #include "gdrom.h"
+#include "screen.h"
 
 int gdi_load_binary(uint32_t file_fad, uint32_t file_size, uint8_t *dest, int is_wince) {
-    volatile uint16_t *fb = (volatile uint16_t *)0xA5000000UL;
-
     if(is_wince) {
         /* Windows CE retail loading:
            1. First 2048 bytes placed at 0x8CE01000 (WinCE boot header).
@@ -29,14 +28,7 @@ int gdi_load_binary(uint32_t file_fad, uint32_t file_size, uint8_t *dest, int is
                 return GDROM_DEVICE_ERR;
             }
             read_count += batch;
-
-            uint32_t progress_w = (read_count >> 3);
-            if(progress_w > 400U) progress_w = 400U;
-            for(int y = 468; y < 474; y++) {
-                for(uint32_t x = 0; x < progress_w; x++) {
-                    fb[y * 640 + (120 + x)] = 0x07E0; /* GREEN */
-                }
-            }
+            screen_update_progress(read_count, rem_sectors);
         }
     } else {
         /* Katana SDK / GDI high-density loading directly into 0x8C010000 */
@@ -51,14 +43,7 @@ int gdi_load_binary(uint32_t file_fad, uint32_t file_size, uint8_t *dest, int is
                 return GDROM_DEVICE_ERR;
             }
             read_count += batch;
-
-            uint32_t progress_w = (read_count >> 3);
-            if(progress_w > 400U) progress_w = 400U;
-            for(int y = 468; y < 474; y++) {
-                for(uint32_t x = 0; x < progress_w; x++) {
-                    fb[y * 640 + (120 + x)] = 0x07E0; /* GREEN */
-                }
-            }
+            screen_update_progress(read_count, total_sectors);
         }
     }
 

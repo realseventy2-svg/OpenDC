@@ -1,6 +1,7 @@
 #include "homebrew_cdi.h"
 #include "gdrom.h"
 #include "scramble.h"
+#include "screen.h"
 
 static int str_contains(const char *src, size_t max_len, const char *sub) {
     if(!src || !sub) return 0;
@@ -42,7 +43,6 @@ int homebrew_cdi_detect(const uint8_t *ip_sector) {
 }
 
 int homebrew_cdi_load(uint32_t file_fad, uint32_t file_size, uint8_t *dest) {
-    volatile uint16_t *fb = (volatile uint16_t *)0xA5000000UL;
     uint32_t total_sectors = (file_size + 2047U) / 2048U;
     uint8_t *staging = (uint8_t *)0x8C700000UL;
 
@@ -78,14 +78,7 @@ int homebrew_cdi_load(uint32_t file_fad, uint32_t file_size, uint8_t *dest) {
                 return GDROM_DEVICE_ERR;
             }
             read_count += batch;
-
-            uint32_t progress_w = (read_count >> 3);
-            if(progress_w > 400U) progress_w = 400U;
-            for(int y = 468; y < 474; y++) {
-                for(uint32_t x = 0; x < progress_w; x++) {
-                    fb[y * 640 + (120 + x)] = 0x07E0; /* GREEN */
-                }
-            }
+            screen_update_progress(read_count, total_sectors);
         }
     } else {
         /* Scrambled KOS binary (generated via make-cdi.sh scramble step):
@@ -100,14 +93,7 @@ int homebrew_cdi_load(uint32_t file_fad, uint32_t file_size, uint8_t *dest) {
                 return GDROM_DEVICE_ERR;
             }
             read_count += batch;
-
-            uint32_t progress_w = (read_count >> 3);
-            if(progress_w > 400U) progress_w = 400U;
-            for(int y = 468; y < 474; y++) {
-                for(uint32_t x = 0; x < progress_w; x++) {
-                    fb[y * 640 + (120 + x)] = 0x07E0; /* GREEN */
-                }
-            }
+            screen_update_progress(read_count, total_sectors);
         }
 
         gdrom_descramble(staging, dest, file_size);
