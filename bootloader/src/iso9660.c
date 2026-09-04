@@ -1,6 +1,7 @@
 #include "iso9660.h"
 #include "gdrom.h"
 #include "scramble.h"
+#include "cdi.h"
 
 uint32_t read_le32_unaligned(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
@@ -199,62 +200,32 @@ int iso_load_1st_read(uint32_t data_fad) {
                 }
             }
         }
-    } else {
-        /* Katana SDK / KallistiOS homebrew loading */
-        if(gdrom_read_fad(dest, file_fad, 1) != GDROM_OK)
-            return GDROM_DEVICE_ERR;
+    } else if(is_gdi) {
+        /* Katana SDK / GDI high-density loading directly into 0x8C010000 */
+        uint32_t total_sectors = (file_size + 2047U) / 2048U;
+        uint32_t read_count = 0;
+        while(read_count < total_sectors) {
+            uint32_t batch = total_sectors - read_count;
+            if(batch > 16U) batch = 16U;
+            if(gdrom_read_fad(dest + (read_count * 2048U),
+                              file_fad + read_count,
+                              (uint16_t)batch) != GDROM_OK) {
+                return GDROM_DEVICE_ERR;
+            }
+            read_count += batch;
 
-        int is_unscrambled = ((dest[0] == 0x09 && dest[1] == 0x00) ||
-                              (dest[2] == 0x09 && dest[3] == 0x00) ||
-                              is_gdi);
-
-        if(is_unscrambled) {
-            uint32_t total_sectors = (file_size + 2047U) / 2048U;
-            uint32_t read_count = 1;
-            while(read_count < total_sectors) {
-                uint32_t batch = total_sectors - read_count;
-                if(batch > 16U) batch = 16U;
-                if(gdrom_read_fad(dest + (read_count * 2048U),
-                                  file_fad + read_count,
-                                  (uint16_t)batch) != GDROM_OK) {
-                    return GDROM_DEVICE_ERR;
-                }
-                read_count += batch;
-
-                uint32_t progress_w = (read_count >> 3);
-                if(progress_w > 400U) progress_w = 400U;
-                for(int y = 468; y < 474; y++) {
-                    for(uint32_t x = 0; x < progress_w; x++) {
-                        fb[y * 640 + (120 + x)] = 0x07E0;
-                    }
+            uint32_t progress_w = (read_count >> 3);
+            if(progress_w > 400U) progress_w = 400U;
+            for(int y = 468; y < 474; y++) {
+                for(uint32_t x = 0; x < progress_w; x++) {
+                    fb[y * 640 + (120 + x)] = 0x07E0;
                 }
             }
-        } else {
-            /* Scrambled CD-R binary */
-            uint32_t total_sectors = (file_size + 2047U) / 2048U;
-            uint8_t *staging = (uint8_t *)0x8C700000UL;
-            for(int b = 0; b < 2048; b++) staging[b] = dest[b];
-
-            uint32_t read_count = 1;
-            while(read_count < total_sectors) {
-                uint32_t batch = total_sectors - read_count;
-                if(batch > 16U) batch = 16U;
-                if(gdrom_read_fad(staging + (read_count * 2048U),
-                                  file_fad + read_count,
-                                  (uint16_t)batch) != GDROM_OK)
-                    return GDROM_DEVICE_ERR;
-                read_count += batch;
-
-                uint32_t progress_w = (read_count >> 3);
-                if(progress_w > 400U) progress_w = 400U;
-                for(int y = 468; y < 474; y++) {
-                    for(uint32_t x = 0; x < progress_w; x++) {
-                        fb[y * 640 + (120 + x)] = 0x07E0;
-                    }
-                }
-            }
-            gdrom_descramble(staging, dest, file_size);
         }
+    } else {
+        /* Self-Boot CDI loading (commercial scrambled or homebrew unscrambled) */
+        int res = cdi_load_binary(file_fad, file_size, dest);
+        if(res != GDROM_OK) return res;
     }
 
     /* Turn progress bar CYAN upon completion */
