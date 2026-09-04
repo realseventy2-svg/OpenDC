@@ -183,14 +183,37 @@ typedef struct {
     int active;
 } ripple_t;
 
+#include "logo_tex.h"
+
 static ripple_t ripples[NUM_RIPPLES];
 
 static pvr_ptr_t s_atlas_vram = NULL;
+static pvr_ptr_t s_logo_vram = NULL;
+static int s_current_logo_type = -1;
+
+static void update_theme_logo(const theme_t *theme) {
+    (void)theme;
+    if (!s_logo_vram) return;
+    int cur_idx = theme_get_current_index();
+    int logo_type = (cur_idx == 1) ? 1 : ((cur_idx == 3) ? 2 : 0);
+    if (logo_type != s_current_logo_type) {
+        const uint16_t *src_tex = (logo_type == 1) ? LOGO_AERO_ORANGE :
+                                  ((logo_type == 2) ? LOGO_AERO_CHROME : LOGO_AERO_AQUA);
+        pvr_txr_load((void *)src_tex, s_logo_vram, 128 * 128 * 2);
+        s_current_logo_type = logo_type;
+    }
+}
 
 static void init_aero_environment(void) {
     s_atlas_vram = pvr_mem_malloc(256 * 256 * 2);
     if (s_atlas_vram) {
         pvr_txr_load((void *)AERO_ATLAS_TEX, s_atlas_vram, 256 * 256 * 2);
+    }
+
+    s_logo_vram = pvr_mem_malloc(128 * 128 * 2);
+    if (s_logo_vram) {
+        pvr_txr_load((void *)LOGO_AERO_AQUA, s_logo_vram, 128 * 128 * 2);
+        s_current_logo_type = 0;
     }
 
     for (int i = 0; i < NUM_BUBBLES; i++) {
@@ -255,6 +278,37 @@ static void draw_txr_quad(float x, float y, float w, float h, float z,
     vert.flags = PVR_CMD_VERTEX_EOL;
     vert.x = x + w; vert.y = y + h;
     vert.u = u1; vert.v = v1;
+    pvr_prim(&vert, sizeof(vert));
+}
+
+static void draw_txr_logo_quad(float x, float y, float w, float h, float z, uint32_t col) {
+    if (!s_logo_vram) return;
+    pvr_poly_cxt_t cxt;
+    pvr_poly_hdr_t hdr;
+    pvr_vertex_t vert;
+
+    pvr_poly_cxt_txr(&cxt, PVR_LIST_TR_POLY, PVR_TXRFMT_ARGB4444 | PVR_TXRFMT_NONTWIDDLED,
+                     128, 128, s_logo_vram, PVR_FILTER_BILINEAR);
+    pvr_poly_compile(&hdr, &cxt);
+    pvr_prim(&hdr, sizeof(hdr));
+
+    vert.flags = PVR_CMD_VERTEX;
+    vert.x = x; vert.y = y; vert.z = z;
+    vert.u = 0.0f; vert.v = 0.0f;
+    vert.argb = col; vert.oargb = 0;
+    pvr_prim(&vert, sizeof(vert));
+
+    vert.x = x + w; vert.y = y;
+    vert.u = 1.0f; vert.v = 0.0f;
+    pvr_prim(&vert, sizeof(vert));
+
+    vert.x = x; vert.y = y + h;
+    vert.u = 0.0f; vert.v = 1.0f;
+    pvr_prim(&vert, sizeof(vert));
+
+    vert.flags = PVR_CMD_VERTEX_EOL;
+    vert.x = x + w; vert.y = y + h;
+    vert.u = 1.0f; vert.v = 1.0f;
     pvr_prim(&vert, sizeof(vert));
 }
 
@@ -507,26 +561,28 @@ static void draw_button_gem(const theme_t *theme, float x, float y, float r, con
     }
 }
 
-/* 7. 3D Faceted Glass Dreamcast Swirl */
+/* 7. Authentic 3D Frutiger Aero Translucent Glass Logo */
 static void draw_3d_glass_swirl(const theme_t *theme, float center_x, float center_y, float scale, int frame) {
-    float rot = frame * 0.035f;
+    update_theme_logo(theme);
 
-    for (int i = 0; i < NUM_SWIRL_PTS; i++) {
-        float t = (float)i / NUM_SWIRL_PTS;
-        float r = t * (75.0f * scale);
-        float angle = t * 4.2f * 3.14159f + rot;
+    float float_y = sinf(frame * 0.035f) * 3.5f;
+    float w = 112.0f * scale;
+    float h = 100.0f * scale;
+    float x = center_x - w * 0.5f;
+    float y = center_y - h * 0.5f + float_y;
 
-        float z_offset = sinf(angle * 2.5f + rot) * 25.0f;
-        float sx = center_x + cosf(angle) * r;
-        float sy = center_y + sinf(angle) * (r * 0.52f) + z_offset * 0.25f;
-        float pt_size = (4.0f + t * 6.5f) * scale;
+    /* Ambient glass drop shadow */
+    draw_quad_gradient(x + 4.0f, y + h - 6.0f, w - 8.0f, 14.0f, 2.2f,
+                       PVR_PACK_COLOR(0.35f, 0.0f, 0.04f, 0.12f), PVR_PACK_COLOR(0.35f, 0.0f, 0.04f, 0.12f),
+                       PVR_PACK_COLOR(0.0f, 0.0f, 0.0f, 0.0f), PVR_PACK_COLOR(0.0f, 0.0f, 0.0f, 0.0f));
 
-        uint32_t col_core = (i % 2 == 0) ? theme->swirl_core_a : theme->swirl_core_b;
-        uint32_t col_glint = theme->swirl_glint;
+    /* Pulsing caustic glow aura around glass logo */
+    float pulse = fabsf(sinf(frame * 0.03f));
+    uint32_t glow_col = PVR_PACK_COLOR(0.20f + pulse * 0.25f, 0.4f, 0.8f, 1.0f);
+    draw_txr_logo_quad(x - 3.0f, y - 3.0f, w + 6.0f, h + 6.0f, 3.0f, glow_col);
 
-        draw_quad_gradient(sx - pt_size * 0.5f, sy - pt_size * 0.5f, pt_size, pt_size, 3.5f,
-                           col_glint, col_core, col_core, col_glint);
-    }
+    /* 3D Translucent Glass Logo Quad */
+    draw_txr_logo_quad(x, y, w, h, 3.5f, 0xFFFFFFFF);
 }
 
 /* 8. 3D Iridescent Holographic GD-ROM Disc */

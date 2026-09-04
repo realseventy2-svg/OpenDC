@@ -149,13 +149,11 @@ void video_init(void) {
 }
 
 void video_wait_vblank(void) {
-    /* 1. If currently in VBlank (bit 13 is vsync status), wait until it ends */
-    volatile uint32_t timeout = 2000000;
-    while ((PVR_SYNC_STATUS & (1 << 13)) && --timeout != 0) { }
+    /* 1. If currently in VBlank (scanline >= 480), wait until active scanout begins */
+    while ((PVR_SYNC_STATUS & 0x03FF) >= 480) { }
 
-    /* 2. Wait until next VBlank begins */
-    timeout = 2000000;
-    while (!(PVR_SYNC_STATUS & (1 << 13)) && --timeout != 0) { }
+    /* 2. Wait until active scanout completes and next VBlank begins */
+    while ((PVR_SYNC_STATUS & 0x03FF) < 480) { }
 }
 
 void video_wait_seconds(int seconds) {
