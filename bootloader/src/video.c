@@ -197,13 +197,25 @@ void video_clean_handoff(void) {
     }
     *(volatile uint32_t *)(PVR_BASE + 0x0008) = 0x00000000;
 
-    /* 2. Zero-fill entire 8 MB VRAM to eradicate all residual bootloader textures and text */
+    /* 2. Reset ISP/TSP Depth, Culling, Punch-Through & Blanking registers */
+    *(volatile uint32_t *)(PVR_BASE + 0x0078) = 0x00000000; /* FPU_CULL_VAL */
+    *(volatile uint32_t *)(PVR_BASE + 0x007C) = 0x00000000; /* FPU_PARAM_CFG */
+    *(volatile uint32_t *)(PVR_BASE + 0x0080) = 0x00000000; /* HALF_OFFSET */
+    *(volatile uint32_t *)(PVR_BASE + 0x0084) = 0x00000000; /* FPU_PERP_VAL */
+    *(volatile uint32_t *)(PVR_BASE + 0x0088) = 0x00000000; /* ISP_BACKGND_D (W_ZERO depth scale) */
+    *(volatile uint32_t *)(PVR_BASE + 0x008C) = 0x3F800000; /* ISP_BACKGND_T (Z_CLIP: 1.0f float) */
+    *(volatile uint32_t *)(PVR_BASE + 0x0098) = 0x00000000; /* ISP_FEED_CFG (Translucent sort) */
+    *(volatile uint32_t *)(PVR_BASE + 0x00C8) = 0x00000000; /* SPG_HBLANK_INT */
+    *(volatile uint32_t *)(PVR_BASE + 0x00CC) = 0x00000000; /* SPG_VBLANK_INT */
+    *(volatile uint32_t *)(PVR_BASE + 0x011C) = 0x00000000; /* PT_ALPHA_REF (Punch-Through Alpha Ref) */
+
+    /* 3. Zero-fill entire 8 MB VRAM to eradicate all residual bootloader textures and text */
     volatile uint32_t *vram = (volatile uint32_t *)VRAM_BASE;
     for (size_t i = 0; i < (8 * 1024 * 1024) / 4; i++) {
         vram[i] = 0x00000000;
     }
 
-    /* 3. Reset primary video display registers to clean Katana baseline */
+    /* 4. Reset primary video display registers to clean Katana baseline */
     PVR_FB_ADDR       = 0x00000000;
     PVR_FB_IL_ADDR    = 0x00000000;
     PVR_BORDER_COLOR  = 0x00000000;

@@ -148,8 +148,51 @@ int gdrom_boot_game(uint32_t data_fad) {
         "lds    r1, pr\n\t"
         "mov.l  3f, r1\n\t"
         "ldc    r1, sr\n\t"
+
+        /* 8a. Initialize FPU Bank 0 and clear FR0..FR15 */
+        "mov.l  4f, r1\n\t"     /* 0x00040000 (Round-to-nearest, Single precision) */
+        "lds    r1, fpscr\n\t"
+        "fldi0  fr0\n\t"
+        "fldi0  fr1\n\t"
+        "fldi0  fr2\n\t"
+        "fldi0  fr3\n\t"
+        "fldi0  fr4\n\t"
+        "fldi0  fr5\n\t"
+        "fldi0  fr6\n\t"
+        "fldi0  fr7\n\t"
+        "fldi0  fr8\n\t"
+        "fldi0  fr9\n\t"
+        "fldi0  fr10\n\t"
+        "fldi0  fr11\n\t"
+        "fldi0  fr12\n\t"
+        "fldi0  fr13\n\t"
+        "fldi0  fr14\n\t"
+        "fldi0  fr15\n\t"
+
+        /* 8b. Switch to FPU Bank 1 (FR=1) and clear matrix registers XF0..XF15 */
+        "mov.l  13f, r1\n\t"    /* 0x00240000 (Bank 1) */
+        "lds    r1, fpscr\n\t"
+        "fldi0  fr0\n\t"
+        "fldi0  fr1\n\t"
+        "fldi0  fr2\n\t"
+        "fldi0  fr3\n\t"
+        "fldi0  fr4\n\t"
+        "fldi0  fr5\n\t"
+        "fldi0  fr6\n\t"
+        "fldi0  fr7\n\t"
+        "fldi0  fr8\n\t"
+        "fldi0  fr9\n\t"
+        "fldi0  fr10\n\t"
+        "fldi0  fr11\n\t"
+        "fldi0  fr12\n\t"
+        "fldi0  fr13\n\t"
+        "fldi0  fr14\n\t"
+        "fldi0  fr15\n\t"
+
+        /* 8c. Restore official Katana standard Bank 0 FPSCR (0x00040000) */
         "mov.l  4f, r1\n\t"
         "lds    r1, fpscr\n\t"
+
         "mov.l  5f, r1\n\t"
         "ldc    r1, vbr\n\t"
         "mov.l  6f, r1\n\t"
@@ -176,7 +219,7 @@ int gdrom_boot_game(uint32_t data_fad) {
         "1:  .long 0x8D000000\n\t"
         "2:  .long 0xAC000050\n\t"
         "3:  .long 0x40000000\n\t"
-        "4:  .long 0x00040001\n\t"
+        "4:  .long 0x00040000\n\t"
         "5:  .long 0x8C000000\n\t"
         "6:  .long 0x8C000000\n\t"
         "7:  .long 0x8C000010\n\t"
@@ -185,6 +228,7 @@ int gdrom_boot_game(uint32_t data_fad) {
         "10: .long 0xAC008300\n\t"
         "11: .long 0xF4000000\n\t"
         "12: .long 0xF4002000\n\t"
+        "13: .long 0x00240000\n\t"
         :
         : "r"(boot_entry)
         : "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "memory"
