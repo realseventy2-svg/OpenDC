@@ -48,4 +48,6 @@ void video_draw_string_centered(int center_x, int y, const char *str, uint16_t c
 void video_draw_hex32(int x, int y, uint32_t value, uint16_t color, int scale);
 void video_draw_hex8(int x, int y, const uint8_t *data, uint16_t color, int scale);
 
+extern const uint8_t FONT_8X8[95][8];
+
 #endif /* OPENDC_BOOTLOADER_VIDEO_H */

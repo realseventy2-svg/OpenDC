@@ -1,20 +1,21 @@
 #include "screen.h"
 #include "sound.h"
+#include "boot_anim.h"
 
 const boot_theme_t BOOT_THEME_DEFAULT = {
-    .bg_color           = COLOR_BLACK,
-    .header_color       = COLOR_GREEN,
-    .sub_color          = COLOR_WHITE,
+    .bg_color           = RGB565(4, 8, 18),
+    .header_color       = COLOR_WHITE,
+    .sub_color          = COLOR_CYAN,
     .status_ok_color    = COLOR_GREEN,
     .status_err_color   = COLOR_GOLD,
     .text_color         = COLOR_WHITE,
     .bar_border_color   = COLOR_DARK_GRAY,
-    .bar_fill_color     = COLOR_GREEN,
-    .bar_complete_color = COLOR_CYAN,
+    .bar_fill_color     = RGB565(255, 110, 20),
+    .bar_complete_color = RGB565(255, 210, 40),
 
-    .title              = "SEGA DREAMCAST",
-    .subtitle           = "CUSTOM BOOT ROM",
-    .version_text       = "OpenDC v1.0",
+    .title              = "Open Dreamcast",
+    .subtitle           = "SEGA DREAMCAST ARCHITECTURE",
+    .version_text       = "Custom Boot Firmware",
 
     .splash_delay_seconds = BOOT_DURATION_EXTENDED,
     .splash_delay_frames  = 0,
@@ -359,57 +360,39 @@ void screen_draw_cube(int cx, int cy, int size, int ax, int ay, int az, uint16_t
 }
 
 void screen_animate_splash(int duration_frames) {
-    if (!current_theme->cube_enabled || duration_frames <= 0) {
-        if (duration_frames > 0) {
-            for (int f = 0; f < duration_frames; f++) {
-                video_wait_vblank();
-                if (current_theme->music_enabled) {
-                    sound_tick();
-                }
-            }
-        }
-        return;
-    }
+    if (duration_frames <= 0) return;
 
-    int cx = current_theme->cube_center_x;
-    int cy = current_theme->cube_center_y;
-    int size = current_theme->cube_size;
-    uint16_t color = current_theme->cube_color;
-    uint16_t bg = current_theme->bg_color;
+    boot_scene_config_t cfg;
+    cfg.title = current_theme->title ? current_theme->title : "Open Dreamcast";
+    cfg.subtitle = current_theme->subtitle ? current_theme->subtitle : "SEGA DREAMCAST ARCHITECTURE";
+    cfg.swirl_color_a = RGB565(255, 110, 20);  /* Sega Orange */
+    cfg.swirl_color_b = RGB565(255, 210, 40);  /* Radiant Gold */
+    cfg.swirl_glint_color = RGB565(255, 255, 255);
+    cfg.bg_color = current_theme->bg_color;
+    cfg.num_particles = 32;
 
-    /* Cube Bounding Box for Clearing */
-    int clear_w = 200;
-    int clear_h = 160;
-    int clear_x = cx - (clear_w / 2);
-    int clear_y = cy - (clear_h / 2);
+    boot_anim_init(&cfg);
 
-    /* Clone static background, diagnostics, and text to back buffer */
     video_sync_buffers();
     video_set_target_buffer(video_get_back_fb());
 
     for (int frame = 0; frame < duration_frames; frame++) {
-        /* Advance ambient MIDI music sequencer */
+        /* Advance AICA authentic startup sound */
         if (current_theme->music_enabled) {
             sound_tick();
         }
 
-        /* Clear previous cube position on back buffer (invisible to user) */
-        video_fill_rect(clear_x, clear_y, clear_w, clear_h, bg);
+        /* Render full 3D spiral ribbon, stardust vortex, and anti-aliased branding */
+        boot_anim_render_frame(frame, duration_frames, video_get_back_fb());
 
-        /* Smooth 3-axis rotation */
-        int ax = (frame * 2) & 0xFF;
-        int ay = (frame * 3) & 0xFF;
-        int az = (frame * 1) & 0xFF;
-
-        /* Draw new cube into back buffer */
-        screen_draw_cube(cx, cy, size, ax, ay, az, color);
-
-        /* Hardware Page-Flip on VBlank with zero flicker */
+        /* Hardware double-buffer flip on VBlank with zero tearing */
         video_flip_buffer();
+        video_set_target_buffer(video_get_back_fb());
     }
 
-    /* Synchronize final frame to both buffers and set Page 0 active for game boot */
+    /* Clean handoff */
     video_sync_buffers();
     video_set_target_buffer(VRAM_PAGE_0);
     *(volatile uint32_t *)0xA05F8050UL = 0x00000000UL;
+    boot_anim_shutdown();
 }

@@ -790,7 +790,7 @@ int main(int argc, char **argv) {
         /* Top Banner Typography */
         draw_text_shadow(95.0f, 24.0f, 1.00f, "OpenDC Dashboard",
                          theme->text_title, theme->text_title_shadow);
-        draw_text_smooth(95.0f, 52.0f, 0.58f, "Sega Dreamcast | Firmware 0.1b",
+        draw_text_smooth(95.0f, 52.0f, 0.58f, "Sega Dreamcast | BIOS 0.1b",
                          theme->text_sub);
 
         /* Top-Right Live Clock */
@@ -842,7 +842,7 @@ int main(int argc, char **argv) {
             draw_button_gem(theme, 165.0f, 426.0f, 13.0f, "D", 2);
             draw_text_smooth(187.0f, 414.0f, 0.78f, "Navigate", theme->text_title);
 
-            draw_text_smooth(380.0f, 416.0f, 0.70f, "PowerVR2 CLX2 @ 60 FPS", theme->text_sub);
+            draw_text_smooth(380.0f, 416.0f, 0.70f, "Made with love.", theme->text_sub);
 
         } else if (current_view == VIEW_PLAY_DISC) {
             char game_title[128];
