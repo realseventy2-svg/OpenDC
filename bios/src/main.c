@@ -89,7 +89,6 @@ static void aica_synth_init(void) {
     volatile int16_t *wav_chime = (volatile int16_t *)(AICA_RAM_BASE + 1024);
 
     for (int i = 0; i < 256; i++) {
-        /* Deep oceanic sub-drone */
         int32_t s1 = sin_fx(i);
         int32_t s2 = sin_fx(i * 2);
         int32_t val_drone = (s1 * 95) + (s2 * 25);
@@ -97,7 +96,6 @@ static void aica_synth_init(void) {
         if (val_drone < -32767) val_drone = -32767;
         wav_drone[i] = (int16_t)val_drone;
 
-        /* Lush Celestial Pad (warm, soft acoustic shape) */
         int32_t p1 = sin_fx(i);
         int32_t p2 = sin_fx(i * 2);
         int32_t p3 = sin_fx(i * 3);
@@ -106,7 +104,6 @@ static void aica_synth_init(void) {
         if (val_pad < -32767) val_pad = -32767;
         wav_pad[i] = (int16_t)val_pad;
 
-        /* Mellow Chime (warm, rounded fundamental with gentle 3rd harmonic) */
         int32_t c1 = sin_fx(i);
         int32_t c3 = sin_fx(i * 3);
         int32_t val_chime = (c1 * 90) + (c3 * 20);
@@ -130,15 +127,12 @@ static void aica_play_note(int ch, int midi_note, int volume, int pan, int wavet
     AICA_CHN_REG(ch, 0x0C) = 256;
 
     if (wavetable_id == 0) {
-        /* Oceanic Sub-Drone: slow swelling attack, infinite sustain, gentle release */
         AICA_CHN_REG(ch, 0x10) = 0x0003;
         AICA_CHN_REG(ch, 0x14) = 0x3C02;
     } else if (wavetable_id == 1) {
-        /* Celestial Pad: very slow 2-second atmospheric rise, infinite sustained float */
         AICA_CHN_REG(ch, 0x10) = 0x0004;
         AICA_CHN_REG(ch, 0x14) = 0x3C02;
     } else {
-        /* Mellow Chime: smooth natural bell decay */
         AICA_CHN_REG(ch, 0x10) = 0x321F;
         AICA_CHN_REG(ch, 0x14) = 0x3D0E;
     }
@@ -154,7 +148,6 @@ static void aica_ambient_tick(uint32_t frame) {
     uint32_t tick = frame % 1200;
 
     switch (tick) {
-        /* Phase 1 (Frames 0..299 / 5.0s): Eb Major 9 (Dreamy Floating Ocean) */
         case 0:
             aica_play_note(0, 27, 14, 0x18, 0); /* Eb1 Sub Left */
             aica_play_note(1, 34, 13, 0x08, 0); /* Bb1 Drone Right */
@@ -169,7 +162,6 @@ static void aica_ambient_tick(uint32_t frame) {
             aica_play_note(6, 77,  5, 0x00, 2); /* F5 Diffuse Center */
             break;
 
-        /* Phase 2 (Frames 300..599 / 5.0s): C Minor 9 / 11 (Deep Warmth) */
         case 300:
             aica_play_note(0, 24, 14, 0x18, 0); /* C1 Sub Left */
             aica_play_note(1, 31, 13, 0x08, 0); /* G1 Drone Right */
@@ -184,7 +176,6 @@ static void aica_ambient_tick(uint32_t frame) {
             aica_play_note(6, 79,  5, 0x00, 2); /* G5 Diffuse Center */
             break;
 
-        /* Phase 3 (Frames 600..899 / 5.0s): Ab Major 9 (Frutiger Sky Space) */
         case 600:
             aica_play_note(0, 32, 14, 0x18, 0); /* Ab1 Sub Left */
             aica_play_note(1, 39, 13, 0x08, 0); /* Eb2 Drone Right */
@@ -199,7 +190,6 @@ static void aica_ambient_tick(uint32_t frame) {
             aica_play_note(6, 75,  5, 0x00, 2); /* Eb5 Diffuse Center */
             break;
 
-        /* Phase 4 (Frames 900..1199 / 5.0s): Bbsus4 -> Bb Major 9 (Peaceful Resolution) */
         case 900:
             aica_play_note(0, 34, 14, 0x18, 0); /* Bb1 Sub Left */
             aica_play_note(1, 41, 13, 0x08, 0); /* F2 Drone Right */
@@ -208,7 +198,6 @@ static void aica_ambient_tick(uint32_t frame) {
             aica_play_note(4, 74, 11, 0x00, 2); /* D5 Soft Chime Center */
             break;
         case 960:
-            /* Resolution into warm major 3rd (D3 / F3) */
             aica_play_note(2, 50, 11, 0x1A, 1); /* D3 Pad Left */
             aica_play_note(3, 53, 11, 0x06, 1); /* F3 Pad Right */
             break;
@@ -247,7 +236,6 @@ static ripple_t ripples[NUM_RIPPLES];
 static pvr_ptr_t s_atlas_vram = NULL;
 
 static void init_aero_environment(void) {
-    /* Allocate and load 256x256 ARGB4444 texture atlas into VRAM */
     s_atlas_vram = pvr_mem_malloc(256 * 256 * 2);
     if (s_atlas_vram) {
         pvr_txr_load((void *)AERO_ATLAS_TEX, s_atlas_vram, 256 * 256 * 2);
@@ -383,7 +371,7 @@ static void draw_quad(float x, float y, float w, float h, float z, uint32_t col)
     draw_quad_gradient(x, y, w, h, z, col, col, col, col);
 }
 
-/* Smooth Anti-Aliased Proportional Typography */
+/* Mathematically Exact Proportional Baseline Typography */
 static void draw_text_smooth(float start_x, float start_y, float scale, const char *text, uint32_t col) {
     float cur_x = start_x;
     for (int i = 0; text[i]; i++) {
@@ -395,33 +383,36 @@ static void draw_text_smooth(float start_x, float start_y, float scale, const ch
             float v0 = (float)g->y / 256.0f;
             float u1 = (float)(g->x + g->w) / 256.0f;
             float v1 = (float)(g->y + g->h) / 256.0f;
-            float gw = (float)g->w * scale;
-            float gh = (float)g->h * scale;
-            draw_txr_quad(cur_x, start_y, gw, gh, 5.0f, u0, v0, u1, v1, col);
+
+            float qx = cur_x + (float)g->xoff * scale;
+            float qy = start_y + (float)g->yoff * scale;
+            float qw = (float)g->w * scale;
+            float qh = (float)g->h * scale;
+
+            draw_txr_quad(qx, qy, qw, qh, 5.0f, u0, v0, u1, v1, col);
         }
-        cur_x += (float)g->adv * scale + 1.0f;
+        cur_x += (float)g->adv * scale;
     }
 }
 
 static void draw_text_shadow(float start_x, float start_y, float scale, const char *text, uint32_t col, uint32_t shadow_col) {
-    draw_text_smooth(start_x + 1.2f, start_y + 1.2f, scale, text, shadow_col);
+    draw_text_smooth(start_x + 1.0f, start_y + 1.0f, scale, text, shadow_col);
     draw_text_smooth(start_x, start_y, scale, text, col);
 }
 
 /* =========================================================================
-   FRUTIGER AERO GRAPHICS ENGINE
+    AERO GRAPHICS ENGINE
    ========================================================================= */
 
 /* 1. Luminous Sky & Tropical Ocean Gradient Background */
 static void draw_sky_atmosphere(int frame) {
-    uint32_t c_top = PVR_PACK_COLOR(1.0f, 0.05f, 0.32f, 0.65f);  /* Deep Azure Blue */
-    uint32_t c_mid = PVR_PACK_COLOR(1.0f, 0.08f, 0.68f, 0.92f);  /* Radiant Tropical Cyan */
-    uint32_t c_bot = PVR_PACK_COLOR(1.0f, 0.35f, 0.88f, 0.95f);  /* Luminous Ice/Water */
+    uint32_t c_top = PVR_PACK_COLOR(1.0f, 0.05f, 0.32f, 0.65f);
+    uint32_t c_mid = PVR_PACK_COLOR(1.0f, 0.08f, 0.68f, 0.92f);
+    uint32_t c_bot = PVR_PACK_COLOR(1.0f, 0.35f, 0.88f, 0.95f);
 
     draw_quad_gradient(0, 0, 640, 240, 0.5f, c_top, c_top, c_mid, c_mid);
     draw_quad_gradient(0, 240, 640, 240, 0.5f, c_mid, c_mid, c_bot, c_bot);
 
-    /* Sunburst Glow in top-right */
     float sun_x = 520.0f + sinf(frame * 0.01f) * 15.0f;
     float sun_y = 60.0f + cosf(frame * 0.012f) * 10.0f;
     uint32_t c_sun_core = PVR_PACK_COLOR(0.35f, 1.0f, 1.0f, 1.0f);
@@ -457,9 +448,9 @@ static void draw_aurora_ribbons(int frame) {
 /* 3. Smooth Circular Glass Bubbles */
 static void draw_bubbles(int frame) {
     float u0 = (32.0f - 26.0f) / 256.0f;
-    float v0 = (218.0f - 26.0f) / 256.0f;
+    float v0 = (200.0f - 26.0f) / 256.0f;
     float u1 = (32.0f + 26.0f) / 256.0f;
-    float v1 = (218.0f + 26.0f) / 256.0f;
+    float v1 = (200.0f + 26.0f) / 256.0f;
 
     for (int i = 0; i < NUM_BUBBLES; i++) {
         bubbles[i].y -= bubbles[i].speed_y;
@@ -481,9 +472,9 @@ static void draw_bubbles(int frame) {
 /* 4. Smooth Liquid Water Ripples */
 static void draw_ripples(void) {
     float u0 = (96.0f - 26.0f) / 256.0f;
-    float v0 = (218.0f - 26.0f) / 256.0f;
+    float v0 = (200.0f - 26.0f) / 256.0f;
     float u1 = (96.0f + 26.0f) / 256.0f;
-    float v1 = (218.0f + 26.0f) / 256.0f;
+    float v1 = (200.0f + 26.0f) / 256.0f;
 
     for (int i = 0; i < NUM_RIPPLES; i++) {
         if (!ripples[i].active) continue;
@@ -504,24 +495,20 @@ static void draw_ripples(void) {
 
 /* 5. Authentic Frutiger Aero Glossy Glass Panels */
 static void draw_glass_panel(float x, float y, float w, float h, float z, int is_selected, float glow_phase) {
-    /* Outer Glow / Ambient Drop Shadow */
     float glow_w = is_selected ? 6.0f : 2.0f;
     float glow_a = is_selected ? (0.45f + 0.25f * sinf(glow_phase)) : 0.15f;
     uint32_t c_glow = is_selected ? PVR_PACK_COLOR(glow_a, 0.0f, 0.95f, 0.9f) : PVR_PACK_COLOR(glow_a, 0.0f, 0.2f, 0.5f);
     draw_quad(x - glow_w, y - glow_w, w + glow_w * 2.0f, h + glow_w * 2.0f, z - 0.1f, c_glow);
 
-    /* Frosted Acrylic Base Layer (Translucent Aqua Glass) */
     uint32_t c_base_top = is_selected ? PVR_PACK_COLOR(0.65f, 0.15f, 0.65f, 0.95f) : PVR_PACK_COLOR(0.40f, 0.08f, 0.40f, 0.70f);
     uint32_t c_base_bot = is_selected ? PVR_PACK_COLOR(0.75f, 0.05f, 0.45f, 0.85f) : PVR_PACK_COLOR(0.55f, 0.02f, 0.25f, 0.55f);
     draw_quad_gradient(x, y, w, h, z, c_base_top, c_base_top, c_base_bot, c_base_bot);
 
-    /* Iconic 50% Top-Half Specular Glare (The Aero Glass Sheen) */
     float glare_h = h * 0.48f;
     uint32_t c_glare_top = PVR_PACK_COLOR(0.55f, 1.0f, 1.0f, 1.0f);
     uint32_t c_glare_bot = PVR_PACK_COLOR(0.08f, 0.85f, 0.98f, 1.0f);
     draw_quad_gradient(x + 2.0f, y + 2.0f, w - 4.0f, glare_h, z + 0.1f, c_glare_top, c_glare_top, c_glare_bot, c_glare_bot);
 
-    /* 1px High-Gloss Specular Border Bevel */
     uint32_t c_border_top = is_selected ? PVR_PACK_COLOR(0.95f, 0.9f, 1.0f, 1.0f) : PVR_PACK_COLOR(0.70f, 0.75f, 0.95f, 1.0f);
     uint32_t c_border_bot = is_selected ? PVR_PACK_COLOR(0.75f, 0.0f, 0.9f, 0.9f) : PVR_PACK_COLOR(0.35f, 0.1f, 0.5f, 0.8f);
 
@@ -534,19 +521,30 @@ static void draw_glass_panel(float x, float y, float w, float h, float z, int is
 /* 6. Smooth Round Glossy Controller Button Gems */
 static void draw_button_gem(float x, float y, float r, const char *label, int color_type) {
     float u0 = (160.0f - 24.0f) / 256.0f;
-    float v0 = (218.0f - 24.0f) / 256.0f;
+    float v0 = (200.0f - 24.0f) / 256.0f;
     float u1 = (160.0f + 24.0f) / 256.0f;
-    float v1 = (218.0f + 24.0f) / 256.0f;
+    float v1 = (200.0f + 24.0f) / 256.0f;
 
     float cr, cg, cb;
     if (color_type == 0)      { cr = 0.2f; cg = 0.95f; cb = 0.4f; } /* (A) Green */
     else if (color_type == 1) { cr = 0.95f; cg = 0.2f; cb = 0.3f; } /* (B) Red */
-    else if (color_type == 2) { cr = 0.2f; cg = 0.6f; cb = 0.98f; } /* (X) Blue */
+    else if (color_type == 2) { cr = 0.2f; cg = 0.6f; cb = 0.98f; } /* (X/D) Blue */
     else                      { cr = 0.98f; cg = 0.85f; cb = 0.1f; } /* (Y) Yellow */
 
     uint32_t col = PVR_PACK_COLOR(0.95f, cr, cg, cb);
     draw_txr_quad(x - r, y - r, r * 2.0f, r * 2.0f, 4.0f, u0, v0, u1, v1, col);
-    draw_text_smooth(x - 4.5f, y - 8.0f, 0.75f, label, PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+
+    /* Perfect center text inside circle */
+    if (label && label[0]) {
+        unsigned char c = (unsigned char)label[0];
+        if (c >= 32 && c <= 126) {
+            const glyph_t *g = &GLYPH_MAP[c - 32];
+            float scale = (r * 1.35f) / 24.0f;
+            float start_x = x - (float)g->adv * 0.5f * scale;
+            float start_y = y - 16.0f * scale;
+            draw_text_smooth(start_x, start_y, scale, label, PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+        }
+    }
 }
 
 /* 7. 3D Faceted Glass Dreamcast Swirl */
@@ -580,17 +578,14 @@ static void draw_3d_glass_swirl(float center_x, float center_y, float scale, int
 static void draw_3d_holographic_disc(float cx, float cy, float radius, int frame, int has_disc) {
     float rot = frame * 0.05f;
 
-    /* Outer Disc Shadow */
     draw_quad(cx - radius - 4, cy - radius * 0.6f - 4, (radius + 4) * 2.0f, (radius + 4) * 1.2f, 2.0f,
               PVR_PACK_COLOR(0.35f, 0.0f, 0.1f, 0.25f));
 
-    /* Disc Base Platter */
     uint32_t c_disc_edge = PVR_PACK_COLOR(0.85f, 0.85f, 0.95f, 1.0f);
     uint32_t c_disc_body = PVR_PACK_COLOR(0.70f, 0.45f, 0.75f, 0.95f);
     draw_quad_gradient(cx - radius, cy - radius * 0.55f, radius * 2.0f, radius * 1.1f, 2.2f,
                        c_disc_edge, c_disc_body, c_disc_body, c_disc_edge);
 
-    /* Iridescent Rainbow Diffraction Rings */
     int rings = 8;
     for (int r = 0; r < rings; r++) {
         float ring_t = (float)r / (float)rings;
@@ -605,7 +600,6 @@ static void draw_3d_holographic_disc(float cx, float cy, float radius, int frame
         draw_quad(cx - ring_r, cy - ring_r * 0.55f, ring_r * 2.0f, ring_r * 1.1f, 2.4f + ring_t * 0.1f, c_diff);
     }
 
-    /* Inner Clear Spindle Ring & Center Hole */
     float hub_r = radius * 0.28f;
     uint32_t c_hub = PVR_PACK_COLOR(0.9f, 0.95f, 0.98f, 1.0f);
     draw_quad(cx - hub_r, cy - hub_r * 0.55f, hub_r * 2.0f, hub_r * 1.1f, 2.6f, c_hub);
@@ -614,15 +608,13 @@ static void draw_3d_holographic_disc(float cx, float cy, float radius, int frame
     uint32_t c_hole = PVR_PACK_COLOR(1.0f, 0.05f, 0.32f, 0.65f);
     draw_quad(cx - hole_r, cy - hole_r * 0.55f, hole_r * 2.0f, hole_r * 1.1f, 2.7f, c_hole);
 
-    /* Dynamic Laser Specular Glint */
     float glint_x = cx + cosf(rot * 2.0f) * (radius * 0.5f);
     float glint_y = cy + sinf(rot * 2.0f) * (radius * 0.28f);
     draw_quad(glint_x - 10, glint_y - 10, 20, 20, 2.8f, PVR_PACK_COLOR(0.85f, 1.0f, 1.0f, 1.0f));
 
-    /* Status Banner */
     if (has_disc) {
         draw_glass_panel(cx - 100, cy + radius * 0.65f, 200, 32, 3.0f, 1, frame * 0.1f);
-        draw_text_shadow(cx - 75, cy + radius * 0.65f + 6, 0.85f, "SEGA GD-ROM READY",
+        draw_text_shadow(cx - 75, cy + radius * 0.65f + 6.0f, 0.72f, "SEGA GD-ROM READY",
                          PVR_PACK_COLOR(1.0f, 0.3f, 1.0f, 0.5f), PVR_PACK_COLOR(0.6f, 0.0f, 0.0f, 0.0f));
     }
 }
@@ -632,13 +624,13 @@ static void draw_vmu_card(float x, float y, float w, float h, float z, const cha
                           int is_inserted, int blocks_used, int frame) {
     draw_glass_panel(x, y, w, h, z, is_inserted, frame * 0.08f);
 
-    draw_text_shadow(x + 12, y + 8, 0.95f, port_name,
+    draw_text_shadow(x + 14.0f, y + 6.0f, 0.78f, port_name,
                      PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f), PVR_PACK_COLOR(0.6f, 0.0f, 0.2f, 0.4f));
 
-    float lcd_x = x + 12;
-    float lcd_y = y + 34;
-    float lcd_w = 70;
-    float lcd_h = 50;
+    float lcd_x = x + 14.0f;
+    float lcd_y = y + 36.0f;
+    float lcd_w = 70.0f;
+    float lcd_h = 52.0f;
 
     draw_quad_gradient(lcd_x, lcd_y, lcd_w, lcd_h, z + 0.2f,
                        PVR_PACK_COLOR(0.85f, 0.45f, 0.70f, 0.40f), PVR_PACK_COLOR(0.85f, 0.45f, 0.70f, 0.40f),
@@ -657,20 +649,20 @@ static void draw_vmu_card(float x, float y, float w, float h, float z, const cha
 
         char buf[48];
         snprintf(buf, sizeof(buf), "%d / 200 Blocks", blocks_used);
-        draw_text_smooth(x + 95, y + 36, 0.85f, buf, PVR_PACK_COLOR(1.0f, 0.2f, 1.0f, 0.6f));
+        draw_text_smooth(x + 96.0f, y + 34.0f, 0.72f, buf, PVR_PACK_COLOR(1.0f, 0.2f, 1.0f, 0.6f));
 
-        float bar_w = w - 110;
-        draw_quad(x + 95, y + 60, bar_w, 10, z + 0.2f, PVR_PACK_COLOR(0.4f, 0.1f, 0.3f, 0.5f));
+        float bar_w = w - 110.0f;
+        draw_quad(x + 96.0f, y + 56.0f, bar_w, 10.0f, z + 0.2f, PVR_PACK_COLOR(0.4f, 0.1f, 0.3f, 0.5f));
         float fill_w = (bar_w * (float)blocks_used) / 200.0f;
-        draw_quad_gradient(x + 95, y + 60, fill_w, 10, z + 0.3f,
+        draw_quad_gradient(x + 96.0f, y + 56.0f, fill_w, 10.0f, z + 0.3f,
                            PVR_PACK_COLOR(0.9f, 0.2f, 0.95f, 0.6f), PVR_PACK_COLOR(0.9f, 0.2f, 0.95f, 0.6f),
                            PVR_PACK_COLOR(0.9f, 0.05f, 0.65f, 0.4f), PVR_PACK_COLOR(0.9f, 0.05f, 0.65f, 0.4f));
 
-        draw_text_smooth(x + 95, y + 78, 0.75f, "Status: Mounted & OK", PVR_PACK_COLOR(0.8f, 0.7f, 0.9f, 1.0f));
+        draw_text_smooth(x + 96.0f, y + 74.0f, 0.60f, "Status: Mounted & OK", PVR_PACK_COLOR(0.8f, 0.7f, 0.9f, 1.0f));
     } else {
-        draw_text_smooth(lcd_x + 10, lcd_y + 16, 0.80f, "Offline", PVR_PACK_COLOR(0.6f, 0.2f, 0.35f, 0.2f));
-        draw_text_smooth(x + 95, y + 42, 0.85f, "No VMU Inserted", PVR_PACK_COLOR(0.6f, 0.7f, 0.8f, 0.9f));
-        draw_text_smooth(x + 95, y + 66, 0.75f, "Slot Empty", PVR_PACK_COLOR(0.5f, 0.5f, 0.6f, 0.7f));
+        draw_text_smooth(lcd_x + 12.0f, lcd_y + 18.0f, 0.60f, "Offline", PVR_PACK_COLOR(0.6f, 0.2f, 0.35f, 0.2f));
+        draw_text_smooth(x + 96.0f, y + 40.0f, 0.70f, "No VMU Inserted", PVR_PACK_COLOR(0.6f, 0.7f, 0.8f, 0.9f));
+        draw_text_smooth(x + 96.0f, y + 66.0f, 0.58f, "Slot Empty", PVR_PACK_COLOR(0.5f, 0.5f, 0.6f, 0.7f));
     }
 }
 
@@ -759,12 +751,12 @@ int main(int argc, char **argv) {
                     if (((st->buttons & CONT_DPAD_DOWN) || st->joyy > 40) &&
                         !((prev_buttons & CONT_DPAD_DOWN))) {
                         menu_sel = (menu_sel + 1) % num_items;
-                        trigger_ripple(320.0f, 160.0f + menu_sel * 58.0f);
+                        trigger_ripple(320.0f, 92.0f + menu_sel * 70.0f + 29.0f);
                     }
                     if (((st->buttons & CONT_DPAD_UP) || st->joyy < -40) &&
                         !((prev_buttons & CONT_DPAD_UP))) {
                         menu_sel = (menu_sel - 1 + num_items) % num_items;
-                        trigger_ripple(320.0f, 160.0f + menu_sel * 58.0f);
+                        trigger_ripple(320.0f, 92.0f + menu_sel * 70.0f + 29.0f);
                     }
                     if ((st->buttons & CONT_A) && !(prev_buttons & CONT_A)) {
                         current_view = menu_sel + 1;
@@ -798,12 +790,13 @@ int main(int argc, char **argv) {
         draw_ripples();
 
         /* 3. Top Navigation Glass Banner */
-        draw_glass_panel(20.0f, 16.0f, 600.0f, 62.0f, 2.0f, 0, 0.0f);
-        draw_3d_glass_swirl(55.0f, 47.0f, 0.40f, frame);
+        draw_glass_panel(20.0f, 16.0f, 600.0f, 66.0f, 2.0f, 0, 0.0f);
+        draw_3d_glass_swirl(55.0f, 49.0f, 0.40f, frame);
 
-        draw_text_shadow(95.0f, 22.0f, 1.15f, "OpenDC Dashboard",
+        /* Top Banner Typography */
+        draw_text_shadow(95.0f, 24.0f, 1.00f, "OpenDC Dashboard",
                          PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f), PVR_PACK_COLOR(0.8f, 0.02f, 0.25f, 0.5f));
-        draw_text_smooth(95.0f, 48.0f, 0.72f, "Frutiger Aero Firmware 2.0  |  Sega Dreamcast",
+        draw_text_smooth(95.0f, 52.0f, 0.58f, "Sega Dreamcast | Firmware 1.0b",
                          PVR_PACK_COLOR(0.85f, 0.7f, 0.95f, 1.0f));
 
         /* Top-Right Live Clock */
@@ -815,123 +808,123 @@ int main(int argc, char **argv) {
         } else {
             snprintf(clock_buf, sizeof(clock_buf), "12:00:00 UTC");
         }
-        draw_text_shadow(490.0f, 34.0f, 0.88f, clock_buf,
+        draw_text_shadow(480.0f, 37.0f, 0.75f, clock_buf,
                          PVR_PACK_COLOR(1.0f, 0.3f, 1.0f, 0.7f), PVR_PACK_COLOR(0.6f, 0.0f, 0.2f, 0.4f));
 
         /* 4. Active View Content */
         if (current_view == VIEW_MAIN_MENU) {
             /* Left Side: 3D Faceted Glass Swirl Mascot */
-            draw_glass_panel(30.0f, 95.0f, 170.0f, 280.0f, 2.0f, 0, 0.0f);
-            draw_3d_glass_swirl(115.0f, 220.0f, 0.85f, frame);
-            draw_text_shadow(55.0f, 335.0f, 0.95f, "Dreamcast",
+            draw_glass_panel(25.0f, 92.0f, 175.0f, 286.0f, 2.0f, 0, 0.0f);
+            draw_3d_glass_swirl(112.0f, 205.0f, 0.85f, frame);
+            draw_text_shadow(60.0f, 328.0f, 0.85f, "Dreamcast",
                              PVR_PACK_COLOR(0.95f, 1.0f, 1.0f, 1.0f), PVR_PACK_COLOR(0.5f, 0.0f, 0.2f, 0.5f));
 
-            /* Right Side: Interactive Glossy Glass Menu Cards */
+            /* Right Side: Interactive Glossy Glass Menu Cards (h=58, spacing=70) */
             for (int i = 0; i < num_items; i++) {
-                float card_y = 95.0f + i * 58.0f;
+                float card_y = 92.0f + i * 70.0f;
                 int is_sel = (i == menu_sel);
 
-                draw_glass_panel(215.0f, card_y, 400.0f, 50.0f, 2.0f, is_sel, frame * 0.1f);
+                draw_glass_panel(215.0f, card_y, 405.0f, 58.0f, 2.0f, is_sel, frame * 0.1f);
 
                 if (is_sel) {
-                    draw_button_gem(235.0f, card_y + 25.0f, 11.0f, ">", 0);
-                    draw_text_shadow(255.0f, card_y + 10.0f, 1.05f, menu_items[i],
+                    draw_button_gem(236.0f, card_y + 29.0f, 9.0f, "", 0);
+                    draw_text_shadow(255.0f, card_y + 6.0f, 0.88f, menu_items[i],
                                      PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f), PVR_PACK_COLOR(0.8f, 0.0f, 0.3f, 0.6f));
-                    draw_text_smooth(255.0f, card_y + 32.0f, 0.68f, menu_descriptions[i],
-                                     PVR_PACK_COLOR(0.9f, 0.75f, 0.95f, 1.0f));
+                    draw_text_smooth(255.0f, card_y + 29.0f, 0.58f, menu_descriptions[i],
+                                     PVR_PACK_COLOR(0.92f, 0.82f, 0.98f, 1.0f));
                 } else {
-                    draw_text_shadow(240.0f, card_y + 11.0f, 0.95f, menu_items[i],
-                                     PVR_PACK_COLOR(0.75f, 0.8f, 0.9f, 1.0f), PVR_PACK_COLOR(0.4f, 0.0f, 0.1f, 0.3f));
-                    draw_text_smooth(240.0f, card_y + 32.0f, 0.65f, menu_descriptions[i],
-                                     PVR_PACK_COLOR(0.55f, 0.6f, 0.75f, 0.9f));
+                    draw_text_shadow(235.0f, card_y + 6.0f, 0.85f, menu_items[i],
+                                     PVR_PACK_COLOR(0.80f, 0.85f, 0.95f, 1.0f), PVR_PACK_COLOR(0.4f, 0.0f, 0.1f, 0.3f));
+                    draw_text_smooth(235.0f, card_y + 29.0f, 0.56f, menu_descriptions[i],
+                                     PVR_PACK_COLOR(0.60f, 0.68f, 0.82f, 0.95f));
                 }
             }
 
             /* Bottom Glass Toolbar */
-            draw_glass_panel(20.0f, 390.0f, 600.0f, 75.0f, 2.0f, 0, 0.0f);
-            draw_button_gem(45.0f, 427.0f, 12.0f, "A", 0);
-            draw_text_smooth(65.0f, 420.0f, 0.85f, "Select", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_glass_panel(20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
+            draw_button_gem(50.0f, 426.0f, 13.0f, "A", 0);
+            draw_text_smooth(72.0f, 414.0f, 0.78f, "Select", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
 
-            draw_button_gem(165.0f, 427.0f, 12.0f, "D", 2);
-            draw_text_smooth(185.0f, 420.0f, 0.85f, "Navigate", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_button_gem(165.0f, 426.0f, 13.0f, "D", 2);
+            draw_text_smooth(187.0f, 414.0f, 0.78f, "Navigate", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
 
-            draw_text_smooth(365.0f, 420.0f, 0.78f, "PowerVR2 CLX2 @ 60 FPS", PVR_PACK_COLOR(0.7f, 0.6f, 0.9f, 1.0f));
+            draw_text_smooth(380.0f, 416.0f, 0.70f, "PowerVR2 CLX2 @ 60 FPS", PVR_PACK_COLOR(0.75f, 0.7f, 0.95f, 1.0f));
 
         } else if (current_view == VIEW_PLAY_DISC) {
             char game_title[128];
             game_title[0] = '\0';
             int has_disc = check_disc_status(game_title, sizeof(game_title));
 
-            draw_glass_panel(30.0f, 95.0f, 580.0f, 280.0f, 2.0f, has_disc, frame * 0.1f);
-            draw_3d_holographic_disc(160.0f, 225.0f, 85.0f, frame, has_disc);
+            draw_glass_panel(25.0f, 92.0f, 590.0f, 286.0f, 2.0f, has_disc, frame * 0.1f);
+            draw_3d_holographic_disc(155.0f, 235.0f, 85.0f, frame, has_disc);
 
-            draw_text_shadow(290.0f, 120.0f, 1.15f, has_disc ? "Disc Inserted" : "No Disc Detected",
+            draw_text_shadow(285.0f, 112.0f, 0.98f, has_disc ? "Disc Inserted" : "No Disc Detected",
                              has_disc ? PVR_PACK_COLOR(1.0f, 0.2f, 1.0f, 0.4f) : PVR_PACK_COLOR(1.0f, 1.0f, 0.4f, 0.4f),
                              PVR_PACK_COLOR(0.7f, 0.0f, 0.1f, 0.3f));
 
-            draw_text_smooth(290.0f, 155.0f, 0.82f, "Media Format: Sega GD-ROM (1.2 GB)", PVR_PACK_COLOR(0.85f, 0.8f, 0.95f, 1.0f));
-            draw_text_smooth(290.0f, 185.0f, 0.92f, has_disc ? game_title : "Please insert a Dreamcast disc",
+            draw_text_smooth(285.0f, 142.0f, 0.68f, "Media Format: Sega GD-ROM (1.2 GB)", PVR_PACK_COLOR(0.85f, 0.8f, 0.95f, 1.0f));
+            draw_text_smooth(285.0f, 168.0f, 0.78f, has_disc ? game_title : "Please insert a Dreamcast disc",
                              PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
 
             if (has_disc) {
-                draw_glass_panel(290.0f, 240.0f, 290.0f, 45.0f, 2.5f, 1, frame * 0.15f);
-                draw_button_gem(315.0f, 262.0f, 11.0f, "A", 0);
-                draw_text_shadow(335.0f, 252.0f, 0.95f, "Press (A) to Launch",
+                draw_glass_panel(285.0f, 215.0f, 290.0f, 46.0f, 2.5f, 1, frame * 0.15f);
+                draw_button_gem(312.0f, 238.0f, 12.0f, "A", 0);
+                draw_text_shadow(332.0f, 226.0f, 0.78f, "Press (A) to Launch",
                                  PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f), PVR_PACK_COLOR(0.7f, 0.0f, 0.2f, 0.5f));
             } else {
-                draw_text_smooth(290.0f, 240.0f, 0.78f, "kos-insert discs can be loaded live", PVR_PACK_COLOR(0.7f, 0.7f, 0.85f, 1.0f));
+                draw_text_smooth(285.0f, 215.0f, 0.65f, "kos-insert discs can be loaded live", PVR_PACK_COLOR(0.7f, 0.7f, 0.85f, 1.0f));
             }
 
-            draw_glass_panel(20.0f, 390.0f, 600.0f, 75.0f, 2.0f, 0, 0.0f);
-            draw_button_gem(45.0f, 427.0f, 12.0f, "B", 1);
-            draw_text_smooth(65.0f, 420.0f, 0.85f, "Return to Menu", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_glass_panel(20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
+            draw_button_gem(50.0f, 426.0f, 13.0f, "B", 1);
+            draw_text_smooth(72.0f, 414.0f, 0.78f, "Return to Menu", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
 
         } else if (current_view == VIEW_MEMORY_CARDS) {
             const char *vmu_ports[] = { "Port A1", "Port A2", "Port B1", "Port B2" };
             for (int v = 0; v < 4; v++) {
-                float vx = (v % 2 == 0) ? 30.0f : 330.0f;
-                float vy = (v < 2) ? 95.0f : 235.0f;
+                float vx = (v % 2 == 0) ? 25.0f : 330.0f;
+                float vy = (v < 2) ? 92.0f : 240.0f;
 
                 maple_device_t *vmu = maple_enum_type(v, MAPLE_FUNC_MEMCARD);
-                draw_vmu_card(vx, vy, 280.0f, 125.0f, 2.0f, vmu_ports[v], vmu != NULL, 128, frame);
+                draw_vmu_card(vx, vy, 285.0f, 135.0f, 2.0f, vmu_ports[v], vmu != NULL, 128, frame);
             }
 
-            draw_glass_panel(20.0f, 390.0f, 600.0f, 75.0f, 2.0f, 0, 0.0f);
-            draw_button_gem(45.0f, 427.0f, 12.0f, "B", 1);
-            draw_text_smooth(65.0f, 420.0f, 0.85f, "Return to Menu", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_glass_panel(20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
+            draw_button_gem(50.0f, 426.0f, 13.0f, "B", 1);
+            draw_text_smooth(72.0f, 414.0f, 0.78f, "Return to Menu", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
 
         } else if (current_view == VIEW_SETTINGS) {
-            draw_glass_panel(30.0f, 95.0f, 580.0f, 280.0f, 2.0f, 0, 0.0f);
+            draw_glass_panel(25.0f, 92.0f, 590.0f, 286.0f, 2.0f, 0, 0.0f);
 
             int cable = vid_check_cable();
             const char *cable_name = (cable == CT_VGA) ? "VGA Box (640x480 60Hz RGB Progressive)" :
                                      ((cable == CT_RGB) ? "RGB SCART (480i 60Hz Interlaced)" : "Composite / S-Video (480i)");
 
-            draw_text_shadow(55.0f, 115.0f, 1.02f, "Video Cable Output:",
+            draw_text_shadow(45.0f, 106.0f, 0.78f, "Video Cable Output:",
                              PVR_PACK_COLOR(1.0f, 0.3f, 1.0f, 0.5f), PVR_PACK_COLOR(0.6f, 0.0f, 0.2f, 0.4f));
-            draw_glass_panel(55.0f, 140.0f, 530.0f, 36.0f, 2.2f, 1, frame * 0.08f);
-            draw_text_smooth(70.0f, 148.0f, 0.85f, cable_name, PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_glass_panel(45.0f, 130.0f, 550.0f, 34.0f, 2.2f, 1, frame * 0.08f);
+            draw_text_smooth(60.0f, 136.0f, 0.68f, cable_name, PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
 
-            draw_text_shadow(55.0f, 190.0f, 1.02f, "Audio Engine Mode:",
+            draw_text_shadow(45.0f, 174.0f, 0.78f, "Audio Engine Mode:",
                              PVR_PACK_COLOR(1.0f, 0.3f, 1.0f, 0.5f), PVR_PACK_COLOR(0.6f, 0.0f, 0.2f, 0.4f));
-            draw_glass_panel(55.0f, 215.0f, 530.0f, 36.0f, 2.2f, 0, 0.0f);
-            draw_text_smooth(70.0f, 223.0f, 0.85f, "Yamaha AICA 64-CH 3D Spatial Stereo (44.1 kHz)",
+            draw_glass_panel(45.0f, 198.0f, 550.0f, 34.0f, 2.2f, 0, 0.0f);
+            draw_text_smooth(60.0f, 204.0f, 0.68f, "Yamaha AICA 64-CH 3D Spatial Stereo (44.1 kHz)",
                              PVR_PACK_COLOR(0.9f, 0.95f, 1.0f, 1.0f));
 
-            draw_text_shadow(55.0f, 265.0f, 1.02f, "Firmware Theme:",
+            draw_text_shadow(45.0f, 242.0f, 0.78f, "Firmware Theme:",
                              PVR_PACK_COLOR(1.0f, 0.3f, 1.0f, 0.5f), PVR_PACK_COLOR(0.6f, 0.0f, 0.2f, 0.4f));
-            draw_glass_panel(55.0f, 290.0f, 530.0f, 36.0f, 2.2f, 0, 0.0f);
-            draw_text_smooth(70.0f, 298.0f, 0.85f, "Frutiger Aero Sky & Liquid Glass (Active)",
+            draw_glass_panel(45.0f, 266.0f, 550.0f, 34.0f, 2.2f, 0, 0.0f);
+            draw_text_smooth(60.0f, 272.0f, 0.68f, "Liquid Glass (Active)",
                              PVR_PACK_COLOR(0.9f, 0.95f, 1.0f, 1.0f));
 
-            draw_glass_panel(20.0f, 390.0f, 600.0f, 75.0f, 2.0f, 0, 0.0f);
-            draw_button_gem(45.0f, 427.0f, 12.0f, "B", 1);
-            draw_text_smooth(65.0f, 420.0f, 0.85f, "Return to Menu", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_glass_panel(20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
+            draw_button_gem(50.0f, 426.0f, 13.0f, "B", 1);
+            draw_text_smooth(72.0f, 414.0f, 0.78f, "Return to Menu", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
 
         } else if (current_view == VIEW_STATS) {
-            draw_glass_panel(30.0f, 95.0f, 580.0f, 280.0f, 2.0f, 0, 0.0f);
+            draw_glass_panel(25.0f, 92.0f, 590.0f, 286.0f, 2.0f, 0, 0.0f);
 
-            draw_text_shadow(55.0f, 112.0f, 1.05f, "Sega Dreamcast Hardware Architecture",
+            draw_text_shadow(45.0f, 102.0f, 0.82f, "Sega Dreamcast Hardware Architecture",
                              PVR_PACK_COLOR(1.0f, 0.3f, 1.0f, 0.6f), PVR_PACK_COLOR(0.6f, 0.0f, 0.2f, 0.4f));
 
             const char *specs[] = {
@@ -943,17 +936,17 @@ int main(int argc, char **argv) {
             };
 
             for (int s = 0; s < 5; s++) {
-                float sy = 145.0f + s * 38.0f;
-                draw_glass_panel(55.0f, sy, 530.0f, 30.0f, 2.2f, 0, 0.0f);
-                draw_text_smooth(70.0f, sy + 6.0f, 0.80f, specs[s], PVR_PACK_COLOR(0.95f, 0.95f, 1.0f, 1.0f));
+                float sy = 126.0f + s * 36.0f;
+                draw_glass_panel(45.0f, sy, 550.0f, 30.0f, 2.2f, 0, 0.0f);
+                draw_text_smooth(60.0f, sy + 6.0f, 0.65f, specs[s], PVR_PACK_COLOR(0.95f, 0.95f, 1.0f, 1.0f));
             }
 
-            draw_text_smooth(55.0f, 345.0f, 0.75f, "Firmware: KallistiOS 2.0 Open-Source BIOS",
+            draw_text_smooth(45.0f, 342.0f, 0.60f, "Firmware: KallistiOS 2.0 Open-Source BIOS",
                              PVR_PACK_COLOR(1.0f, 1.0f, 0.9f, 0.3f));
 
-            draw_glass_panel(20.0f, 390.0f, 600.0f, 75.0f, 2.0f, 0, 0.0f);
-            draw_button_gem(45.0f, 427.0f, 12.0f, "B", 1);
-            draw_text_smooth(65.0f, 420.0f, 0.85f, "Return to Menu", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_glass_panel(20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
+            draw_button_gem(50.0f, 426.0f, 13.0f, "B", 1);
+            draw_text_smooth(72.0f, 414.0f, 0.78f, "Return to Menu", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
         }
 
         pvr_list_finish();
