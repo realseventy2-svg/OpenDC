@@ -102,7 +102,7 @@ void main(void) {
     screen_draw_disc_status(toc_result == GDROM_OK, iso_result == GDROM_OK, iso_fad, iso_head);
 
     /* 5. 60 FPS Animated 3D Spinning Cube Splash with Ambient MIDI Music */
-    int frames = (theme && theme->splash_delay_seconds > 0) ? (theme->splash_delay_seconds * 60) : 0;
+    int frames = screen_get_boot_duration_frames();
     if (frames > 0) {
         screen_animate_splash(frames);
     }

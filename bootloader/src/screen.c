@@ -16,7 +16,8 @@ const boot_theme_t BOOT_THEME_DEFAULT = {
     .subtitle           = "CUSTOM BOOT ROM",
     .version_text       = "OpenDC v1.0",
 
-    .splash_delay_seconds = 4,
+    .splash_delay_seconds = BOOT_DURATION_CINEMATIC, /* 4 seconds */
+    .splash_delay_frames  = 0,
     .show_diagnostics     = 1,
     .show_progress_bar    = 1,
 
@@ -44,7 +45,8 @@ const boot_theme_t BOOT_THEME_MINIMAL = {
     .subtitle           = "FAST BOOT",
     .version_text       = NULL,
 
-    .splash_delay_seconds = 0,
+    .splash_delay_seconds = BOOT_DURATION_INSTANT, /* 0 seconds (Instant boot) */
+    .splash_delay_frames  = 0,
     .show_diagnostics     = 0,
     .show_progress_bar    = 1,
 
@@ -72,7 +74,8 @@ const boot_theme_t BOOT_THEME_DARK = {
     .subtitle           = "KALLISTIOS FIRMWARE",
     .version_text       = "OpenDC Custom BIOS",
 
-    .splash_delay_seconds = 4,
+    .splash_delay_seconds = BOOT_DURATION_DEFAULT, /* 4 seconds */
+    .splash_delay_frames  = 0,
     .show_diagnostics     = 1,
     .show_progress_bar    = 1,
 
@@ -85,7 +88,37 @@ const boot_theme_t BOOT_THEME_DARK = {
     .music_enabled      = 1
 };
 
+const boot_theme_t BOOT_THEME_CINEMATIC = {
+    .bg_color           = COLOR_BLACK,
+    .header_color       = COLOR_CYAN,
+    .sub_color          = COLOR_WHITE,
+    .status_ok_color    = COLOR_GREEN,
+    .status_err_color   = COLOR_GOLD,
+    .text_color         = COLOR_WHITE,
+    .bar_border_color   = COLOR_DARK_GRAY,
+    .bar_fill_color     = COLOR_CYAN,
+    .bar_complete_color = COLOR_GREEN,
+
+    .title              = "SEGA DREAMCAST",
+    .subtitle           = "FRUTIGER AERO AMBIENCE",
+    .version_text       = "OpenDC Ambient Bios",
+
+    .splash_delay_seconds = BOOT_DURATION_CINEMATIC, /* 16 seconds (full ambient cycle) */
+    .splash_delay_frames  = 0,
+    .show_diagnostics     = 1,
+    .show_progress_bar    = 1,
+
+    .cube_enabled       = 1,
+    .cube_center_x      = 320,
+    .cube_center_y      = 290,
+    .cube_size          = 42,
+    .cube_color         = COLOR_CYAN,
+    .sega_license_enabled = 1,
+    .music_enabled      = 1
+};
+
 static const boot_theme_t *current_theme = &BOOT_THEME_DEFAULT;
+static int s_custom_duration_frames = -1;
 
 #define BAR_X       120
 #define BAR_Y       466
@@ -176,6 +209,7 @@ void screen_init(const boot_theme_t *theme) {
     } else {
         current_theme = &BOOT_THEME_DEFAULT;
     }
+    s_custom_duration_frames = -1;
 }
 
 void screen_set_theme(const boot_theme_t *theme) {
@@ -186,6 +220,31 @@ void screen_set_theme(const boot_theme_t *theme) {
 
 const boot_theme_t *screen_get_theme(void) {
     return current_theme;
+}
+
+void screen_set_boot_duration(int seconds) {
+    if (seconds < 0) seconds = 0;
+    s_custom_duration_frames = seconds * 60;
+}
+
+void screen_set_boot_duration_frames(int frames) {
+    if (frames < 0) frames = 0;
+    s_custom_duration_frames = frames;
+}
+
+int screen_get_boot_duration_frames(void) {
+    if (s_custom_duration_frames >= 0) {
+        return s_custom_duration_frames;
+    }
+    if (current_theme) {
+        if (current_theme->splash_delay_frames > 0) {
+            return current_theme->splash_delay_frames;
+        }
+        if (current_theme->splash_delay_seconds > 0) {
+            return current_theme->splash_delay_seconds * 60;
+        }
+    }
+    return 0;
 }
 
 void screen_draw_splash(void) {
@@ -301,9 +360,8 @@ void screen_draw_cube(int cx, int cy, int size, int ax, int ay, int az, uint16_t
 
 void screen_animate_splash(int duration_frames) {
     if (!current_theme->cube_enabled || duration_frames <= 0) {
-        if (current_theme->splash_delay_seconds > 0) {
-            int total_frames = current_theme->splash_delay_seconds * 60;
-            for (int f = 0; f < total_frames; f++) {
+        if (duration_frames > 0) {
+            for (int f = 0; f < duration_frames; f++) {
                 video_wait_vblank();
                 if (current_theme->music_enabled) {
                     sound_tick();

@@ -5,6 +5,13 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/* Boot Duration Presets */
+#define BOOT_DURATION_INSTANT    0   /* Instant boot (0s, skip splash) */
+#define BOOT_DURATION_FAST       2   /* Fast splash (2s / 120 frames) */
+#define BOOT_DURATION_DEFAULT    4   /* Standard boot (4s / 240 frames) */
+#define BOOT_DURATION_EXTENDED   8   /* Extended ambient intro (8s / 480 frames) */
+#define BOOT_DURATION_CINEMATIC 16   /* Full PS2/Frutiger Aero ambient cycle (16s / 960 frames) */
+
 typedef struct {
     uint16_t bg_color;
     uint16_t header_color;
@@ -20,7 +27,8 @@ typedef struct {
     const char *subtitle;
     const char *version_text;
 
-    int splash_delay_seconds;
+    int splash_delay_seconds; /* Duration in seconds (e.g. 0, 2, 4, 8, 16) */
+    int splash_delay_frames;  /* Explicit duration in 60 FPS frames (if > 0, overrides seconds) */
     int show_diagnostics;
     int show_progress_bar;
 
@@ -38,10 +46,16 @@ typedef struct {
 extern const boot_theme_t BOOT_THEME_DEFAULT;
 extern const boot_theme_t BOOT_THEME_MINIMAL;
 extern const boot_theme_t BOOT_THEME_DARK;
+extern const boot_theme_t BOOT_THEME_CINEMATIC;
 
 void screen_init(const boot_theme_t *theme);
 void screen_set_theme(const boot_theme_t *theme);
 const boot_theme_t *screen_get_theme(void);
+
+/* Runtime duration customization APIs */
+void screen_set_boot_duration(int seconds);
+void screen_set_boot_duration_frames(int frames);
+int screen_get_boot_duration_frames(void);
 
 void screen_draw_splash(void);
 void screen_draw_disc_status(int toc_ok, int iso_ok, uint32_t fad, const uint8_t *head);
