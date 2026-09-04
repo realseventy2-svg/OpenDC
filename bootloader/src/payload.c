@@ -36,16 +36,8 @@ void report_exception(uint32_t pc, uint32_t expevt) {
 }
 
 void chainload_custom_bios(void) {
-    /* Stop bootloader sound engine before handoff */
-    sound_stop();
-
-    /* Clean VRAM and reset PVR state before BIOS handoff */
-    video_clean_handoff();
-
-    /* Publish the service ABI before the custom BIOS is started. */
+    /* 1. Publish the service ABI and GD-ROM syscall entry */
     gdrom_install_services();
-
-    /* 1. Install the open-source KOS-compatible GD-ROM syscall entry. */
     gdrom_install_syscall();
 
     /* 2. Copy payload from ROM offset 64KB (0xA0010000) into SDRAM */
@@ -57,7 +49,13 @@ void chainload_custom_bios(void) {
         dst[i] = src[i];
     }
 
-    /* 3. Invalidate instruction and operand caches (CCR register). */
+    /* 3. Stop bootloader sound engine before handoff */
+    sound_stop();
+
+    /* 4. Clean VRAM and reset PVR state right before jump */
+    video_clean_handoff();
+
+    /* 5. Invalidate instruction and operand caches (CCR register). */
     volatile uint32_t *ccr = (volatile uint32_t *)0xFF00001CUL;
     *ccr = 0x00000808;
 

@@ -18,9 +18,8 @@
 
 extern const uint8_t romdisk[];
 
-/* Match DreamDash's known-good KOS startup requirements explicitly. */
-KOS_INIT_FLAGS(INIT_IRQ | INIT_THD_PREEMPT | INIT_FS_ALL |
-               INIT_LIBRARY | INIT_CDROM | INIT_CONTROLLER | INIT_VMU);
+/* Fast instant-boot flags: omit blocking INIT_CDROM & dcload probing */
+KOS_INIT_FLAGS(INIT_IRQ | INIT_THD_PREEMPT | INIT_CONTROLLER | INIT_VMU | INIT_NO_DCLOAD);
 
 #define NUM_BUBBLES 24
 #define NUM_RIPPLES 8

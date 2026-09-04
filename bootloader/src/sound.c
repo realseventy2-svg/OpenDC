@@ -59,6 +59,44 @@ static int32_t clamp16(int32_t value) {
     return value;
 }
 
+static uint32_t udiv32_snd(uint32_t num, uint32_t den) {
+    if (den == 0) return 0;
+    uint32_t quot = 0, qbit = 1;
+    while ((int32_t)den >= 0 && den < num) {
+        den <<= 1;
+        qbit <<= 1;
+    }
+    while (qbit) {
+        if (num >= den) {
+            num -= den;
+            quot |= qbit;
+        }
+        den >>= 1;
+        qbit >>= 1;
+    }
+    return quot;
+}
+
+static int32_t sdiv32_snd(int32_t num, int32_t den) {
+    if (den == 0) return 0;
+    int sign = 1;
+    uint32_t unum, uden;
+    if (num < 0) {
+        sign = -sign;
+        unum = (uint32_t)-num;
+    } else {
+        unum = (uint32_t)num;
+    }
+    if (den < 0) {
+        sign = -sign;
+        uden = (uint32_t)-den;
+    } else {
+        uden = (uint32_t)den;
+    }
+    uint32_t quot = udiv32_snd(unum, uden);
+    return (sign < 0) ? -(int32_t)quot : (int32_t)quot;
+}
+
 static int16_t make_velvet_celesta_bell(int i) {
     int32_t s1 = sin_fx(i);
     int32_t s2 = sin_fx(i * 2);
@@ -91,6 +129,7 @@ static int16_t make_silky_air_bloom(int i) {
 
 static uint32_t s_seq_frame = 0;
 static int s_sound_initialized = 0;
+static int s_total_duration = 480;
 
 void sound_init(void) {
     /* 1. Hold AICA ARM7 sound CPU in reset */
@@ -119,7 +158,14 @@ void sound_init(void) {
     }
 
     s_seq_frame = 0;
+    s_total_duration = 480;
     s_sound_initialized = 1;
+}
+
+void sound_set_duration(int total_frames) {
+    if (total_frames <= 0) total_frames = 480;
+    s_total_duration = total_frames;
+    s_seq_frame = 0;
 }
 
 void sound_play_note(int ch, int midi_note, int volume, int pan, int wavetable_id) {
@@ -194,74 +240,89 @@ void sound_tick(void) {
 
     uint32_t tick = s_seq_frame;
 
-    /* -------------------------------------------------------------
-     * Pacing Schedule (Total Duration: 450 frames / 7.50 seconds)
-     * ------------------------------------------------------------- */
-    if (tick == 0) {
-        /* Warm Sub-Bass Foundation (E2) */
-        sound_play_note(0, 40, 11, 0x00, 2);
-
-        /* Serene Ambient Strings in Stereo */
-        sound_play_note(1, 52, 9, 0x1E, 1); /* E3  (Left)  */
-        sound_play_note(2, 59, 9, 0x0E, 1); /* B3  (Right) */
-        sound_play_note(3, 68, 8, 0x1A, 1); /* G#4 (Left)  */
-        sound_play_note(4, 75, 8, 0x0A, 1); /* D#5 (Right) */
-    } else if (tick == 36) {
-        /* First peaceful bell (E4) */
-        sound_play_note(5, 64, 13, 0x18, 0); /* Left-Center Warm Chime */
-        sound_play_note(6, 64,  9, 0x08, 0); /* Right Stereo Echo      */
-    } else if (tick == 84) {
-        /* Second contemplative bell (G#4) */
-        sound_play_note(7, 68, 13, 0x08, 0); /* Right-Center Warm Chime */
-        sound_play_note(8, 68,  9, 0x18, 0); /* Left Stereo Echo       */
-    } else if (tick == 140) {
-        /* Third singing bell (B4) */
-        sound_play_note(5, 71, 13, 0x16, 0); /* Left-Center Warm Chime */
-        sound_play_note(6, 71,  9, 0x0A, 0); /* Right Stereo Echo      */
-    } else if (tick == 204) {
-        /* Peaceful Resolution Bell (E5) */
-        sound_play_note(9,  76, 14, 0x00, 0); /* Center Lead Melody */
-        sound_play_note(10, 76, 10, 0x1E, 0); /* Soft Left Chorus   */
-        sound_play_note(11, 76, 10, 0x0E, 0); /* Soft Right Chorus  */
-
-        /* Silky Stardust Air Bloom */
-        sound_play_note(12, 68, 8, 0x1E, 3); /* G#4 Left  */
-        sound_play_note(13, 68, 8, 0x0E, 3); /* G#4 Right */
-
-        /* Full Chord Pad Bloom */
-        sound_play_note(1, 52, 10, 0x1E, 1); /* E3 */
-        sound_play_note(2, 64, 10, 0x00, 1); /* E4 */
-        sound_play_note(3, 71, 10, 0x0E, 1); /* B4 */
-        sound_play_note(4, 76,  9, 0x1A, 1); /* E5 */
+    /* Dynamic melody triggers based on configured total duration */
+    uint32_t t_intro, t_chime1, t_chime2, t_chime3, t_climax;
+    if (s_total_duration <= 270) {
+        /* 4.0s startup pacing */
+        t_intro  = 2;
+        t_chime1 = 24;   /* 0.40s */
+        t_chime2 = 60;   /* 1.00s */
+        t_chime3 = 96;   /* 1.60s */
+        t_climax = 132;  /* 2.20s */
+    } else {
+        /* Extended 8.0s+ soothing startup pacing */
+        t_intro  = 2;
+        t_chime1 = 36;   /* 0.60s */
+        t_chime2 = 84;   /* 1.40s */
+        t_chime3 = 138;  /* 2.30s */
+        t_climax = 198;  /* 3.30s */
     }
 
-    /* -------------------------------------------------------------
-     * 2.0-Second Natural Perceptual Fade-Out (Frames 330..450)
-     * Smooth S-curve gradual attenuation ending in complete silence
-     * ------------------------------------------------------------- */
-    if (tick >= 330 && tick <= 450) {
-        static const uint8_t s_fade_table[121] = {
-            14, 14, 14, 14, 14, 13, 13, 13, 13, 13, 13,
-            12, 12, 12, 12, 12, 12, 11, 11, 11, 11, 11,
-            11, 10, 10, 10, 10, 10, 10, 10,  9,  9,  9,
-             9,  9,  9,  9,  8,  8,  8,  8,  8,  8,  8,
-             7,  7,  7,  7,  7,  7,  7,  6,  6,  6,  6,
-             6,  6,  6,  5,  5,  5,  5,  5,  5,  5,  4,
-             4,  4,  4,  4,  4,  4,  3,  3,  3,  3,  3,
-             3,  3,  2,  2,  2,  2,  2,  2,  2,  2,  2,
-             1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,
-             1,  1,  1,  0,  0,  0,  0,  0,  0,  0,  0,
-             0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
+    if (tick == t_intro) {
+        /* Warm Sub-Bass Foundation (E2 = MIDI 40) - Mellow level 9 */
+        sound_play_note(0, 40, 9, 0x00, 2);
+
+        /* Serene Ambient Strings in Stereo - Soft level 8 */
+        sound_play_note(1, 52, 8, 0x1E, 1); /* E3  (Left) */
+        sound_play_note(2, 59, 8, 0x0E, 1); /* B3  (Right) */
+        sound_play_note(3, 68, 8, 0x1A, 1); /* G#4 (Left) */
+        sound_play_note(4, 75, 7, 0x0A, 1); /* D#5 (Right) */
+    } else if (tick == t_chime1) {
+        /* First peaceful felt bell (E4 = MIDI 64) */
+        sound_play_note(5, 64, 11, 0x18, 0); /* Left-Center Warm Chime (level 11) */
+        sound_play_note(6, 64, 8,  0x08, 0); /* Subtle Stereo Ambient Echo (level 8) */
+    } else if (tick == t_chime2) {
+        /* Second contemplative bell (G#4 = MIDI 68) */
+        sound_play_note(7, 68, 11, 0x08, 0); /* Right-Center Warm Chime (level 11) */
+        sound_play_note(8, 68, 8,  0x18, 0); /* Subtle Stereo Ambient Echo (level 8) */
+    } else if (tick == t_chime3) {
+        /* Third singing bell (B4 = MIDI 71) */
+        sound_play_note(5, 71, 11, 0x16, 0); /* Left-Center Warm Chime (level 11) */
+        sound_play_note(6, 71, 8,  0x0A, 0); /* Subtle Stereo Ambient Echo (level 8) */
+    } else if (tick == t_climax) {
+        /* Peaceful Resolution Bell (E5) */
+        sound_play_note(9,  76, 11, 0x00, 0); /* Center Melody */
+        sound_play_note(10, 76, 9,  0x1E, 0); /* Soft Left Chorus */
+        sound_play_note(11, 76, 9,  0x0E, 0); /* Soft Right Chorus */
+
+        /* Silky Stardust Air Bloom in Stereo */
+        sound_play_note(12, 68, 7, 0x1E, 3); /* G#4 air shimmer */
+        sound_play_note(13, 68, 7, 0x0E, 3); /* G#4 air shimmer */
+
+        /* Ambient Strings Full Warmth Bloom */
+        sound_play_note(1, 52, 9, 0x1E, 1); /* E3 */
+        sound_play_note(2, 64, 9, 0x00, 1); /* E4 */
+        sound_play_note(3, 71, 9, 0x0E, 1); /* B4 */
+        sound_play_note(4, 76, 8, 0x1A, 1); /* E5 */
+    }
+
+    /* 1.5-Second Master Fade-Out across final 90 frames of duration */
+    int fade_len = 90;
+    if (s_total_duration <= 120) {
+        fade_len = s_total_duration >> 1;
+    }
+    int fade_start = s_total_duration - fade_len;
+    if (fade_start < 0) fade_start = 0;
+
+    if (tick >= (uint32_t)fade_start && tick <= (uint32_t)s_total_duration) {
+        static const uint8_t s_fade_curve[91] = {
+            14, 14, 14, 14, 14, 14, 14, 13, 13, 13,
+            13, 13, 13, 13, 12, 12, 12, 12, 12, 12,
+            12, 12, 11, 11, 11, 11, 11, 11, 11, 10,
+            10, 10, 10, 10, 10,  9,  9,  9,  9,  9,
+             8,  8,  8,  8,  8,  8,  7,  7,  7,  7,
+             7,  6,  6,  6,  6,  6,  5,  5,  5,  5,
+             5,  4,  4,  4,  4,  4,  3,  3,  3,  3,
+             3,  2,  2,  2,  2,  2,  2,  1,  1,  1,
+             1,  1,  1,  1,  1,  0,  0,  0,  0,  0, 0
         };
-        uint32_t idx = tick - 330;
-        if (idx > 120) idx = 120;
-        *(volatile uint16_t *)0xA0702800UL = s_fade_table[idx];
-    } else if (tick > 450) {
-        /* Total silence achieved at 7.50s */
+        int offset = (int)tick - fade_start;
+        int idx = (fade_len > 0) ? sdiv32_snd(offset * 90, fade_len) : 90;
+        if (idx < 0) idx = 0;
+        if (idx > 90) idx = 90;
+        *(volatile uint16_t *)0xA0702800UL = s_fade_curve[idx];
+    } else if (tick > (uint32_t)s_total_duration) {
         *(volatile uint16_t *)0xA0702800UL = 0x0000;
-        for (int ch = 0; ch < 16; ch++) {
-            AICA_CHN_REG(ch, 0x00) = 0x8000;
-        }
     }
 
     s_seq_frame++;
