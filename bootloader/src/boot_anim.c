@@ -29,10 +29,6 @@ static int32_t sin_fx(int angle) {
     return -sin_quarter_tab[256 - angle];
 }
 
-static int32_t cos_fx(int angle) {
-    return sin_fx(angle + 64);
-}
-
 static uint32_t udiv32_anim(uint32_t num, uint32_t den) {
     if (den == 0) return 0;
     uint32_t quot = 0, qbit = 1;
@@ -74,9 +70,9 @@ static int32_t sdiv32_anim(int32_t num, int32_t den) {
 static boot_scene_config_t s_config;
 
 /* -------------------------------------------------------------------------
- * Color Blending & Shading Helpers
+ * Ultra-Fast Color Blending & Shading Helpers (No VRAM readback needed)
  * ------------------------------------------------------------------------- */
-static uint16_t blend_rgb565(uint16_t c1, uint16_t c2, int t256) {
+static inline uint16_t blend_rgb565(uint16_t c1, uint16_t c2, int t256) {
     if (t256 <= 0)   return c1;
     if (t256 >= 256) return c2;
 
@@ -95,21 +91,10 @@ static uint16_t blend_rgb565(uint16_t c1, uint16_t c2, int t256) {
     return (uint16_t)((r << 11) | (g << 5) | b);
 }
 
-static uint16_t scale_rgb565(uint16_t col, int brightness256) {
-    if (brightness256 <= 0) return 0;
-    if (brightness256 > 256) brightness256 = 256;
-
-    int r = (((col >> 11) & 0x1F) * brightness256) >> 8;
-    int g = (((col >> 5)  & 0x3F) * brightness256) >> 8;
-    int b = ((col & 0x1F) * brightness256) >> 8;
-
-    return (uint16_t)((r << 11) | (g << 5) | b);
-}
-
 #define QACR0 (*(volatile uint32_t *)0xFF000038)
 #define QACR1 (*(volatile uint32_t *)0xFF00003C)
 
-/* Ultra-Optimized Procedural Frosty Caustic Stream (0.1ms at 60 FPS) */
+/* Ultra-Optimized Procedural Frosty Caustic Stream via SH-4 Store Queues */
 static void render_realtime_frosty_caustic_bg(uint32_t fb_addr, int frame) {
     QACR0 = (((fb_addr) >> 26) << 2) & 0x1C;
     QACR1 = (((fb_addr) >> 26) << 2) & 0x1C;
@@ -119,7 +104,7 @@ static void render_realtime_frosty_caustic_bg(uint32_t fb_addr, int frame) {
     int shift_y = (frame >> 2) & 63;
 
     for (int y = 0; y < SCREEN_H; y++) {
-        int base_v = 240 + ((y * 12) / SCREEN_H); /* 240..252 clean bright frosty white */
+        int base_v = 240 + ((y * 12) / SCREEN_H); /* 240..252 clean frosty white */
         int map_y = (y + shift_y) & 63;
         const uint8_t *frost_row = FROST_MAP + (map_y * 64);
 
@@ -128,7 +113,7 @@ static void render_realtime_frosty_caustic_bg(uint32_t fb_addr, int frame) {
         for (int i = 0; i < 64; i++) {
             int map_x = (i + shift_x) & 63;
             int f_delta = (int)frost_row[map_x] - 128;
-            int mod = f_delta >> 4; /* -8..+7 fine organic crystal grain */
+            int mod = f_delta >> 4; /* Fine crystal grain */
 
             int r = base_v + mod;
             int g = base_v + 2 + mod;
@@ -166,43 +151,14 @@ static void render_realtime_frosty_caustic_bg(uint32_t fb_addr, int frame) {
     }
 }
 
-/* Ambient Aqua Caustic Radiance beneath 3D Logo */
-static void draw_caustic_ambient_aura(volatile uint16_t *fb, int cx, int cy, int radius) {
-    int r2 = radius * radius;
-    for (int dy = -radius; dy <= radius; dy++) {
-        int py = cy + dy;
-        if (py < 0 || py >= SCREEN_H) continue;
-        volatile uint16_t *row = fb + (py * SCREEN_W);
-        int dy2 = dy * dy;
-
-        for (int dx = -radius; dx <= radius; dx++) {
-            int d2 = dx * dx + dy2;
-            if (d2 >= r2) continue;
-            int px = cx + dx;
-            if (px < 0 || px >= SCREEN_W) continue;
-
-            int int_glow = ((r2 - d2) * 28) / r2;
-            uint16_t c = row[px];
-            int r = (c >> 11) & 0x1F;
-            int g = (c >> 5) & 0x3F;
-            int b = c & 0x1F;
-
-            b += (int_glow >> 3);
-            if (b > 31) b = 31;
-            g += (int_glow >> 4);
-            if (g > 63) g = 63;
-
-            row[px] = (uint16_t)((r << 11) | (g << 5) | b);
-        }
-    }
-}
-
 /* -------------------------------------------------------------------------
  * High-Resolution Anti-Aliased Modern Typography & Branding Engine
  * ------------------------------------------------------------------------- */
 static void draw_sega_badge_fb(volatile uint16_t *fb, int x, int y, int global_alpha) {
     if (global_alpha <= 0) return;
     uint16_t sega_blue = RGB565(0, 102, 204);
+    uint16_t bg_col = RGB565(242, 245, 250);
+
     for (int py = 0; py < SEGA_BADGE_H; py++) {
         int dst_y = y + py;
         if (dst_y < 0 || dst_y >= SCREEN_H) continue;
@@ -217,13 +173,13 @@ static void draw_sega_badge_fb(volatile uint16_t *fb, int x, int y, int global_a
             int dst_x1 = x + px;
             if (a1 && dst_x1 >= 0 && dst_x1 < SCREEN_W) {
                 int eff_a = (a1 * global_alpha) >> 8;
-                line[dst_x1] = blend_rgb565(line[dst_x1], sega_blue, eff_a);
+                line[dst_x1] = blend_rgb565(bg_col, sega_blue, eff_a);
             }
 
             int dst_x2 = x + px + 1;
             if (a2 && dst_x2 >= 0 && dst_x2 < SCREEN_W) {
                 int eff_a = (a2 * global_alpha) >> 8;
-                line[dst_x2] = blend_rgb565(line[dst_x2], sega_blue, eff_a);
+                line[dst_x2] = blend_rgb565(bg_col, sega_blue, eff_a);
             }
         }
     }
@@ -234,6 +190,7 @@ static void draw_modern_title_fb(volatile uint16_t *fb, int cx, int cy, int glob
     int start_x = cx - (TITLE_AA_W / 2);
     int start_y = cy - (TITLE_AA_H / 2);
     uint16_t title_color = RGB565(16, 26, 46);
+    uint16_t bg_col = RGB565(248, 250, 254);
 
     for (int y = 0; y < TITLE_AA_H; y++) {
         int dst_y = start_y + y;
@@ -249,52 +206,51 @@ static void draw_modern_title_fb(volatile uint16_t *fb, int cx, int cy, int glob
             int dst_x1 = start_x + x;
             if (a1 && dst_x1 >= 0 && dst_x1 < SCREEN_W) {
                 int eff_a = (a1 * global_alpha) >> 8;
-                line[dst_x1] = blend_rgb565(line[dst_x1], title_color, eff_a);
+                line[dst_x1] = blend_rgb565(bg_col, title_color, eff_a);
             }
 
             int dst_x2 = start_x + x + 1;
             if (a2 && dst_x2 >= 0 && dst_x2 < SCREEN_W) {
                 int eff_a = (a2 * global_alpha) >> 8;
-                line[dst_x2] = blend_rgb565(line[dst_x2], title_color, eff_a);
+                line[dst_x2] = blend_rgb565(bg_col, title_color, eff_a);
             }
         }
     }
 }
 
-static void draw_modern_text(volatile uint16_t *fb, int start_x, int start_y, const char *str, uint16_t color, int global_alpha) {
+static void draw_modern_text(volatile uint16_t *fb, int x, int y, const char *str, uint16_t color, int global_alpha) {
     if (!str || global_alpha <= 0) return;
-    int cur_x = start_x;
-    int bytes_per_row = MODERN_GLYPH_W / 2; /* 5 bytes */
-    int bytes_per_glyph = bytes_per_row * MODERN_GLYPH_H; /* 70 bytes */
+    uint16_t bg_col = RGB565(248, 250, 254);
+    int cur_x = x;
 
     for (int i = 0; str[i]; i++) {
         unsigned char c = (unsigned char)str[i];
         if (c < 32 || c > 126) c = ' ';
         int glyph_idx = c - 32;
         int adv = MODERN_GLYPH_ADV[glyph_idx];
-        const uint8_t *glyph_src = MODERN_FONT_PACKED + (glyph_idx * bytes_per_glyph);
+        const uint8_t *glyph_data = MODERN_FONT_PACKED + (glyph_idx * (14 * 5));
 
-        for (int y = 0; y < MODERN_GLYPH_H; y++) {
-            int dst_y = start_y + y;
+        for (int gy = 0; gy < 14; gy++) {
+            int dst_y = y + gy;
             if (dst_y < 0 || dst_y >= SCREEN_H) continue;
             volatile uint16_t *line = fb + (dst_y * SCREEN_W);
-            const uint8_t *row_src = glyph_src + (y * bytes_per_row);
+            const uint8_t *row = glyph_data + (gy * 5);
 
-            for (int x = 0; x < MODERN_GLYPH_W; x += 2) {
-                uint8_t byte_val = row_src[x >> 1];
+            for (int gx = 0; gx < 10; gx += 2) {
+                uint8_t byte_val = row[gx >> 1];
                 uint8_t a1 = (byte_val >> 4) * 17;
                 uint8_t a2 = (byte_val & 0x0F) * 17;
 
-                int dst_x1 = cur_x + x;
+                int dst_x1 = cur_x + gx;
                 if (a1 && dst_x1 >= 0 && dst_x1 < SCREEN_W) {
                     int eff_a = (a1 * global_alpha) >> 8;
-                    line[dst_x1] = blend_rgb565(line[dst_x1], color, eff_a);
+                    line[dst_x1] = blend_rgb565(bg_col, color, eff_a);
                 }
 
-                int dst_x2 = cur_x + x + 1;
+                int dst_x2 = cur_x + gx + 1;
                 if (a2 && dst_x2 >= 0 && dst_x2 < SCREEN_W) {
                     int eff_a = (a2 * global_alpha) >> 8;
-                    line[dst_x2] = blend_rgb565(line[dst_x2], color, eff_a);
+                    line[dst_x2] = blend_rgb565(bg_col, color, eff_a);
                 }
             }
         }
@@ -324,25 +280,30 @@ static void draw_glass_logo_fb(volatile uint16_t *fb, int cx, int cy, int global
     int half_h = BOOT_LOGO_H / 2;
     int start_x = cx - half_w;
     int start_y = cy - half_h;
+    uint16_t bg_col = RGB565(246, 249, 253);
 
-    /* Ambient glass drop shadow onto frosted glass */
+    /* Ambient glass drop shadow onto frosted glass (Fast write-only) */
     for (int dy = 0; dy < 12; dy++) {
         int py = start_y + BOOT_LOGO_H - 8 + dy;
         if (py < 0 || py >= SCREEN_H) continue;
         volatile uint16_t *dst_row = fb + (py * SCREEN_W);
-        int shadow_alpha = (dy < 6) ? (dy * 8) : ((12 - dy) * 8);
+        int shadow_alpha = (dy < 6) ? (dy * 7) : ((12 - dy) * 7);
         shadow_alpha = (shadow_alpha * global_alpha) >> 8;
         if (shadow_alpha <= 0) continue;
 
-        for (int dx = 12; dx < BOOT_LOGO_W - 12; dx++) {
+        uint16_t shadow_pix = blend_rgb565(bg_col, RGB565(120, 150, 180), shadow_alpha);
+        for (int dx = 14; dx < BOOT_LOGO_W - 14; dx++) {
             int px = start_x + dx;
             if (px >= 0 && px < SCREEN_W) {
-                dst_row[px] = blend_rgb565(dst_row[px], RGB565(80, 110, 140), shadow_alpha);
+                dst_row[px] = shadow_pix;
             }
         }
     }
 
-    /* 112x112 3D Aqua Glass Logo Pixel Blending */
+    /* Precompute Specular Sweep Position for this frame */
+    int sweep = (frame >= 25) ? (((frame - 25) * 5) % (BOOT_LOGO_W + BOOT_LOGO_H + 40)) : -100;
+
+    /* 112x112 3D Aqua Glass Logo Pixel Blending (Pure Write-Only, Zero VRAM Readback Latency) */
     for (int y = 0; y < BOOT_LOGO_H; y++) {
         int py = start_y + y;
         if (py < 0 || py >= SCREEN_H) continue;
@@ -352,6 +313,8 @@ static void draw_glass_logo_fb(volatile uint16_t *fb, int cx, int cy, int global
 
         for (int x = 0; x < BOOT_LOGO_W; x += 2) {
             uint8_t byte_val = alpha_row[x >> 1];
+            if (!byte_val) continue; /* Fast skip transparent blocks */
+
             uint8_t a1 = (byte_val >> 4) * 17;
             uint8_t a2 = (byte_val & 0x0F) * 17;
 
@@ -362,16 +325,15 @@ static void draw_glass_logo_fb(volatile uint16_t *fb, int cx, int cy, int global
                     int eff_a1 = (a1 * global_alpha) >> 8;
                     if (eff_a1 > 0) {
                         uint16_t c1 = BOOT_LOGO_PALETTE[pal_idx_row[x]];
-                        if (frame >= 30) {
-                            int sweep = ((frame - 30) * 4) % (BOOT_LOGO_W + BOOT_LOGO_H + 60);
+                        if (sweep >= 0) {
                             int diag = (x + y) - sweep;
                             if (diag < 0) diag = -diag;
-                            if (diag < 12) {
-                                int glint = ((12 - diag) * 255) / 12;
+                            if (diag < 10) {
+                                int glint = ((10 - diag) * 255) / 10;
                                 c1 = blend_rgb565(c1, RGB565(255, 255, 255), (glint * global_alpha) >> 8);
                             }
                         }
-                        dst_row[px1] = blend_rgb565(dst_row[px1], c1, eff_a1);
+                        dst_row[px1] = blend_rgb565(bg_col, c1, eff_a1);
                     }
                 }
             }
@@ -383,16 +345,15 @@ static void draw_glass_logo_fb(volatile uint16_t *fb, int cx, int cy, int global
                     int eff_a2 = (a2 * global_alpha) >> 8;
                     if (eff_a2 > 0) {
                         uint16_t c2 = BOOT_LOGO_PALETTE[pal_idx_row[x + 1]];
-                        if (frame >= 30) {
-                            int sweep = ((frame - 30) * 4) % (BOOT_LOGO_W + BOOT_LOGO_H + 60);
+                        if (sweep >= 0) {
                             int diag = (x + 1 + y) - sweep;
                             if (diag < 0) diag = -diag;
-                            if (diag < 12) {
-                                int glint = ((12 - diag) * 255) / 12;
+                            if (diag < 10) {
+                                int glint = ((10 - diag) * 255) / 10;
                                 c2 = blend_rgb565(c2, RGB565(255, 255, 255), (glint * global_alpha) >> 8);
                             }
                         }
-                        dst_row[px2] = blend_rgb565(dst_row[px2], c2, eff_a2);
+                        dst_row[px2] = blend_rgb565(bg_col, c2, eff_a2);
                     }
                 }
             }
@@ -401,7 +362,7 @@ static void draw_glass_logo_fb(volatile uint16_t *fb, int cx, int cy, int global
 }
 
 /* -------------------------------------------------------------------------
- * 3D Boot Scene Lifecycle
+ * Public Boot Animation Lifecycle API
  * ------------------------------------------------------------------------- */
 void boot_anim_init(const boot_scene_config_t *config) {
     if (config) {
@@ -422,26 +383,25 @@ void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
     int center_x = 320;
     int center_y = 175;
 
-    /* 1. Real-Time Procedural Frosty Caustic Background & Ambient Aura */
+    /* 1. Real-Time Procedural Frosty Caustic Background via SH-4 Store Queues */
     render_realtime_frosty_caustic_bg(fb_addr, frame);
-    draw_caustic_ambient_aura(fb, center_x, center_y, 90);
 
-    /* 4. Render Big 3D Aqua Glass Swirl Logo with Subtle Bob & Specular Caustics */
+    /* 2. Render Big 3D Aqua Glass Swirl Logo with Subtle Bob & Specular Caustics */
     int logo_alpha = 0;
-    if (frame >= 5) {
-        logo_alpha = sdiv32_anim((frame - 5) * 256, 45);
+    if (frame >= 3) {
+        logo_alpha = sdiv32_anim((frame - 3) * 256, 30);
         if (logo_alpha > 256) logo_alpha = 256;
     }
 
     if (logo_alpha > 0) {
-        int logo_y = center_y + ((sin_fx(frame * 3) * 3) >> 8);
+        int logo_y = center_y + ((sin_fx(frame * 4) * 3) >> 8);
         draw_glass_logo_fb(fb, center_x, logo_y, logo_alpha, frame);
     }
 
-    /* 5. High-Definition Anti-Aliased Modern Typography & Branding */
+    /* 3. High-Definition Anti-Aliased Modern Typography & Branding */
     int text_alpha = 0;
-    if (frame > 35) {
-        text_alpha = sdiv32_anim((frame - 35) * 256, 45);
+    if (frame > 20) {
+        text_alpha = sdiv32_anim((frame - 20) * 256, 30);
         if (text_alpha > 256) text_alpha = 256;
     }
 

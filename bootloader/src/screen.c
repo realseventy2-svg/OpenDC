@@ -3,26 +3,26 @@
 #include "boot_anim.h"
 
 const boot_theme_t BOOT_THEME_DEFAULT = {
-    .bg_color           = RGB565(4, 8, 18),
+    .bg_color           = RGB565(248, 250, 254),
     .header_color       = COLOR_WHITE,
     .sub_color          = COLOR_CYAN,
     .status_ok_color    = COLOR_GREEN,
     .status_err_color   = COLOR_GOLD,
     .text_color         = COLOR_WHITE,
     .bar_border_color   = COLOR_DARK_GRAY,
-    .bar_fill_color     = RGB565(255, 110, 20),
-    .bar_complete_color = RGB565(255, 210, 40),
+    .bar_fill_color     = RGB565(30, 140, 230),
+    .bar_complete_color = RGB565(90, 210, 255),
 
     .title              = "Open Dreamcast",
     .subtitle           = "SEGA DREAMCAST ARCHITECTURE",
     .version_text       = "Custom Boot Firmware",
 
-    .splash_delay_seconds = BOOT_DURATION_EXTENDED,
+    .splash_delay_seconds = 3,
     .splash_delay_frames  = 0,
-    .show_diagnostics     = 1,
-    .show_progress_bar    = 1,
+    .show_diagnostics     = 0,
+    .show_progress_bar    = 0,
 
-    .cube_enabled       = 1,
+    .cube_enabled       = 0,
     .cube_center_x      = 320,
     .cube_center_y      = 290,
     .cube_size          = 40,
