@@ -2,6 +2,7 @@
 #include "retail_vectors.h"
 #include "video.h"
 #include "screen.h"
+#include "sound.h"
 #include "boot.h"
 
 /* Provided by crt0.s: exception and interrupt vector stubs */
@@ -35,6 +36,9 @@ void report_exception(uint32_t pc, uint32_t expevt) {
 }
 
 void chainload_custom_bios(void) {
+    /* Stop bootloader sound engine before handoff */
+    sound_stop();
+
     /* Publish the service ABI before the custom BIOS is started. */
     gdrom_install_services();
 
@@ -78,6 +82,9 @@ void main(void) {
     const boot_theme_t *theme = screen_get_theme();
     if (theme) {
         boot_set_sega_license_enabled(theme->sega_license_enabled);
+        if (theme->music_enabled) {
+            sound_init();
+        }
     }
     screen_draw_splash();
 
@@ -91,14 +98,15 @@ void main(void) {
     /* 4. Update modular UI with disc status and diagnostics */
     screen_draw_disc_status(toc_result == GDROM_OK, iso_result == GDROM_OK, iso_fad, iso_head);
 
-    /* 5. 60 FPS Animated 3D Spinning Cube Splash (4 Seconds = 240 Frames) */
+    /* 5. 60 FPS Animated 3D Spinning Cube Splash with Ambient MIDI Music */
     int frames = (theme && theme->splash_delay_seconds > 0) ? (theme->splash_delay_seconds * 60) : 0;
     if (frames > 0) {
         screen_animate_splash(frames);
     }
 
-    /* 6. If a bootable disc is detected, start the game */
+    /* 6. If a bootable disc is detected, stop sound and start the game */
     if (iso_result == GDROM_OK) {
+        sound_stop();
         (void)gdrom_boot_game(iso_fad);
     }
 

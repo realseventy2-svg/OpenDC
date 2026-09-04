@@ -31,6 +31,7 @@ typedef struct {
     uint16_t cube_color;
 
     int sega_license_enabled; /* 1 = Show authentic Sega License screen, 0 = Remove/Bypass */
+    int music_enabled;        /* 1 = Play ambient MIDI synth soundtrack, 0 = Disabled */
 } boot_theme_t;
 
 /* Global default theme instances */

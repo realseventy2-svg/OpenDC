@@ -18,7 +18,7 @@ LDFLAGS = -m4-single-only -ml -nostdlib \
           -Wl,-T,linker.ld \
           -Wl,--gc-sections
 
-OBJS = crt0.o video.o screen.o payload.o ata.o gdrom.o iso9660.o gdi_loader.o homebrew_cdi.o selfboot_cdi.o scramble.o syscalls.o wince.o boot.o
+OBJS = crt0.o video.o screen.o sound.o payload.o ata.o gdrom.o iso9660.o gdi_loader.o homebrew_cdi.o selfboot_cdi.o scramble.o syscalls.o wince.o boot.o
 
 .PHONY: all clean rom
 
@@ -31,10 +31,13 @@ crt0.o: src/crt0.s
 video.o: src/video.c src/video.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-screen.o: src/screen.c src/screen.h src/video.h
+screen.o: src/screen.c src/screen.h src/video.h src/sound.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-payload.o: src/payload.c src/video.h src/screen.h
+sound.o: src/sound.c src/sound.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+payload.o: src/payload.c src/video.h src/screen.h src/sound.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 ata.o: src/ata.c src/ata.h

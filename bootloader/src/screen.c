@@ -1,4 +1,5 @@
 #include "screen.h"
+#include "sound.h"
 
 const boot_theme_t BOOT_THEME_DEFAULT = {
     .bg_color           = COLOR_BLACK,
@@ -24,7 +25,8 @@ const boot_theme_t BOOT_THEME_DEFAULT = {
     .cube_center_y      = 290,
     .cube_size          = 40,
     .cube_color         = COLOR_CYAN,
-    .sega_license_enabled = 0
+    .sega_license_enabled = 1,
+    .music_enabled      = 1
 };
 
 const boot_theme_t BOOT_THEME_MINIMAL = {
@@ -51,7 +53,8 @@ const boot_theme_t BOOT_THEME_MINIMAL = {
     .cube_center_y      = 290,
     .cube_size          = 40,
     .cube_color         = COLOR_WHITE,
-    .sega_license_enabled = 0
+    .sega_license_enabled = 0,
+    .music_enabled      = 0
 };
 
 const boot_theme_t BOOT_THEME_DARK = {
@@ -78,7 +81,8 @@ const boot_theme_t BOOT_THEME_DARK = {
     .cube_center_y      = 290,
     .cube_size          = 40,
     .cube_color         = COLOR_GOLD,
-    .sega_license_enabled = 0
+    .sega_license_enabled = 0,
+    .music_enabled      = 1
 };
 
 static const boot_theme_t *current_theme = &BOOT_THEME_DEFAULT;
@@ -298,7 +302,13 @@ void screen_draw_cube(int cx, int cy, int size, int ax, int ay, int az, uint16_t
 void screen_animate_splash(int duration_frames) {
     if (!current_theme->cube_enabled || duration_frames <= 0) {
         if (current_theme->splash_delay_seconds > 0) {
-            video_wait_seconds(current_theme->splash_delay_seconds);
+            int total_frames = current_theme->splash_delay_seconds * 60;
+            for (int f = 0; f < total_frames; f++) {
+                video_wait_vblank();
+                if (current_theme->music_enabled) {
+                    sound_tick();
+                }
+            }
         }
         return;
     }
@@ -320,6 +330,11 @@ void screen_animate_splash(int duration_frames) {
     video_set_target_buffer(video_get_back_fb());
 
     for (int frame = 0; frame < duration_frames; frame++) {
+        /* Advance ambient MIDI music sequencer */
+        if (current_theme->music_enabled) {
+            sound_tick();
+        }
+
         /* Clear previous cube position on back buffer (invisible to user) */
         video_fill_rect(clear_x, clear_y, clear_w, clear_h, bg);
 
