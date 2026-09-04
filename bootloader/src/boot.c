@@ -86,8 +86,8 @@ int gdrom_boot_game(uint32_t data_fad) {
     uint32_t boot_entry = 0x8C010000UL;
     uint32_t *ip_entry = (uint32_t *)0x8C008300UL;
 
-    if(s_sega_license_enabled && *ip_entry != 0 && *ip_entry != 0xFFFFFFFFUL) {
-        /* Boot through IP.BIN to display the authentic Sega License screen */
+    if(*ip_entry != 0 && *ip_entry != 0xFFFFFFFFUL) {
+        /* Boot through IP.BIN to execute Katana hardware & system initialization */
         boot_entry = 0xAC008300UL;
 
         /* Apply standard Katana retail BIOS security bypass patches */
@@ -99,6 +99,15 @@ int gdrom_boot_game(uint32_t data_fad) {
             *(volatile uint16_t *)(0xAC008300UL + 0x0DD8) = 0x5113;
             *(volatile uint16_t *)(0xAC008300UL + 0x14BC) = 0x0009;
             *(volatile uint16_t *)(0xAC008300UL + 0x1578) = 0xE030;
+        }
+
+        /* If Sega License Screen is disabled, redirect the jump vector directly to post-license bootstrap */
+        if(!s_sega_license_enabled) {
+            uint32_t post_lic_entry = *(volatile uint32_t *)0x8C00832CUL;
+            if(post_lic_entry != 0 && post_lic_entry != 0xFFFFFFFFUL) {
+                *(volatile uint32_t *)0x8C008328UL = post_lic_entry;
+                *(volatile uint32_t *)0xAC008328UL = post_lic_entry;
+            }
         }
 
         /* 
@@ -161,7 +170,7 @@ int gdrom_boot_game(uint32_t data_fad) {
         "mov.l  8f, r0\n\t"     /* Executed in delay slot: r0 = 0xAC0005D8 */
         ".align 4\n\t"
         "1:  .long 0x8D000000\n\t"
-        "2:  .long 0xAC00043C\n\t"
+        "2:  .long 0xAC000050\n\t"
         "3:  .long 0x40000000\n\t"
         "4:  .long 0x00040001\n\t"
         "5:  .long 0x8C000000\n\t"
