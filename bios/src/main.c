@@ -14,6 +14,7 @@
 
 #include "aero_atlas.h"
 #include "bootloader_gdrom.h"
+#include "theme.h"
 
 extern const uint8_t romdisk[];
 
@@ -21,7 +22,7 @@ extern const uint8_t romdisk[];
 KOS_INIT_FLAGS(INIT_IRQ | INIT_THD_PREEMPT | INIT_FS_ALL |
                INIT_LIBRARY | INIT_CDROM | INIT_CONTROLLER | INIT_VMU);
 
-#define NUM_BUBBLES 22
+#define NUM_BUBBLES 24
 #define NUM_RIPPLES 8
 #define NUM_SWIRL_PTS 72
 
@@ -40,7 +41,7 @@ static const uint16_t MIDI_PITCH_TABLE[88] = {
     /* 51..56 (D#3..G#3) */ 0x7B39, 0x7BA7, 0x000E, 0x004C, 0x008D, 0x00D2,
     /* 57..62 (A3..D4)   */ 0x011C, 0x016A, 0x01BC, 0x0213, 0x0270, 0x02D2,
     /* 63..68 (D#4..G#4) */ 0x0339, 0x03A7, 0x080E, 0x084C, 0x088D, 0x08D2,
-    /* 69..74 (A4..D5)   */ 0x091C, 0x096A, 0x09BC, 0x0A13, 0x0A70, 0x0AD2,
+    /* 69..74 (A4..D5)   */ 0x091C, 0x096A, 0x09BC, 0x0A13, 0x0AD2, 0x0AD2,
     /* 75..80 (D#5..G#5) */ 0x0B39, 0x0BA7, 0x100E, 0x104C, 0x108D, 0x10D2,
     /* 81..86 (A5..D6)   */ 0x111C, 0x116A, 0x11BC, 0x1213, 0x1270, 0x12D2,
     /* 87..92 (D#6..G#6) */ 0x1339, 0x13A7, 0x180E, 0x184C, 0x188D, 0x18D2,
@@ -80,10 +81,7 @@ static void aica_synth_init(void) {
         AICA_CHN_REG(ch, 0x24) = 0x0000;
     }
 
-    /* 4. Synthesize 3 soothing 256-sample 16-bit PCM wavetables:
-          - Wavetable 0 (offset 0): Deep oceanic sub-drone
-          - Wavetable 1 (offset 512): Warm, lush celestial pad (warm harmonic blend)
-          - Wavetable 2 (offset 1024): Gentle mellow chime (soft water drop, zero shrill lead) */
+    /* 4. Synthesize 3 soothing 256-sample 16-bit PCM wavetables */
     volatile int16_t *wav_drone = (volatile int16_t *)(AICA_RAM_BASE + 0);
     volatile int16_t *wav_pad   = (volatile int16_t *)(AICA_RAM_BASE + 512);
     volatile int16_t *wav_chime = (volatile int16_t *)(AICA_RAM_BASE + 1024);
@@ -143,74 +141,28 @@ static void aica_play_note(int ch, int midi_note, int volume, int pan, int wavet
     AICA_CHN_REG(ch, 0x00) = 0xC200 | (smp_offset >> 16);
 }
 
-/* 20-Second Ultra-Relaxing Atmospheric Pad Sequencer */
-static void aica_ambient_tick(uint32_t frame) {
+/* 20-Second Dynamic Multi-Theme Atmospheric Pad Sequencer */
+static void aica_ambient_tick(const theme_t *theme, uint32_t frame) {
     uint32_t tick = frame % 1200;
+    int step = tick / 300;
+    int sub_tick = tick % 300;
 
-    switch (tick) {
-        case 0:
-            aica_play_note(0, 27, 14, 0x18, 0); /* Eb1 Sub Left */
-            aica_play_note(1, 34, 13, 0x08, 0); /* Bb1 Drone Right */
-            aica_play_note(2, 55, 11, 0x1C, 1); /* G3 Celestial Pad Left */
-            aica_play_note(3, 62, 11, 0x04, 1); /* D4 Celestial Pad Right */
-            aica_play_note(4, 77, 11, 0x1A, 2); /* F5 Soft Mellow Chime Left */
-            break;
-        case 30:
-            aica_play_note(5, 77,  8, 0x0E, 2); /* F5 Soft Echo Right */
-            break;
-        case 60:
-            aica_play_note(6, 77,  5, 0x00, 2); /* F5 Diffuse Center */
-            break;
+    const theme_chord_step_t *chord = &theme->chords[step];
 
-        case 300:
-            aica_play_note(0, 24, 14, 0x18, 0); /* C1 Sub Left */
-            aica_play_note(1, 31, 13, 0x08, 0); /* G1 Drone Right */
-            aica_play_note(2, 51, 11, 0x1C, 1); /* Eb3 Celestial Pad Left */
-            aica_play_note(3, 58, 11, 0x04, 1); /* Bb3 Celestial Pad Right */
-            aica_play_note(4, 79, 11, 0x0C, 2); /* G5 Soft Mellow Chime Right */
-            break;
-        case 330:
-            aica_play_note(5, 79,  8, 0x1E, 2); /* G5 Soft Echo Left */
-            break;
-        case 360:
-            aica_play_note(6, 79,  5, 0x00, 2); /* G5 Diffuse Center */
-            break;
-
-        case 600:
-            aica_play_note(0, 32, 14, 0x18, 0); /* Ab1 Sub Left */
-            aica_play_note(1, 39, 13, 0x08, 0); /* Eb2 Drone Right */
-            aica_play_note(2, 48, 11, 0x1C, 1); /* C3 Celestial Pad Left */
-            aica_play_note(3, 55, 11, 0x04, 1); /* G3 Celestial Pad Right */
-            aica_play_note(4, 75, 11, 0x18, 2); /* Eb5 Soft Chime Left */
-            break;
-        case 630:
-            aica_play_note(5, 75,  8, 0x0A, 2); /* Eb5 Echo Right */
-            break;
-        case 660:
-            aica_play_note(6, 75,  5, 0x00, 2); /* Eb5 Diffuse Center */
-            break;
-
-        case 900:
-            aica_play_note(0, 34, 14, 0x18, 0); /* Bb1 Sub Left */
-            aica_play_note(1, 41, 13, 0x08, 0); /* F2 Drone Right */
-            aica_play_note(2, 58, 11, 0x1C, 1); /* Bb3 Pad Left */
-            aica_play_note(3, 63, 11, 0x04, 1); /* Eb4 Pad Right */
-            aica_play_note(4, 74, 11, 0x00, 2); /* D5 Soft Chime Center */
-            break;
-        case 960:
-            aica_play_note(2, 50, 11, 0x1A, 1); /* D3 Pad Left */
-            aica_play_note(3, 53, 11, 0x06, 1); /* F3 Pad Right */
-            break;
-        case 990:
-            aica_play_note(5, 74,  7, 0x14, 2); /* D5 Echo Left */
-            break;
-
-        default:
-            break;
+    if (sub_tick == 0) {
+        aica_play_note(0, chord->sub_note,       14, 0x18, 0); /* Sub Bass Left */
+        aica_play_note(1, chord->drone_note,     13, 0x08, 0); /* Drone Right   */
+        aica_play_note(2, chord->pad_left_note,  11, 0x1C, 1); /* Pad Voice Left*/
+        aica_play_note(3, chord->pad_right_note, 11, 0x04, 1); /* Pad Voice Right*/
+        aica_play_note(4, chord->chime_note,     11, 0x1A, 2); /* Crystal Chime */
+    } else if (sub_tick == 30) {
+        aica_play_note(5, chord->chime_note,      8, 0x0E, 2); /* Echo Right */
+    } else if (sub_tick == 60) {
+        aica_play_note(6, chord->chime_note,      5, 0x00, 2); /* Diffuse Center */
     }
 }
 
-/* Floating Glass Bubble Data */
+/* Floating Particle FX Data */
 typedef struct {
     float x, y;
     float radius;
@@ -218,9 +170,9 @@ typedef struct {
     float wobble_freq;
     float wobble_amp;
     float alpha;
-} bubble_t;
+} particle_t;
 
-static bubble_t bubbles[NUM_BUBBLES];
+static particle_t particles[NUM_BUBBLES];
 
 /* Expanding Water Ripple Data */
 typedef struct {
@@ -242,13 +194,13 @@ static void init_aero_environment(void) {
     }
 
     for (int i = 0; i < NUM_BUBBLES; i++) {
-        bubbles[i].x = (float)(rand() % 640);
-        bubbles[i].y = (float)(rand() % 500);
-        bubbles[i].radius = 10.0f + (float)(rand() % 18);
-        bubbles[i].speed_y = 0.35f + (float)(rand() % 100) * 0.008f;
-        bubbles[i].wobble_freq = 0.02f + (float)(rand() % 50) * 0.001f;
-        bubbles[i].wobble_amp = 8.0f + (float)(rand() % 14);
-        bubbles[i].alpha = 0.45f + (float)(rand() % 45) * 0.01f;
+        particles[i].x = (float)(rand() % 640);
+        particles[i].y = (float)(rand() % 500);
+        particles[i].radius = 8.0f + (float)(rand() % 16);
+        particles[i].speed_y = 0.35f + (float)(rand() % 100) * 0.008f;
+        particles[i].wobble_freq = 0.02f + (float)(rand() % 50) * 0.001f;
+        particles[i].wobble_amp = 6.0f + (float)(rand() % 14);
+        particles[i].alpha = 0.45f + (float)(rand() % 45) * 0.01f;
     }
 
     for (int i = 0; i < NUM_RIPPLES; i++) {
@@ -371,7 +323,7 @@ static void draw_quad(float x, float y, float w, float h, float z, uint32_t col)
     draw_quad_gradient(x, y, w, h, z, col, col, col, col);
 }
 
-/* Mathematically Exact Proportional Baseline Typography */
+/* Mathematically Exact Proportional Typography */
 static void draw_text_smooth(float start_x, float start_y, float scale, const char *text, uint32_t col) {
     float cur_x = start_x;
     for (int i = 0; text[i]; i++) {
@@ -401,71 +353,84 @@ static void draw_text_shadow(float start_x, float start_y, float scale, const ch
 }
 
 /* =========================================================================
-    AERO GRAPHICS ENGINE
+   DYNAMIC THEMED GRAPHICS ENGINE
    ========================================================================= */
 
-/* 1. Luminous Sky & Tropical Ocean Gradient Background */
-static void draw_sky_atmosphere(int frame) {
-    uint32_t c_top = PVR_PACK_COLOR(1.0f, 0.05f, 0.32f, 0.65f);
-    uint32_t c_mid = PVR_PACK_COLOR(1.0f, 0.08f, 0.68f, 0.92f);
-    uint32_t c_bot = PVR_PACK_COLOR(1.0f, 0.35f, 0.88f, 0.95f);
-
-    draw_quad_gradient(0, 0, 640, 240, 0.5f, c_top, c_top, c_mid, c_mid);
-    draw_quad_gradient(0, 240, 640, 240, 0.5f, c_mid, c_mid, c_bot, c_bot);
+/* 1. Luminous Sky & Atmospheric Background */
+static void draw_sky_atmosphere(const theme_t *theme, int frame) {
+    draw_quad_gradient(0, 0, 640, 240, 0.5f, theme->sky_top, theme->sky_top, theme->sky_mid, theme->sky_mid);
+    draw_quad_gradient(0, 240, 640, 240, 0.5f, theme->sky_mid, theme->sky_mid, theme->sky_bot, theme->sky_bot);
 
     float sun_x = 520.0f + sinf(frame * 0.01f) * 15.0f;
     float sun_y = 60.0f + cosf(frame * 0.012f) * 10.0f;
-    uint32_t c_sun_core = PVR_PACK_COLOR(0.35f, 1.0f, 1.0f, 1.0f);
-    uint32_t c_sun_fade = PVR_PACK_COLOR(0.0f, 0.6f, 0.9f, 1.0f);
-    draw_quad_gradient(sun_x - 160, sun_y - 160, 320, 320, 0.6f, c_sun_fade, c_sun_fade, c_sun_fade, c_sun_core);
+    draw_quad_gradient(sun_x - 160, sun_y - 160, 320, 320, 0.6f,
+                       theme->sun_fade, theme->sun_fade, theme->sun_fade, theme->sun_core);
 }
 
-/* 2. Undulating Aurora Waves */
-static void draw_aurora_ribbons(int frame) {
+/* 2. Undulating Horizon Ribbon Waves */
+static void draw_aurora_ribbons(const theme_t *theme, int frame) {
     int num_segments = 32;
     float seg_w = 640.0f / (float)num_segments;
+    float spd = theme->wave_speed;
+    float amp = theme->wave_amplitude;
 
     for (int seg = 0; seg < num_segments; seg++) {
         float x1 = seg * seg_w;
         float x2 = (seg + 1) * seg_w;
 
-        float wave1 = sinf(seg * 0.35f + frame * 0.04f) * 25.0f + cosf(seg * 0.15f - frame * 0.02f) * 15.0f;
-        float wave2 = sinf((seg + 1) * 0.35f + frame * 0.04f) * 25.0f + cosf((seg + 1) * 0.15f - frame * 0.02f) * 15.0f;
+        float wave1 = (sinf(seg * 0.35f + frame * 0.04f * spd) * 25.0f + cosf(seg * 0.15f - frame * 0.02f * spd) * 15.0f) * amp;
+        float wave2 = (sinf((seg + 1) * 0.35f + frame * 0.04f * spd) * 25.0f + cosf((seg + 1) * 0.15f - frame * 0.02f * spd) * 15.0f) * amp;
 
         float y1 = 380.0f + wave1;
         float y2 = 380.0f + wave2;
-        float h1 = 90.0f + sinf(seg * 0.2f + frame * 0.03f) * 20.0f;
-        float h2 = 90.0f + sinf((seg + 1) * 0.2f + frame * 0.03f) * 20.0f;
-
-        uint32_t col_top = PVR_PACK_COLOR(0.30f, 0.3f, 1.0f, 0.75f);
-        uint32_t col_bot = PVR_PACK_COLOR(0.0f,  0.0f, 0.7f, 1.0f);
+        float h1 = (90.0f + sinf(seg * 0.2f + frame * 0.03f * spd) * 20.0f) * amp;
+        float h2 = (90.0f + sinf((seg + 1) * 0.2f + frame * 0.03f * spd) * 20.0f) * amp;
 
         draw_quad_mesh(x1, y1 - h1, x2, y2 - h2, x1, y1, x2, y2, 0.7f,
-                       col_top, col_top, col_bot, col_bot);
+                       theme->aurora_top, theme->aurora_top, theme->aurora_bot, theme->aurora_bot);
     }
 }
 
-/* 3. Smooth Circular Glass Bubbles */
-static void draw_bubbles(int frame) {
+/* 3. Multi-Theme Particle Dynamics */
+static void draw_particles(const theme_t *theme, int frame) {
     float u0 = (32.0f - 26.0f) / 256.0f;
     float v0 = (200.0f - 26.0f) / 256.0f;
     float u1 = (32.0f + 26.0f) / 256.0f;
     float v1 = (200.0f + 26.0f) / 256.0f;
 
     for (int i = 0; i < NUM_BUBBLES; i++) {
-        bubbles[i].y -= bubbles[i].speed_y;
-        if (bubbles[i].y < -40.0f) {
-            bubbles[i].y = 520.0f;
-            bubbles[i].x = (float)(rand() % 640);
+        particles[i].y -= particles[i].speed_y * theme->particle_speed_mult;
+        if (particles[i].y < -40.0f) {
+            particles[i].y = 520.0f;
+            particles[i].x = (float)(rand() % 640);
         }
 
-        float wobble = sinf(bubbles[i].y * bubbles[i].wobble_freq + frame * 0.05f) * bubbles[i].wobble_amp;
-        float bx = bubbles[i].x + wobble;
-        float by = bubbles[i].y;
-        float r = bubbles[i].radius;
+        float wobble = sinf(particles[i].y * particles[i].wobble_freq + frame * 0.05f) * particles[i].wobble_amp;
+        float bx = particles[i].x + wobble;
+        float by = particles[i].y;
+        float r = particles[i].radius;
 
-        uint32_t col = PVR_PACK_COLOR(bubbles[i].alpha, 0.85f, 0.95f, 1.0f);
-        draw_txr_quad(bx - r, by - r, r * 2.0f, r * 2.0f, 1.2f, u0, v0, u1, v1, col);
+        if (theme->particle_type == PARTICLE_CYBER_BITS) {
+            /* Sharp rotating cyber motes */
+            draw_quad_gradient(bx - r * 0.6f, by - r * 0.6f, r * 1.2f, r * 1.2f, 1.2f,
+                               theme->particle_col, theme->particle_col,
+                               PVR_PACK_COLOR(0.0f, 0.0f, 0.0f, 0.0f), theme->particle_col);
+        } else if (theme->particle_type == PARTICLE_STARDUST) {
+            /* Twinkling diamond stardust */
+            float spark = fabsf(sinf(frame * 0.1f + i));
+            float sr = r * (0.4f + spark * 0.6f);
+            draw_quad(bx - sr, by - 1.0f, sr * 2.0f, 2.0f, 1.2f, theme->particle_col);
+            draw_quad(bx - 1.0f, by - sr, 2.0f, sr * 2.0f, 1.2f, theme->particle_col);
+        } else if (theme->particle_type == PARTICLE_PETALS) {
+            /* Soft floating blossom petals */
+            float sway = cosf(frame * 0.04f + i) * 3.0f;
+            draw_quad_gradient(bx - r * 0.5f, by - r * 0.7f + sway, r, r * 1.4f, 1.2f,
+                               theme->particle_col, theme->particle_col,
+                               PVR_PACK_COLOR(0.3f, 1.0f, 0.5f, 0.7f), theme->particle_col);
+        } else {
+            /* PARTICLE_BUBBLES: Smooth translucent glass bubbles */
+            draw_txr_quad(bx - r, by - r, r * 2.0f, r * 2.0f, 1.2f, u0, v0, u1, v1, theme->particle_col);
+        }
     }
 }
 
@@ -494,23 +459,18 @@ static void draw_ripples(void) {
 }
 
 /* 5. Authentic Frutiger Aero Glossy Glass Panels */
-static void draw_glass_panel(float x, float y, float w, float h, float z, int is_selected, float glow_phase) {
+static void draw_glass_panel(const theme_t *theme, float x, float y, float w, float h, float z, int is_selected, float glow_phase) {
     float glow_w = is_selected ? 6.0f : 2.0f;
-    float glow_a = is_selected ? (0.45f + 0.25f * sinf(glow_phase)) : 0.15f;
-    uint32_t c_glow = is_selected ? PVR_PACK_COLOR(glow_a, 0.0f, 0.95f, 0.9f) : PVR_PACK_COLOR(glow_a, 0.0f, 0.2f, 0.5f);
+    uint32_t c_glow = is_selected ? theme->glow_selected : theme->glow_unselected;
     draw_quad(x - glow_w, y - glow_w, w + glow_w * 2.0f, h + glow_w * 2.0f, z - 0.1f, c_glow);
 
-    uint32_t c_base_top = is_selected ? PVR_PACK_COLOR(0.65f, 0.15f, 0.65f, 0.95f) : PVR_PACK_COLOR(0.40f, 0.08f, 0.40f, 0.70f);
-    uint32_t c_base_bot = is_selected ? PVR_PACK_COLOR(0.75f, 0.05f, 0.45f, 0.85f) : PVR_PACK_COLOR(0.55f, 0.02f, 0.25f, 0.55f);
-    draw_quad_gradient(x, y, w, h, z, c_base_top, c_base_top, c_base_bot, c_base_bot);
+    draw_quad_gradient(x, y, w, h, z, theme->panel_base_top, theme->panel_base_top, theme->panel_base_bot, theme->panel_base_bot);
 
     float glare_h = h * 0.48f;
-    uint32_t c_glare_top = PVR_PACK_COLOR(0.55f, 1.0f, 1.0f, 1.0f);
-    uint32_t c_glare_bot = PVR_PACK_COLOR(0.08f, 0.85f, 0.98f, 1.0f);
-    draw_quad_gradient(x + 2.0f, y + 2.0f, w - 4.0f, glare_h, z + 0.1f, c_glare_top, c_glare_top, c_glare_bot, c_glare_bot);
+    draw_quad_gradient(x + 2.0f, y + 2.0f, w - 4.0f, glare_h, z + 0.1f, theme->panel_glare_top, theme->panel_glare_top, theme->panel_glare_bot, theme->panel_glare_bot);
 
-    uint32_t c_border_top = is_selected ? PVR_PACK_COLOR(0.95f, 0.9f, 1.0f, 1.0f) : PVR_PACK_COLOR(0.70f, 0.75f, 0.95f, 1.0f);
-    uint32_t c_border_bot = is_selected ? PVR_PACK_COLOR(0.75f, 0.0f, 0.9f, 0.9f) : PVR_PACK_COLOR(0.35f, 0.1f, 0.5f, 0.8f);
+    uint32_t c_border_top = is_selected ? theme->border_selected : theme->panel_border_top;
+    uint32_t c_border_bot = is_selected ? theme->glow_selected : theme->panel_border_bot;
 
     draw_quad(x, y, w, 1.5f, z + 0.2f, c_border_top);
     draw_quad(x, y, 1.5f, h, z + 0.2f, c_border_top);
@@ -519,19 +479,19 @@ static void draw_glass_panel(float x, float y, float w, float h, float z, int is
 }
 
 /* 6. Smooth Round Glossy Controller Button Gems */
-static void draw_button_gem(float x, float y, float r, const char *label, int color_type) {
+static void draw_button_gem(const theme_t *theme, float x, float y, float r, const char *label, int color_type) {
     float u0 = (160.0f - 24.0f) / 256.0f;
     float v0 = (200.0f - 24.0f) / 256.0f;
     float u1 = (160.0f + 24.0f) / 256.0f;
     float v1 = (200.0f + 24.0f) / 256.0f;
 
-    float cr, cg, cb;
-    if (color_type == 0)      { cr = 0.2f; cg = 0.95f; cb = 0.4f; } /* (A) Green */
-    else if (color_type == 1) { cr = 0.95f; cg = 0.2f; cb = 0.3f; } /* (B) Red */
-    else if (color_type == 2) { cr = 0.2f; cg = 0.6f; cb = 0.98f; } /* (X/D) Blue */
-    else                      { cr = 0.98f; cg = 0.85f; cb = 0.1f; } /* (Y) Yellow */
+    uint32_t col;
+    if (color_type == 0)      col = theme->gem_a;
+    else if (color_type == 1) col = theme->gem_b;
+    else if (color_type == 2) col = theme->gem_x;
+    else if (color_type == 3) col = theme->gem_y;
+    else                      col = theme->gem_selected;
 
-    uint32_t col = PVR_PACK_COLOR(0.95f, cr, cg, cb);
     draw_txr_quad(x - r, y - r, r * 2.0f, r * 2.0f, 4.0f, u0, v0, u1, v1, col);
 
     /* Perfect center text inside circle */
@@ -542,13 +502,13 @@ static void draw_button_gem(float x, float y, float r, const char *label, int co
             float scale = (r * 1.35f) / 24.0f;
             float start_x = x - (float)g->adv * 0.5f * scale;
             float start_y = y - 16.0f * scale;
-            draw_text_smooth(start_x, start_y, scale, label, PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_text_smooth(start_x, start_y, scale, label, 0xFFFFFFFF);
         }
     }
 }
 
 /* 7. 3D Faceted Glass Dreamcast Swirl */
-static void draw_3d_glass_swirl(float center_x, float center_y, float scale, int frame) {
+static void draw_3d_glass_swirl(const theme_t *theme, float center_x, float center_y, float scale, int frame) {
     float rot = frame * 0.035f;
 
     for (int i = 0; i < NUM_SWIRL_PTS; i++) {
@@ -561,13 +521,8 @@ static void draw_3d_glass_swirl(float center_x, float center_y, float scale, int
         float sy = center_y + sinf(angle) * (r * 0.52f) + z_offset * 0.25f;
         float pt_size = (4.0f + t * 6.5f) * scale;
 
-        float cr = sinf(t * 3.14f + frame * 0.04f) * 0.4f + 0.6f;
-        float cg = 0.9f;
-        float cb = cosf(t * 3.14f + frame * 0.03f) * 0.4f + 0.6f;
-        float alpha = 0.55f + t * 0.45f;
-
-        uint32_t col_core = PVR_PACK_COLOR(alpha, cr, cg, cb);
-        uint32_t col_glint = PVR_PACK_COLOR(alpha * 0.95f, 1.0f, 1.0f, 1.0f);
+        uint32_t col_core = (i % 2 == 0) ? theme->swirl_core_a : theme->swirl_core_b;
+        uint32_t col_glint = theme->swirl_glint;
 
         draw_quad_gradient(sx - pt_size * 0.5f, sy - pt_size * 0.5f, pt_size, pt_size, 3.5f,
                            col_glint, col_core, col_core, col_glint);
@@ -575,16 +530,14 @@ static void draw_3d_glass_swirl(float center_x, float center_y, float scale, int
 }
 
 /* 8. 3D Iridescent Holographic GD-ROM Disc */
-static void draw_3d_holographic_disc(float cx, float cy, float radius, int frame, int has_disc) {
+static void draw_3d_holographic_disc(const theme_t *theme, float cx, float cy, float radius, int frame, int has_disc) {
     float rot = frame * 0.05f;
 
     draw_quad(cx - radius - 4, cy - radius * 0.6f - 4, (radius + 4) * 2.0f, (radius + 4) * 1.2f, 2.0f,
               PVR_PACK_COLOR(0.35f, 0.0f, 0.1f, 0.25f));
 
-    uint32_t c_disc_edge = PVR_PACK_COLOR(0.85f, 0.85f, 0.95f, 1.0f);
-    uint32_t c_disc_body = PVR_PACK_COLOR(0.70f, 0.45f, 0.75f, 0.95f);
     draw_quad_gradient(cx - radius, cy - radius * 0.55f, radius * 2.0f, radius * 1.1f, 2.2f,
-                       c_disc_edge, c_disc_body, c_disc_body, c_disc_edge);
+                       theme->disc_edge, theme->disc_body, theme->disc_body, theme->disc_edge);
 
     int rings = 8;
     for (int r = 0; r < rings; r++) {
@@ -605,27 +558,26 @@ static void draw_3d_holographic_disc(float cx, float cy, float radius, int frame
     draw_quad(cx - hub_r, cy - hub_r * 0.55f, hub_r * 2.0f, hub_r * 1.1f, 2.6f, c_hub);
 
     float hole_r = radius * 0.12f;
-    uint32_t c_hole = PVR_PACK_COLOR(1.0f, 0.05f, 0.32f, 0.65f);
-    draw_quad(cx - hole_r, cy - hole_r * 0.55f, hole_r * 2.0f, hole_r * 1.1f, 2.7f, c_hole);
+    draw_quad(cx - hole_r, cy - hole_r * 0.55f, hole_r * 2.0f, hole_r * 1.1f, 2.7f, theme->sky_top);
 
     float glint_x = cx + cosf(rot * 2.0f) * (radius * 0.5f);
     float glint_y = cy + sinf(rot * 2.0f) * (radius * 0.28f);
     draw_quad(glint_x - 10, glint_y - 10, 20, 20, 2.8f, PVR_PACK_COLOR(0.85f, 1.0f, 1.0f, 1.0f));
 
     if (has_disc) {
-        draw_glass_panel(cx - 100, cy + radius * 0.65f, 200, 32, 3.0f, 1, frame * 0.1f);
+        draw_glass_panel(theme, cx - 100, cy + radius * 0.65f, 200, 32, 3.0f, 1, frame * 0.1f);
         draw_text_shadow(cx - 75, cy + radius * 0.65f + 6.0f, 0.72f, "SEGA GD-ROM READY",
-                         PVR_PACK_COLOR(1.0f, 0.3f, 1.0f, 0.5f), PVR_PACK_COLOR(0.6f, 0.0f, 0.0f, 0.0f));
+                         theme->text_accent, 0xAA000000);
     }
 }
 
 /* 9. Frosted Acrylic VMU Card Module */
-static void draw_vmu_card(float x, float y, float w, float h, float z, const char *port_name,
+static void draw_vmu_card(const theme_t *theme, float x, float y, float w, float h, float z, const char *port_name,
                           int is_inserted, int blocks_used, int frame) {
-    draw_glass_panel(x, y, w, h, z, is_inserted, frame * 0.08f);
+    draw_glass_panel(theme, x, y, w, h, z, is_inserted, frame * 0.08f);
 
     draw_text_shadow(x + 14.0f, y + 6.0f, 0.78f, port_name,
-                     PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f), PVR_PACK_COLOR(0.6f, 0.0f, 0.2f, 0.4f));
+                     theme->text_title, theme->text_title_shadow);
 
     float lcd_x = x + 14.0f;
     float lcd_y = y + 36.0f;
@@ -649,20 +601,20 @@ static void draw_vmu_card(float x, float y, float w, float h, float z, const cha
 
         char buf[48];
         snprintf(buf, sizeof(buf), "%d / 200 Blocks", blocks_used);
-        draw_text_smooth(x + 96.0f, y + 34.0f, 0.72f, buf, PVR_PACK_COLOR(1.0f, 0.2f, 1.0f, 0.6f));
+        draw_text_smooth(x + 96.0f, y + 34.0f, 0.72f, buf, theme->text_accent);
 
         float bar_w = w - 110.0f;
         draw_quad(x + 96.0f, y + 56.0f, bar_w, 10.0f, z + 0.2f, PVR_PACK_COLOR(0.4f, 0.1f, 0.3f, 0.5f));
         float fill_w = (bar_w * (float)blocks_used) / 200.0f;
         draw_quad_gradient(x + 96.0f, y + 56.0f, fill_w, 10.0f, z + 0.3f,
-                           PVR_PACK_COLOR(0.9f, 0.2f, 0.95f, 0.6f), PVR_PACK_COLOR(0.9f, 0.2f, 0.95f, 0.6f),
-                           PVR_PACK_COLOR(0.9f, 0.05f, 0.65f, 0.4f), PVR_PACK_COLOR(0.9f, 0.05f, 0.65f, 0.4f));
+                           theme->glow_selected, theme->glow_selected,
+                           theme->panel_border_bot, theme->panel_border_bot);
 
-        draw_text_smooth(x + 96.0f, y + 74.0f, 0.60f, "Status: Mounted & OK", PVR_PACK_COLOR(0.8f, 0.7f, 0.9f, 1.0f));
+        draw_text_smooth(x + 96.0f, y + 74.0f, 0.60f, "Status: Mounted & OK", theme->text_sub);
     } else {
         draw_text_smooth(lcd_x + 12.0f, lcd_y + 18.0f, 0.60f, "Offline", PVR_PACK_COLOR(0.6f, 0.2f, 0.35f, 0.2f));
-        draw_text_smooth(x + 96.0f, y + 40.0f, 0.70f, "No VMU Inserted", PVR_PACK_COLOR(0.6f, 0.7f, 0.8f, 0.9f));
-        draw_text_smooth(x + 96.0f, y + 66.0f, 0.58f, "Slot Empty", PVR_PACK_COLOR(0.5f, 0.5f, 0.6f, 0.7f));
+        draw_text_smooth(x + 96.0f, y + 40.0f, 0.70f, "No VMU Inserted", theme->text_dim);
+        draw_text_smooth(x + 96.0f, y + 66.0f, 0.58f, "Slot Empty", theme->text_dim);
     }
 }
 
@@ -711,7 +663,9 @@ enum {
 int main(int argc, char **argv) {
     fs_romdisk_mount("/rd", romdisk, 0);
     pvr_init_defaults();
-    pvr_set_bg_color(0.05f, 0.32f, 0.65f);
+    theme_init();
+    const theme_t *theme = theme_get_current();
+    pvr_set_bg_color(theme->bg_clear_r, theme->bg_clear_g, theme->bg_clear_b);
     init_aero_environment();
 
     /* Initialize Yamaha AICA Hardware SPU Ambient Synthesizer */
@@ -719,6 +673,7 @@ int main(int argc, char **argv) {
 
     int frame = 0;
     int menu_sel = 0;
+    int settings_sel = 2; /* Default highlight to theme changer in settings */
     int current_view = VIEW_MAIN_MENU;
     uint32_t prev_buttons = 0;
 
@@ -731,16 +686,17 @@ int main(int argc, char **argv) {
     const char *menu_descriptions[] = {
         "Boot inserted GD-ROM, MIL-CD, or homebrew disc",
         "Inspect and manage VMU memory cards and save files",
-        "Configure video cables, audio output, and system clock",
+        "Configure video cables, audio output, and firmware themes",
         "Real-time SH-4 CPU, CLX2 GPU, and SPU telemetry"
     };
     int num_items = 4;
 
     while (1) {
         frame++;
+        theme = theme_get_current();
 
-        /* Advance Soothing Atmospheric Ambient Pad Synthesizer */
-        aica_ambient_tick(frame);
+        /* Advance Dynamic Atmospheric Ambient Pad Synthesizer */
+        aica_ambient_tick(theme, frame);
 
         /* Read Controller Inputs */
         maple_device_t *cont = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
@@ -762,6 +718,44 @@ int main(int argc, char **argv) {
                         current_view = menu_sel + 1;
                         trigger_ripple(320.0f, 240.0f);
                     }
+                } else if (current_view == VIEW_SETTINGS) {
+                    if (((st->buttons & CONT_DPAD_DOWN) || st->joyy > 40) &&
+                        !((prev_buttons & CONT_DPAD_DOWN))) {
+                        settings_sel = (settings_sel + 1) % 3;
+                        trigger_ripple(320.0f, 130.0f + settings_sel * 68.0f + 17.0f);
+                    }
+                    if (((st->buttons & CONT_DPAD_UP) || st->joyy < -40) &&
+                        !((prev_buttons & CONT_DPAD_UP))) {
+                        settings_sel = (settings_sel - 1 + 3) % 3;
+                        trigger_ripple(320.0f, 130.0f + settings_sel * 68.0f + 17.0f);
+                    }
+                    /* Live Theme Switching */
+                    if (settings_sel == 2) {
+                        if (((st->buttons & CONT_DPAD_RIGHT) || st->joyx > 40) &&
+                            !((prev_buttons & CONT_DPAD_RIGHT))) {
+                            theme_next();
+                            theme = theme_get_current();
+                            pvr_set_bg_color(theme->bg_clear_r, theme->bg_clear_g, theme->bg_clear_b);
+                            trigger_ripple(320.0f, 266.0f);
+                        }
+                        if (((st->buttons & CONT_DPAD_LEFT) || st->joyx < -40) &&
+                            !((prev_buttons & CONT_DPAD_LEFT))) {
+                            theme_prev();
+                            theme = theme_get_current();
+                            pvr_set_bg_color(theme->bg_clear_r, theme->bg_clear_g, theme->bg_clear_b);
+                            trigger_ripple(320.0f, 266.0f);
+                        }
+                        if ((st->buttons & CONT_A) && !(prev_buttons & CONT_A)) {
+                            theme_next();
+                            theme = theme_get_current();
+                            pvr_set_bg_color(theme->bg_clear_r, theme->bg_clear_g, theme->bg_clear_b);
+                            trigger_ripple(320.0f, 266.0f);
+                        }
+                    }
+                    if ((st->buttons & CONT_B) && !(prev_buttons & CONT_B)) {
+                        current_view = VIEW_MAIN_MENU;
+                        trigger_ripple(320.0f, 240.0f);
+                    }
                 } else {
                     if ((st->buttons & CONT_B) && !(prev_buttons & CONT_B)) {
                         current_view = VIEW_MAIN_MENU;
@@ -781,23 +775,23 @@ int main(int argc, char **argv) {
         pvr_scene_begin();
         pvr_list_begin(PVR_LIST_TR_POLY);
 
-        /* 1. Atmospheric Sky & Aurora Horizon */
-        draw_sky_atmosphere(frame);
-        draw_aurora_ribbons(frame);
+        /* 1. Atmospheric Sky & Horizon */
+        draw_sky_atmosphere(theme, frame);
+        draw_aurora_ribbons(theme, frame);
 
-        /* 2. Floating Liquid Glass Bubbles & Water Ripples */
-        draw_bubbles(frame);
+        /* 2. Floating Liquid Particles & Water Ripples */
+        draw_particles(theme, frame);
         draw_ripples();
 
         /* 3. Top Navigation Glass Banner */
-        draw_glass_panel(20.0f, 16.0f, 600.0f, 66.0f, 2.0f, 0, 0.0f);
-        draw_3d_glass_swirl(55.0f, 49.0f, 0.40f, frame);
+        draw_glass_panel(theme, 20.0f, 16.0f, 600.0f, 66.0f, 2.0f, 0, 0.0f);
+        draw_3d_glass_swirl(theme, 55.0f, 49.0f, 0.40f, frame);
 
         /* Top Banner Typography */
         draw_text_shadow(95.0f, 24.0f, 1.00f, "OpenDC Dashboard",
-                         PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f), PVR_PACK_COLOR(0.8f, 0.02f, 0.25f, 0.5f));
-        draw_text_smooth(95.0f, 52.0f, 0.58f, "Sega Dreamcast | Firmware 1.0b",
-                         PVR_PACK_COLOR(0.85f, 0.7f, 0.95f, 1.0f));
+                         theme->text_title, theme->text_title_shadow);
+        draw_text_smooth(95.0f, 52.0f, 0.58f, "Custom Firmware 2.0  |  Sega Dreamcast",
+                         theme->text_sub);
 
         /* Top-Right Live Clock */
         time_t cur_time = rtc_boot_time() + (frame / 60);
@@ -809,75 +803,75 @@ int main(int argc, char **argv) {
             snprintf(clock_buf, sizeof(clock_buf), "12:00:00 UTC");
         }
         draw_text_shadow(480.0f, 37.0f, 0.75f, clock_buf,
-                         PVR_PACK_COLOR(1.0f, 0.3f, 1.0f, 0.7f), PVR_PACK_COLOR(0.6f, 0.0f, 0.2f, 0.4f));
+                         theme->text_accent, theme->text_title_shadow);
 
         /* 4. Active View Content */
         if (current_view == VIEW_MAIN_MENU) {
             /* Left Side: 3D Faceted Glass Swirl Mascot */
-            draw_glass_panel(25.0f, 92.0f, 175.0f, 286.0f, 2.0f, 0, 0.0f);
-            draw_3d_glass_swirl(112.0f, 205.0f, 0.85f, frame);
+            draw_glass_panel(theme, 25.0f, 92.0f, 175.0f, 286.0f, 2.0f, 0, 0.0f);
+            draw_3d_glass_swirl(theme, 112.0f, 205.0f, 0.85f, frame);
             draw_text_shadow(60.0f, 328.0f, 0.85f, "Dreamcast",
-                             PVR_PACK_COLOR(0.95f, 1.0f, 1.0f, 1.0f), PVR_PACK_COLOR(0.5f, 0.0f, 0.2f, 0.5f));
+                             theme->text_title, theme->text_title_shadow);
 
             /* Right Side: Interactive Glossy Glass Menu Cards (h=58, spacing=70) */
             for (int i = 0; i < num_items; i++) {
                 float card_y = 92.0f + i * 70.0f;
                 int is_sel = (i == menu_sel);
 
-                draw_glass_panel(215.0f, card_y, 405.0f, 58.0f, 2.0f, is_sel, frame * 0.1f);
+                draw_glass_panel(theme, 215.0f, card_y, 405.0f, 58.0f, 2.0f, is_sel, frame * 0.1f);
 
                 if (is_sel) {
-                    draw_button_gem(236.0f, card_y + 29.0f, 9.0f, "", 0);
+                    draw_button_gem(theme, 236.0f, card_y + 29.0f, 9.0f, "", 4);
                     draw_text_shadow(255.0f, card_y + 6.0f, 0.88f, menu_items[i],
-                                     PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f), PVR_PACK_COLOR(0.8f, 0.0f, 0.3f, 0.6f));
+                                     theme->text_title, theme->text_title_shadow);
                     draw_text_smooth(255.0f, card_y + 29.0f, 0.58f, menu_descriptions[i],
-                                     PVR_PACK_COLOR(0.92f, 0.82f, 0.98f, 1.0f));
+                                     theme->text_body);
                 } else {
                     draw_text_shadow(235.0f, card_y + 6.0f, 0.85f, menu_items[i],
-                                     PVR_PACK_COLOR(0.80f, 0.85f, 0.95f, 1.0f), PVR_PACK_COLOR(0.4f, 0.0f, 0.1f, 0.3f));
+                                     theme->text_dim, theme->text_title_shadow);
                     draw_text_smooth(235.0f, card_y + 29.0f, 0.56f, menu_descriptions[i],
-                                     PVR_PACK_COLOR(0.60f, 0.68f, 0.82f, 0.95f));
+                                     theme->text_dim);
                 }
             }
 
             /* Bottom Glass Toolbar */
-            draw_glass_panel(20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
-            draw_button_gem(50.0f, 426.0f, 13.0f, "A", 0);
-            draw_text_smooth(72.0f, 414.0f, 0.78f, "Select", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_glass_panel(theme, 20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
+            draw_button_gem(theme, 50.0f, 426.0f, 13.0f, "A", 0);
+            draw_text_smooth(72.0f, 414.0f, 0.78f, "Select", theme->text_title);
 
-            draw_button_gem(165.0f, 426.0f, 13.0f, "D", 2);
-            draw_text_smooth(187.0f, 414.0f, 0.78f, "Navigate", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_button_gem(theme, 165.0f, 426.0f, 13.0f, "D", 2);
+            draw_text_smooth(187.0f, 414.0f, 0.78f, "Navigate", theme->text_title);
 
-            draw_text_smooth(380.0f, 416.0f, 0.70f, "PowerVR2 CLX2 @ 60 FPS", PVR_PACK_COLOR(0.75f, 0.7f, 0.95f, 1.0f));
+            draw_text_smooth(380.0f, 416.0f, 0.70f, "PowerVR2 CLX2 @ 60 FPS", theme->text_sub);
 
         } else if (current_view == VIEW_PLAY_DISC) {
             char game_title[128];
             game_title[0] = '\0';
             int has_disc = check_disc_status(game_title, sizeof(game_title));
 
-            draw_glass_panel(25.0f, 92.0f, 590.0f, 286.0f, 2.0f, has_disc, frame * 0.1f);
-            draw_3d_holographic_disc(155.0f, 235.0f, 85.0f, frame, has_disc);
+            draw_glass_panel(theme, 25.0f, 92.0f, 590.0f, 286.0f, 2.0f, has_disc, frame * 0.1f);
+            draw_3d_holographic_disc(theme, 155.0f, 235.0f, 85.0f, frame, has_disc);
 
             draw_text_shadow(285.0f, 112.0f, 0.98f, has_disc ? "Disc Inserted" : "No Disc Detected",
-                             has_disc ? PVR_PACK_COLOR(1.0f, 0.2f, 1.0f, 0.4f) : PVR_PACK_COLOR(1.0f, 1.0f, 0.4f, 0.4f),
-                             PVR_PACK_COLOR(0.7f, 0.0f, 0.1f, 0.3f));
+                             has_disc ? theme->text_accent : theme->text_dim,
+                             theme->text_title_shadow);
 
-            draw_text_smooth(285.0f, 142.0f, 0.68f, "Media Format: Sega GD-ROM (1.2 GB)", PVR_PACK_COLOR(0.85f, 0.8f, 0.95f, 1.0f));
+            draw_text_smooth(285.0f, 142.0f, 0.68f, "Media Format: Sega GD-ROM (1.2 GB)", theme->text_sub);
             draw_text_smooth(285.0f, 168.0f, 0.78f, has_disc ? game_title : "Please insert a Dreamcast disc",
-                             PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+                             theme->text_title);
 
             if (has_disc) {
-                draw_glass_panel(285.0f, 215.0f, 290.0f, 46.0f, 2.5f, 1, frame * 0.15f);
-                draw_button_gem(312.0f, 238.0f, 12.0f, "A", 0);
+                draw_glass_panel(theme, 285.0f, 215.0f, 290.0f, 46.0f, 2.5f, 1, frame * 0.15f);
+                draw_button_gem(theme, 312.0f, 238.0f, 12.0f, "A", 0);
                 draw_text_shadow(332.0f, 226.0f, 0.78f, "Press (A) to Launch",
-                                 PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f), PVR_PACK_COLOR(0.7f, 0.0f, 0.2f, 0.5f));
+                                 theme->text_title, theme->text_title_shadow);
             } else {
-                draw_text_smooth(285.0f, 215.0f, 0.65f, "kos-insert discs can be loaded live", PVR_PACK_COLOR(0.7f, 0.7f, 0.85f, 1.0f));
+                draw_text_smooth(285.0f, 215.0f, 0.65f, "kos-insert discs can be loaded live", theme->text_dim);
             }
 
-            draw_glass_panel(20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
-            draw_button_gem(50.0f, 426.0f, 13.0f, "B", 1);
-            draw_text_smooth(72.0f, 414.0f, 0.78f, "Return to Menu", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_glass_panel(theme, 20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
+            draw_button_gem(theme, 50.0f, 426.0f, 13.0f, "B", 1);
+            draw_text_smooth(72.0f, 414.0f, 0.78f, "Return to Menu", theme->text_title);
 
         } else if (current_view == VIEW_MEMORY_CARDS) {
             const char *vmu_ports[] = { "Port A1", "Port A2", "Port B1", "Port B2" };
@@ -886,46 +880,62 @@ int main(int argc, char **argv) {
                 float vy = (v < 2) ? 92.0f : 240.0f;
 
                 maple_device_t *vmu = maple_enum_type(v, MAPLE_FUNC_MEMCARD);
-                draw_vmu_card(vx, vy, 285.0f, 135.0f, 2.0f, vmu_ports[v], vmu != NULL, 128, frame);
+                draw_vmu_card(theme, vx, vy, 285.0f, 135.0f, 2.0f, vmu_ports[v], vmu != NULL, 128, frame);
             }
 
-            draw_glass_panel(20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
-            draw_button_gem(50.0f, 426.0f, 13.0f, "B", 1);
-            draw_text_smooth(72.0f, 414.0f, 0.78f, "Return to Menu", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_glass_panel(theme, 20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
+            draw_button_gem(theme, 50.0f, 426.0f, 13.0f, "B", 1);
+            draw_text_smooth(72.0f, 414.0f, 0.78f, "Return to Menu", theme->text_title);
 
         } else if (current_view == VIEW_SETTINGS) {
-            draw_glass_panel(25.0f, 92.0f, 590.0f, 286.0f, 2.0f, 0, 0.0f);
+            draw_glass_panel(theme, 25.0f, 92.0f, 590.0f, 286.0f, 2.0f, 0, 0.0f);
 
             int cable = vid_check_cable();
             const char *cable_name = (cable == CT_VGA) ? "VGA Box (640x480 60Hz RGB Progressive)" :
                                      ((cable == CT_RGB) ? "RGB SCART (480i 60Hz Interlaced)" : "Composite / S-Video (480i)");
 
+            /* Row 0: Video Output */
             draw_text_shadow(45.0f, 106.0f, 0.78f, "Video Cable Output:",
-                             PVR_PACK_COLOR(1.0f, 0.3f, 1.0f, 0.5f), PVR_PACK_COLOR(0.6f, 0.0f, 0.2f, 0.4f));
-            draw_glass_panel(45.0f, 130.0f, 550.0f, 34.0f, 2.2f, 1, frame * 0.08f);
-            draw_text_smooth(60.0f, 136.0f, 0.68f, cable_name, PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+                             theme->text_sub, theme->text_title_shadow);
+            draw_glass_panel(theme, 45.0f, 130.0f, 550.0f, 34.0f, 2.2f, (settings_sel == 0), frame * 0.08f);
+            draw_text_smooth(60.0f, 136.0f, 0.68f, cable_name, theme->text_title);
 
+            /* Row 1: Audio Mode */
             draw_text_shadow(45.0f, 174.0f, 0.78f, "Audio Engine Mode:",
-                             PVR_PACK_COLOR(1.0f, 0.3f, 1.0f, 0.5f), PVR_PACK_COLOR(0.6f, 0.0f, 0.2f, 0.4f));
-            draw_glass_panel(45.0f, 198.0f, 550.0f, 34.0f, 2.2f, 0, 0.0f);
+                             theme->text_sub, theme->text_title_shadow);
+            draw_glass_panel(theme, 45.0f, 198.0f, 550.0f, 34.0f, 2.2f, (settings_sel == 1), 0.0f);
             draw_text_smooth(60.0f, 204.0f, 0.68f, "Yamaha AICA 64-CH 3D Spatial Stereo (44.1 kHz)",
-                             PVR_PACK_COLOR(0.9f, 0.95f, 1.0f, 1.0f));
+                             theme->text_body);
 
-            draw_text_shadow(45.0f, 242.0f, 0.78f, "Firmware Theme:",
-                             PVR_PACK_COLOR(1.0f, 0.3f, 1.0f, 0.5f), PVR_PACK_COLOR(0.6f, 0.0f, 0.2f, 0.4f));
-            draw_glass_panel(45.0f, 266.0f, 550.0f, 34.0f, 2.2f, 0, 0.0f);
-            draw_text_smooth(60.0f, 272.0f, 0.68f, "Liquid Glass (Active)",
-                             PVR_PACK_COLOR(0.9f, 0.95f, 1.0f, 1.0f));
+            /* Row 2: Firmware Theme (Interactive Live Switcher) */
+            char theme_title_buf[64];
+            snprintf(theme_title_buf, sizeof(theme_title_buf), "Firmware Theme:  <  %s  >  (%d/%d)",
+                     theme->name, theme_get_current_index() + 1, theme_get_count());
+            draw_text_shadow(45.0f, 242.0f, 0.78f, theme_title_buf,
+                             (settings_sel == 2) ? theme->text_accent : theme->text_sub, theme->text_title_shadow);
 
-            draw_glass_panel(20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
-            draw_button_gem(50.0f, 426.0f, 13.0f, "B", 1);
-            draw_text_smooth(72.0f, 414.0f, 0.78f, "Return to Menu", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_glass_panel(theme, 45.0f, 266.0f, 550.0f, 34.0f, 2.2f, (settings_sel == 2), frame * 0.12f);
+            
+            char tagline_buf[96];
+            snprintf(tagline_buf, sizeof(tagline_buf), "%s  [Press Left/Right/A to Cycle Theme]", theme->tagline);
+            draw_text_smooth(60.0f, 272.0f, 0.68f, tagline_buf, theme->text_title);
+
+            /* Bottom Toolbar with Controls */
+            draw_glass_panel(theme, 20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
+            draw_button_gem(theme, 50.0f, 426.0f, 13.0f, "B", 1);
+            draw_text_smooth(72.0f, 414.0f, 0.78f, "Return to Menu", theme->text_title);
+
+            draw_button_gem(theme, 220.0f, 426.0f, 13.0f, "D", 2);
+            draw_text_smooth(242.0f, 414.0f, 0.78f, "Cycle Theme (< >)", theme->text_title);
+
+            draw_button_gem(theme, 430.0f, 426.0f, 13.0f, "A", 0);
+            draw_text_smooth(452.0f, 414.0f, 0.78f, "Next Theme", theme->text_title);
 
         } else if (current_view == VIEW_STATS) {
-            draw_glass_panel(25.0f, 92.0f, 590.0f, 286.0f, 2.0f, 0, 0.0f);
+            draw_glass_panel(theme, 25.0f, 92.0f, 590.0f, 286.0f, 2.0f, 0, 0.0f);
 
             draw_text_shadow(45.0f, 102.0f, 0.82f, "Sega Dreamcast Hardware Architecture",
-                             PVR_PACK_COLOR(1.0f, 0.3f, 1.0f, 0.6f), PVR_PACK_COLOR(0.6f, 0.0f, 0.2f, 0.4f));
+                             theme->text_accent, theme->text_title_shadow);
 
             const char *specs[] = {
                 "CPU: Hitachi SH-4 7091 @ 200 MHz (1.4 GFLOPS / 360 MIPS)",
@@ -937,16 +947,16 @@ int main(int argc, char **argv) {
 
             for (int s = 0; s < 5; s++) {
                 float sy = 126.0f + s * 36.0f;
-                draw_glass_panel(45.0f, sy, 550.0f, 30.0f, 2.2f, 0, 0.0f);
-                draw_text_smooth(60.0f, sy + 6.0f, 0.65f, specs[s], PVR_PACK_COLOR(0.95f, 0.95f, 1.0f, 1.0f));
+                draw_glass_panel(theme, 45.0f, sy, 550.0f, 30.0f, 2.2f, 0, 0.0f);
+                draw_text_smooth(60.0f, sy + 6.0f, 0.65f, specs[s], theme->text_title);
             }
 
             draw_text_smooth(45.0f, 342.0f, 0.60f, "Firmware: KallistiOS 2.0 Open-Source BIOS",
-                             PVR_PACK_COLOR(1.0f, 1.0f, 0.9f, 0.3f));
+                             theme->text_sub);
 
-            draw_glass_panel(20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
-            draw_button_gem(50.0f, 426.0f, 13.0f, "B", 1);
-            draw_text_smooth(72.0f, 414.0f, 0.78f, "Return to Menu", PVR_PACK_COLOR(1.0f, 1.0f, 1.0f, 1.0f));
+            draw_glass_panel(theme, 20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
+            draw_button_gem(theme, 50.0f, 426.0f, 13.0f, "B", 1);
+            draw_text_smooth(72.0f, 414.0f, 0.78f, "Return to Menu", theme->text_title);
         }
 
         pvr_list_finish();

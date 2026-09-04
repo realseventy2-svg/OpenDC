@@ -4,6 +4,7 @@ bootloader/*.o
 bootloader/*.elf
 bootloader/*.bin
 bios/*.o
+bios/src/*.o
 bios/*.elf
 bios/*.bin
 bios/*.cdi
