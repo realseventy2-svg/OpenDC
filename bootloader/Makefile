@@ -67,7 +67,7 @@ syscalls.o: src/syscalls.c src/syscalls.h src/gdrom.h src/wince.h
 wince.o: src/wince.c src/wince.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-boot.o: src/boot.c src/boot.h src/gdrom.h src/iso9660.h src/syscalls.h src/wince.h
+boot.o: src/boot.c src/boot.h src/gdrom.h src/iso9660.h src/syscalls.h src/wince.h src/video.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET).elf: $(OBJS) linker.ld

@@ -39,6 +39,9 @@ void chainload_custom_bios(void) {
     /* Stop bootloader sound engine before handoff */
     sound_stop();
 
+    /* Clean VRAM and reset PVR state before BIOS handoff */
+    video_clean_handoff();
+
     /* Publish the service ABI before the custom BIOS is started. */
     gdrom_install_services();
 

@@ -36,6 +36,7 @@ uint32_t video_get_current_fb(void);
 uint32_t video_get_back_fb(void);
 void video_flip_buffer(void);
 void video_sync_buffers(void);
+void video_clean_handoff(void);
 
 void video_clear(uint16_t color);
 void video_fill_rect(int x, int y, int w, int h, uint16_t color);

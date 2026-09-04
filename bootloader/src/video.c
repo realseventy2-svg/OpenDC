@@ -189,6 +189,28 @@ void video_sync_buffers(void) {
     }
 }
 
+void video_clean_handoff(void) {
+    /* 1. Reset PowerVR Tile Accelerator (TA) and Core graphics pipelines */
+    *(volatile uint32_t *)(PVR_BASE + 0x0008) = 0x00000003;
+    for (volatile int i = 0; i < 0x2000; i++) {
+        __asm__ volatile("nop");
+    }
+    *(volatile uint32_t *)(PVR_BASE + 0x0008) = 0x00000000;
+
+    /* 2. Zero-fill entire 8 MB VRAM to eradicate all residual bootloader textures and text */
+    volatile uint32_t *vram = (volatile uint32_t *)VRAM_BASE;
+    for (size_t i = 0; i < (8 * 1024 * 1024) / 4; i++) {
+        vram[i] = 0x00000000;
+    }
+
+    /* 3. Reset primary video display registers to clean Katana baseline */
+    PVR_FB_ADDR       = 0x00000000;
+    PVR_FB_IL_ADDR    = 0x00000000;
+    PVR_BORDER_COLOR  = 0x00000000;
+    s_current_page    = 0;
+    s_draw_fb         = (volatile uint16_t *)VRAM_PAGE_0;
+}
+
 void video_clear(uint16_t color) {
     volatile uint16_t *fb = s_draw_fb;
     for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {

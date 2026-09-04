@@ -3,6 +3,7 @@
 #include "iso9660.h"
 #include "syscalls.h"
 #include "wince.h"
+#include "video.h"
 
 static int s_sega_license_enabled = 1;
 
@@ -131,6 +132,9 @@ int gdrom_boot_game(uint32_t data_fad) {
             *(volatile uint32_t *)&stub_uncached[4] = 0x8C010000UL;
         }
     }
+
+    /* 6b. Purge entire 8MB VRAM and reset PVR hardware pipeline to eliminate VRAM dirt in games */
+    video_clean_handoff();
 
     /* 7. Flush & enable SH-4 caches (CCR = 0x092B enables OCRAM at 0x7E001000 for IP.BIN) */
     *(volatile uint32_t *)0xFF00001CUL = 0x0000092BUL;
