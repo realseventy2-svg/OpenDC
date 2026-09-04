@@ -11,20 +11,9 @@ uint32_t read_le32_unaligned(const uint8_t *p) {
 }
 
 uint32_t lba_to_fad(uint32_t lba, uint32_t data_fad) {
-    if(lba >= 44000U) {
-        /* Absolute disc LBA (e.g. GDI Track 3 LBA or MIL-CD 76-minute session LBA >= 344000) */
+    if(lba >= 10000U) {
         return lba + 150U;
     }
-
-    if(lba >= 10000U) {
-        /* Multi-session CDI: ISO LBAs were generated with -C 0,11702 */
-        if(data_fad >= 11800U) {
-            return data_fad + (lba - 11702U);
-        } else {
-            return lba + 150U;
-        }
-    }
-
     /* Relative sector within Track */
     return data_fad + lba;
 }

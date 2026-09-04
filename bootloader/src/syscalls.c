@@ -579,6 +579,22 @@ void gdrom_install_syscall(void) {
     *(volatile uint32_t *)0xAC000048UL = 2;
     *(volatile uint32_t *)0xAC00004CUL = disc_type;
 
+    /* 1b. Handoff stub at 0x8C000050 / 0xAC000050:
+           Jumps to 0x8C010000 when the Sega license routine at 0xAC008300 executes rts. */
+    uint16_t *handoff_c = (uint16_t *)0x8C000050UL;
+    uint16_t *handoff_u = (uint16_t *)0xAC000050UL;
+    handoff_c[0] = 0xD001; /* mov.l @(4,pc), r0 */
+    handoff_c[1] = 0x402B; /* jmp @r0 */
+    handoff_c[2] = 0x0009; /* nop (delay slot) */
+    handoff_c[3] = 0x0009; /* nop */
+    *(volatile uint32_t *)0x8C000058UL = 0x8C010000UL;
+
+    handoff_u[0] = 0xD001;
+    handoff_u[1] = 0x402B;
+    handoff_u[2] = 0x0009;
+    handoff_u[3] = 0x0009;
+    *(volatile uint32_t *)0xAC000058UL = 0x8C010000UL;
+
     /* 2. Exception & Interrupt stubs for SH-4 VBR at 0x8C000000:
           0x8C000100: General Exception -> rte; nop
           0x8C000400: TLB Miss Exception -> rte; nop

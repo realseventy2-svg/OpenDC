@@ -20,79 +20,68 @@ int selfboot_cdi_detect(const uint8_t *ip_sector) {
     return 0;
 }
 
+static int is_raw_sh4_binary(const uint8_t *data) {
+    const uint16_t *insn = (const uint16_t *)data;
+
+    /* Typical SH-4 entry patterns:
+       - 0xDxxx: mov.l @(disp, PC), Rn
+       - 0x4xxx: ldc / lds / sts
+       - 0xAFxx: bra <disp>
+       - 0x2Fxx: mov.l Rm, @-Rn
+       - 0x0009: nop */
+    uint16_t first = insn[0];
+    if((first & 0xF000) == 0xD000 || 
+       (first & 0xFF00) == 0xAF00 || 
+       (first & 0xF000) == 0x4000 ||
+       (first & 0xF000) == 0x2000 ||
+        first == 0x0009) {
+        return 1;
+    }
+    return 0;
+}
+
 int selfboot_cdi_load(uint32_t file_fad, uint32_t file_size, uint8_t *dest) {
     volatile uint16_t *fb = (volatile uint16_t *)0xA5000000UL;
     uint32_t total_sectors = (file_size + 2047U) / 2048U;
-    uint8_t *staging = (uint8_t *)0x8C700000UL;
+    uint32_t padded_size = total_sectors * 2048U;
 
-    /* Ingest first sector into staging buffer to inspect entrypoint */
-    if(gdrom_read_fad(staging, file_fad, 1) != GDROM_OK) {
-        return GDROM_DEVICE_ERR;
-    }
+    /* Use uncached P2 mirror for staging to prevent dirty cache retention */
+    uint8_t *staging = (uint8_t *)0xAC700000UL;
+    uint8_t *uncached_dest = (uint8_t *)((uint32_t)dest | 0x20000000UL);
 
-    const uint16_t *op = (const uint16_t *)staging;
-    int is_unscrambled = 0;
+    /* Stream all sectors into staging buffer at 0xAC700000 */
+    uint32_t read_count = 0;
+    while(read_count < total_sectors) {
+        uint32_t batch = total_sectors - read_count;
+        if(batch > 16U) batch = 16U;
 
-    /* Entrypoint detection:
-       - KallistiOS crt0 (mov.l @(disp,PC), r0; stc sr, r1; mov.l r1, @r0)
-       - Katana SDK crt0 NOP sled (0x0009 at op[0] or op[1]) */
-    if((op[0] & 0xFF00) == 0xD000 && op[1] == 0x0102 && op[2] == 0x2012) {
-        is_unscrambled = 1;
-    } else if(op[0] == 0x0009 || op[1] == 0x0009) {
-        is_unscrambled = 1;
-    }
-
-    if(is_unscrambled) {
-        /* Raw / Unscrambled commercial CDI rip (e.g. sonic-selfboot.cdi):
-           Copy sector 0 into 0x8C010000 and stream remaining sectors directly. */
-        for(int b = 0; b < 2048; b++) {
-            dest[b] = staging[b];
+        if(gdrom_read_fad(staging + (read_count * 2048U),
+                          file_fad + read_count,
+                          (uint16_t)batch) != GDROM_OK) {
+            return GDROM_DEVICE_ERR;
         }
+        read_count += batch;
 
-        uint32_t read_count = 1;
-        while(read_count < total_sectors) {
-            uint32_t batch = total_sectors - read_count;
-            if(batch > 16U) batch = 16U;
-            if(gdrom_read_fad(dest + (read_count * 2048U),
-                              file_fad + read_count,
-                              (uint16_t)batch) != GDROM_OK) {
-                return GDROM_DEVICE_ERR;
+        /* Visual Progress bar */
+        uint32_t progress_w = (read_count >> 3);
+        if(progress_w > 400U) progress_w = 400U;
+        for(int y = 468; y < 474; y++) {
+            for(uint32_t x = 0; x < progress_w; x++) {
+                fb[y * 640 + (120 + x)] = 0x07E0; /* GREEN */
             }
-            read_count += batch;
+        }
+    }
 
-            uint32_t progress_w = (read_count >> 3);
-            if(progress_w > 400U) progress_w = 400U;
-            for(int y = 468; y < 474; y++) {
-                for(uint32_t x = 0; x < progress_w; x++) {
-                    fb[y * 640 + (120 + x)] = 0x07E0; /* GREEN */
-                }
-            }
+    /* Check if the binary is already clean SH-4 machine code */
+    if(is_raw_sh4_binary(staging)) {
+        const uint32_t *src32 = (const uint32_t *)staging;
+        uint32_t *dst32 = (uint32_t *)uncached_dest;
+        for(uint32_t i = 0; i < (padded_size >> 2); i++) {
+            dst32[i] = src32[i];
         }
     } else {
-        /* Scrambled Commercial Self-Boot CDI (Retail MIL-CD Rip):
-           Stream all sectors into staging buffer and run gdrom_descramble(). */
-        uint32_t read_count = 1;
-        while(read_count < total_sectors) {
-            uint32_t batch = total_sectors - read_count;
-            if(batch > 16U) batch = 16U;
-            if(gdrom_read_fad(staging + (read_count * 2048U),
-                              file_fad + read_count,
-                              (uint16_t)batch) != GDROM_OK) {
-                return GDROM_DEVICE_ERR;
-            }
-            read_count += batch;
-
-            uint32_t progress_w = (read_count >> 3);
-            if(progress_w > 400U) progress_w = 400U;
-            for(int y = 468; y < 474; y++) {
-                for(uint32_t x = 0; x < progress_w; x++) {
-                    fb[y * 640 + (120 + x)] = 0x07E0; /* GREEN */
-                }
-            }
-        }
-
-        /* Descramble staging buffer into 0x8C010000 */
-        gdrom_descramble(staging, dest, file_size);
+        /* Descramble full sector-padded length directly to uncached destination */
+        gdrom_descramble(staging, uncached_dest, padded_size);
     }
 
     return GDROM_OK;

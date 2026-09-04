@@ -46,3 +46,41 @@
 00:00:258 emulator.cpp:65 N[BOOT]: Game ID is [MK-51000]
 00:00:262 emulator.cpp:65 N[BOOT]: Game ID is [MK-51000]
 00:33:522 hw/holly/sb.cpp:208 W[HOLLY]: ERROR: Unexpected GD-ROM unlock code: 18
+00:00:000 sdl/sdl.cpp:902 N[RENDERER]: Monitor refresh rate: 0 Hz (1366 x 768)
+00:00:166 ui/gui.cpp:245 N[RENDERER]: Screen DPI is 96, size 800 x 592. Scaling by 1.00
+00:00:174 rend/gles/gles.cpp:732 N[RENDERER]: OpenGL version 4.6
+00:00:175 rend/gles/gles.cpp:733 N[RENDERER]: Vendor 'Microsoft Corporation' Renderer 'D3D12 (NVIDIA GeForce RTX 4060)' Version '4.6 (Core Profile) Mesa 26.1.7 - kisak-mesa PPA'
+00:00:200 rend/gles/gles.cpp:744 N[RENDERER]: glBlitFramebuffer test successful
+00:00:211 hw/mem/addrspace.cpp:425 N[VMEM]: Info: nvmem is enabled
+00:00:234 hw/mem/addrspace.cpp:457 N[VMEM]: BASE 0x7f66eddb0000 RAM(16 MB) 0x7f66f9db0000 VRAM64(8 MB) 0x7f66f1db0000 ARAM(2 MB) 0x7f670ddb0000
+00:00:257 hw/mem/addrspace.cpp:425 N[VMEM]: Info: nvmem is enabled
+00:00:267 hw/mem/addrspace.cpp:457 N[VMEM]: BASE 0x7f66eddb0000 RAM(16 MB) 0x7f66f9db0000 VRAM64(8 MB) 0x7f66f1db0000 ARAM(2 MB) 0x7f670ddb0000
+00:00:279 emulator.cpp:65 N[BOOT]: Game ID is [MK-51014]
+00:00:285 emulator.cpp:65 N[BOOT]: Game ID is [MK-51014]
+01:36:103 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: +$S05#b8
+01:47:597 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: +$S05#b8
+02:01:531 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: +$S05#b8
+02:38:912 debug/gdb_server.cpp:123 W[COMMON]: Write error: Broken pipe
+02:40:291 debug/gdb_server.cpp:123 W[COMMON]: Write error: Broken pipe
+02:41:027 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: $S04#b7
+02:41:243 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: $S04#b7
+02:41:443 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: $S04#b7
+02:41:619 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: $S04#b7
+02:41:803 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: $S04#b7
+02:41:971 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: $S04#b7
+02:42:147 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: $S04#b7
+02:42:331 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: $S04#b7
+02:42:531 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: $S04#b7
+02:42:715 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: $S04#b7
+02:42:908 debug/gdb_server.cpp:77 W[COMMON]: Message dropped: $S04#b7. Already sending: $S04#b7
+00:00:000 sdl/sdl.cpp:902 N[RENDERER]: Monitor refresh rate: 0 Hz (1366 x 768)
+00:00:152 ui/gui.cpp:245 N[RENDERER]: Screen DPI is 96, size 800 x 592. Scaling by 1.00
+00:00:160 rend/gles/gles.cpp:732 N[RENDERER]: OpenGL version 4.6
+00:00:161 rend/gles/gles.cpp:733 N[RENDERER]: Vendor 'Microsoft Corporation' Renderer 'D3D12 (NVIDIA GeForce RTX 4060)' Version '4.6 (Core Profile) Mesa 26.1.7 - kisak-mesa PPA'
+00:00:176 rend/gles/gles.cpp:744 N[RENDERER]: glBlitFramebuffer test successful
+00:00:188 hw/mem/addrspace.cpp:425 N[VMEM]: Info: nvmem is enabled
+00:00:212 hw/mem/addrspace.cpp:457 N[VMEM]: BASE 0x7648808b0000 RAM(16 MB) 0x76488c8b0000 VRAM64(8 MB) 0x7648848b0000 ARAM(2 MB) 0x7648a08b0000
+00:00:234 hw/mem/addrspace.cpp:425 N[VMEM]: Info: nvmem is enabled
+00:00:246 hw/mem/addrspace.cpp:457 N[VMEM]: BASE 0x7648808b0000 RAM(16 MB) 0x76488c8b0000 VRAM64(8 MB) 0x7648848b0000 ARAM(2 MB) 0x7648a08b0000
+00:00:262 emulator.cpp:65 N[BOOT]: Game ID is [MK-51014]
+00:00:265 emulator.cpp:65 N[BOOT]: Game ID is [MK-51014]

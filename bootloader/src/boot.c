@@ -10,7 +10,7 @@ int gdrom_boot_game(uint32_t data_fad) {
     if(data_fad == 0)
         return GDROM_NOT_READY;
 
-    /* 1. Load and descramble 1ST_READ.BIN into 0x8C010000 */
+    /* 1. Load and conditionally descramble 1ST_READ.BIN into 0x8C010000 */
     int load_res = iso_load_1st_read(data_fad);
     if(load_res != GDROM_OK) {
         return load_res;
@@ -72,15 +72,15 @@ int gdrom_boot_game(uint32_t data_fad) {
         dst_uncached[i] = src_rom[i];
     }
 
-    /* 6. Determine boot entrypoint and apply retail BIOS security DRM patches:
-          Commercial discs (both GD-ROM and self-boot CDIs) contain bootstrap code at 0x8C008300.
-          If retail BIOS security check instructions (0xE100 at 0x0DD8 and 0xBE25 at 0x14BC) are
-          present, patch them to bypass the security reset.
-          Homebrew discs (CDI) have 0s at 0x8C008300 and boot directly from 0x8C010000. */
+    /* 6. Determine boot entrypoint and hook IP.BIN for Sega License display */
     uint32_t boot_entry = 0x8C010000UL;
     uint32_t *ip_entry = (uint32_t *)0x8C008300UL;
+
     if(*ip_entry != 0 && *ip_entry != 0xFFFFFFFFUL) {
+        /* Boot through IP.BIN to display the authentic Sega License screen */
         boot_entry = 0xAC008300UL;
+
+        /* Apply standard Katana retail BIOS security bypass patches */
         if(*(volatile uint16_t *)(0x8C008300UL + 0x0DD8) == 0xE100 &&
            *(volatile uint16_t *)(0x8C008300UL + 0x14BC) == 0xBE25) {
             *(volatile uint16_t *)(0x8C008300UL + 0x0DD8) = 0x5113;
@@ -90,6 +90,27 @@ int gdrom_boot_game(uint32_t data_fad) {
             *(volatile uint16_t *)(0xAC008300UL + 0x14BC) = 0x0009;
             *(volatile uint16_t *)(0xAC008300UL + 0x1578) = 0xE030;
         }
+
+        /* 
+         * For Self-Boot CDIs: Neutralize the binhack bootstrap in sectors 14/15.
+         * Replace the payload at 0x8C00F060 with an immediate jump straight to 0x8C010000.
+         * SH-4 opcodes:
+         *   mov.l @(4, PC), r0  -> 0xD001
+         *   jmp   @r0           -> 0x402B
+         *   nop                 -> 0x0009
+         *   .long 0x8C010000
+         */
+        if(data_fad < 45000UL) {
+            volatile uint16_t *stub = (volatile uint16_t *)0x8C00F060UL;
+            volatile uint16_t *stub_uncached = (volatile uint16_t *)0xAC00F060UL;
+
+            stub[0] = 0xD001; stub_uncached[0] = 0xD001; /* mov.l @(PC+4), r0 */
+            stub[1] = 0x402B; stub_uncached[1] = 0x402B; /* jmp @r0            */
+            stub[2] = 0x0009; stub_uncached[2] = 0x0009; /* nop (delay slot)   */
+            stub[3] = 0x0009; stub_uncached[3] = 0x0009; /* alignment nop      */
+            *(volatile uint32_t *)&stub[4] = 0x8C010000UL;
+            *(volatile uint32_t *)&stub_uncached[4] = 0x8C010000UL;
+        }
     }
 
     /* 7. Flush & enable SH-4 caches (CCR = 0x092B enables OCRAM at 0x7E001000 for IP.BIN) */
@@ -97,7 +118,7 @@ int gdrom_boot_game(uint32_t data_fad) {
     __asm__ volatile("nop\n\t" "nop\n\t" "nop\n\t" "nop\n\t"
                      "nop\n\t" "nop\n\t" "nop\n\t" "nop" ::: "memory");
 
-    /* 7. Set up exact Dreamcast retail BIOS environment registers and jump to entrypoint */
+    /* 8. Set up exact Dreamcast retail BIOS environment registers and jump to entrypoint */
     __asm__ volatile(
         "mov.l  1f, r15\n\t"
         "mov.l  2f, r1\n\t"
