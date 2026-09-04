@@ -1,0 +1,48 @@
+00:00:000 sdl/sdl.cpp:902 N[RENDERER]: Monitor refresh rate: 0 Hz (1366 x 768)
+00:00:182 ui/gui.cpp:245 N[RENDERER]: Screen DPI is 96, size 800 x 592. Scaling by 1.00
+00:00:191 rend/gles/gles.cpp:732 N[RENDERER]: OpenGL version 4.6
+00:00:192 rend/gles/gles.cpp:733 N[RENDERER]: Vendor 'Mesa' Renderer 'llvmpipe (LLVM 21.1.8, 256 bits)' Version '4.6 (Core Profile) Mesa 26.1.7 - kisak-mesa PPA'
+00:00:219 rend/gles/gles.cpp:744 N[RENDERER]: glBlitFramebuffer test successful
+00:00:231 hw/mem/addrspace.cpp:425 N[VMEM]: Info: nvmem is enabled
+00:00:255 hw/mem/addrspace.cpp:457 N[VMEM]: BASE 0x725fc7af0000 RAM(16 MB) 0x725fd3af0000 VRAM64(8 MB) 0x725fcbaf0000 ARAM(2 MB) 0x725fe7af0000
+00:00:277 hw/mem/addrspace.cpp:425 N[VMEM]: Info: nvmem is enabled
+00:00:288 hw/mem/addrspace.cpp:457 N[VMEM]: BASE 0x725fc7af0000 RAM(16 MB) 0x725fd3af0000 VRAM64(8 MB) 0x725fcbaf0000 ARAM(2 MB) 0x725fe7af0000
+00:00:301 emulator.cpp:65 N[BOOT]: Game ID is [MK-51014]
+00:00:308 emulator.cpp:65 N[BOOT]: Game ID is [MK-51014]
+00:06:165 hw/holly/sb.cpp:208 W[HOLLY]: ERROR: Unexpected GD-ROM unlock code: 18
+00:00:000 sdl/sdl.cpp:902 N[RENDERER]: Monitor refresh rate: 0 Hz (1366 x 768)
+00:00:171 ui/gui.cpp:245 N[RENDERER]: Screen DPI is 96, size 800 x 592. Scaling by 1.00
+00:00:179 rend/gles/gles.cpp:732 N[RENDERER]: OpenGL version 4.6
+00:00:179 rend/gles/gles.cpp:733 N[RENDERER]: Vendor 'Microsoft Corporation' Renderer 'D3D12 (NVIDIA GeForce RTX 4060)' Version '4.6 (Core Profile) Mesa 26.1.7 - kisak-mesa PPA'
+00:00:215 rend/gles/gles.cpp:744 N[RENDERER]: glBlitFramebuffer test successful
+00:00:228 hw/mem/addrspace.cpp:425 N[VMEM]: Info: nvmem is enabled
+00:00:255 hw/mem/addrspace.cpp:457 N[VMEM]: BASE 0x74f21b590000 RAM(16 MB) 0x74f227590000 VRAM64(8 MB) 0x74f21f590000 ARAM(2 MB) 0x74f23b590000
+00:00:282 hw/mem/addrspace.cpp:425 N[VMEM]: Info: nvmem is enabled
+00:00:292 hw/mem/addrspace.cpp:457 N[VMEM]: BASE 0x74f21b590000 RAM(16 MB) 0x74f227590000 VRAM64(8 MB) 0x74f21f590000 ARAM(2 MB) 0x74f23b590000
+00:00:304 emulator.cpp:65 N[BOOT]: Game ID is [MK-51014]
+00:00:311 emulator.cpp:65 N[BOOT]: Game ID is [MK-51014]
+00:06:090 hw/holly/sb.cpp:208 W[HOLLY]: ERROR: Unexpected GD-ROM unlock code: 18
+00:00:000 sdl/sdl.cpp:902 N[RENDERER]: Monitor refresh rate: 0 Hz (1366 x 768)
+00:00:177 ui/gui.cpp:245 N[RENDERER]: Screen DPI is 96, size 800 x 592. Scaling by 1.00
+00:00:185 rend/gles/gles.cpp:732 N[RENDERER]: OpenGL version 4.6
+00:00:186 rend/gles/gles.cpp:733 N[RENDERER]: Vendor 'Microsoft Corporation' Renderer 'D3D12 (NVIDIA GeForce RTX 4060)' Version '4.6 (Core Profile) Mesa 26.1.7 - kisak-mesa PPA'
+00:00:217 rend/gles/gles.cpp:744 N[RENDERER]: glBlitFramebuffer test successful
+00:00:229 hw/mem/addrspace.cpp:425 N[VMEM]: Info: nvmem is enabled
+00:00:252 hw/mem/addrspace.cpp:457 N[VMEM]: BASE 0x706a3d2e0000 RAM(16 MB) 0x706a492e0000 VRAM64(8 MB) 0x706a412e0000 ARAM(2 MB) 0x706a5d2e0000
+00:00:275 hw/mem/addrspace.cpp:425 N[VMEM]: Info: nvmem is enabled
+00:00:287 hw/mem/addrspace.cpp:457 N[VMEM]: BASE 0x706a3d2e0000 RAM(16 MB) 0x706a492e0000 VRAM64(8 MB) 0x706a412e0000 ARAM(2 MB) 0x706a5d2e0000
+00:00:299 emulator.cpp:65 N[BOOT]: Game ID is [MK-51014]
+00:00:306 emulator.cpp:65 N[BOOT]: Game ID is [MK-51014]
+00:35:442 hw/holly/sb.cpp:208 W[HOLLY]: ERROR: Unexpected GD-ROM unlock code: 18
+00:00:000 sdl/sdl.cpp:902 N[RENDERER]: Monitor refresh rate: 0 Hz (1366 x 768)
+00:00:153 ui/gui.cpp:245 N[RENDERER]: Screen DPI is 96, size 800 x 592. Scaling by 1.00
+00:00:160 rend/gles/gles.cpp:732 N[RENDERER]: OpenGL version 4.6
+00:00:161 rend/gles/gles.cpp:733 N[RENDERER]: Vendor 'Microsoft Corporation' Renderer 'D3D12 (NVIDIA GeForce RTX 4060)' Version '4.6 (Core Profile) Mesa 26.1.7 - kisak-mesa PPA'
+00:00:176 rend/gles/gles.cpp:744 N[RENDERER]: glBlitFramebuffer test successful
+00:00:188 hw/mem/addrspace.cpp:425 N[VMEM]: Info: nvmem is enabled
+00:00:212 hw/mem/addrspace.cpp:457 N[VMEM]: BASE 0x7372025b0000 RAM(16 MB) 0x73720e5b0000 VRAM64(8 MB) 0x7372065b0000 ARAM(2 MB) 0x7372225b0000
+00:00:235 hw/mem/addrspace.cpp:425 N[VMEM]: Info: nvmem is enabled
+00:00:246 hw/mem/addrspace.cpp:457 N[VMEM]: BASE 0x7372025b0000 RAM(16 MB) 0x73720e5b0000 VRAM64(8 MB) 0x7372065b0000 ARAM(2 MB) 0x7372225b0000
+00:00:258 emulator.cpp:65 N[BOOT]: Game ID is [MK-51000]
+00:00:262 emulator.cpp:65 N[BOOT]: Game ID is [MK-51000]
+00:33:522 hw/holly/sb.cpp:208 W[HOLLY]: ERROR: Unexpected GD-ROM unlock code: 18
