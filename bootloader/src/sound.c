@@ -2,15 +2,20 @@
 #include <stdint.h>
 
 /* =========================================================================
- * FRUTIGER AERO CRYSTALLINE GLASS & ETHEREAL AMBIENT SOUND ENGINE
+ * SERENE & SOOTHING SEGA DREAMCAST STARTUP SOUND ENGINE
  * =========================================================================
  * Sound Design:
- *   - Crystal Chime Cascade: Sparkling glass bell strikes with crystalline
- *     harmonics ascending in E Major 9 (E5 -> G#5 -> B5 -> D#6 -> F#6 -> G#6 -> E7).
- *   - Aero Glass Pad: Lush, warm, euphoric atmospheric chord background
- *     swelling with E3, B3, F#4, G#4, B4, D#5.
- *   - Liquid Glass Droplet: Resonant, organic bubble-drop chime transient.
- *   - Shimmer Wash: Filtered airy high-frequency atmospheric sheen.
+ *   - Velvet Celesta Bell:
+ *     Warm acoustic singing fundamental (AICA 16-bit PCM),
+ *     smooth felt strike (~7ms rise, zero pop/click), long singing acoustic decay.
+ *   - Lush Celestial String & Choral Pad:
+ *     Warm, wide analog stereo chorus that breathes gently in the background.
+ *   - Deep Acoustic Sub-Bass Foundation:
+ *     Rounded warm resonance grounding the calm atmosphere.
+ *   - Silky Stardust Air Bloom:
+ *     Soft atmospheric air shimmer resolving into the BIOS transition.
+ *   - 1.5-Second Master Fade-Out:
+ *     Smooth 90-frame gradual fade-out across T = 2.5s..4.0s (frames 150..240).
  *
  * Direct Yamaha AICA 64-Channel Hardware Synthesizer.
  * ========================================================================= */
@@ -60,44 +65,41 @@ static int32_t clamp16(int32_t value) {
 }
 
 /* -------------------------------------------------------------------------
- * Frutiger Aero Waveform Generators
+ * High-Fidelity Soothing Acoustic Waveform Generators
  * ------------------------------------------------------------------------- */
 
-/* 1. Crystal Glass Chime: Pure bell fundamental with ringing glass partials */
-static int16_t make_crystal_glass_chime(int i) {
+/* 1. Velvet Celesta Bell: Silky, round fundamental with warm acoustic body */
+static int16_t make_velvet_celesta_bell(int i) {
     int32_t s1 = sin_fx(i);
+    int32_t s2 = sin_fx(i * 2);
     int32_t s3 = sin_fx(i * 3);
-    int32_t s6 = sin_fx(i * 6);
-    int32_t s9 = sin_fx(i * 9);
-    /* Glass metallic bell harmonics */
-    int32_t val = (s1 * 90) + (s3 * 28) + (s6 * 14) + (s9 * 6);
+    /* 98% pure singing fundamental with subtle acoustic overtone */
+    int32_t val = (s1 * 98) + (s2 * 14) + (s3 * 4);
     return (int16_t)clamp16(val);
 }
 
-/* 2. Aero Glass Pad: Warm, lush, airy choral-pad body */
-static int16_t make_aero_glass_pad(int i) {
+/* 2. Serene Ambient Strings Pad: Warm, lush choral-analog ensemble */
+static int16_t make_serene_ambient_pad(int i) {
     int32_t p1 = sin_fx(i);
     int32_t p2 = sin_fx(i * 2);
-    int32_t p4 = sin_fx(i * 4);
-    int32_t val = (p1 * 92) + (p2 * 24) + (p4 * 12);
+    int32_t p3 = sin_fx(i * 3);
+    int32_t val = (p1 * 92) + (p2 * 18) + (p3 * 6);
     return (int16_t)clamp16(val);
 }
 
-/* 3. Liquid Waterdrop / Glass Droplet Pluck */
-static int16_t make_waterdrop_pluck(int i) {
-    int32_t w1 = sin_fx(i);
-    int32_t w2 = sin_fx(i * 2);
-    int32_t w5 = sin_fx(i * 5);
-    int32_t val = (w1 * 95) + (w2 * 20) + (w5 * 8);
+/* 3. Warm Acoustic Sub-Bass: Deep, rounded cinematic resonance */
+static int16_t make_warm_acoustic_bass(int i) {
+    int32_t b1 = sin_fx(i);
+    int32_t b2 = sin_fx(i * 2);
+    int32_t val = (b1 * 100) + (b2 * 20);
     return (int16_t)clamp16(val);
 }
 
-/* 4. Shimmer Wash: Filtered airy high-frequency atmospheric sheen */
-static int16_t make_aero_shimmer_wash(int i) {
-    int32_t n = ((i * 131 + 47) % 255) - 128;
-    int32_t s1 = sin_fx(i * 8);
-    int32_t s2 = sin_fx(i * 12);
-    int32_t val = (n * 45) + (s1 * 30) + (s2 * 18);
+/* 4. Silky Stardust Air Bloom: Soft, diffused atmospheric sheen */
+static int16_t make_silky_air_bloom(int i) {
+    int32_t s1 = sin_fx(i * 2);
+    int32_t s2 = sin_fx(i * 4);
+    int32_t val = (s1 * 60) + (s2 * 25);
     return (int16_t)clamp16(val);
 }
 
@@ -111,8 +113,8 @@ void sound_init(void) {
     /* 1. Hold ARM CPU in reset for direct SH-4 hardware sound synthesis */
     *(volatile uint32_t *)0xA0702C00UL |= 1;
 
-    /* 2. Unmute master dry output volume */
-    *(volatile uint16_t *)0xA0702800UL = 0x000F;
+    /* 2. Set master dry output volume to comfortable level (0x000E) */
+    *(volatile uint16_t *)0xA0702800UL = 0x000E;
 
     /* 3. Silence all 64 channels */
     for (int ch = 0; ch < 64; ch++) {
@@ -121,16 +123,16 @@ void sound_init(void) {
     }
 
     /* 4. Synthesize 4 16-bit PCM wavetables in SPU RAM */
-    volatile int16_t *wav_chime     = (volatile int16_t *)(AICA_RAM_BASE + 0);
-    volatile int16_t *wav_pad       = (volatile int16_t *)(AICA_RAM_BASE + 512);
-    volatile int16_t *wav_waterdrop = (volatile int16_t *)(AICA_RAM_BASE + 1024);
-    volatile int16_t *wav_shimmer   = (volatile int16_t *)(AICA_RAM_BASE + 1536);
+    volatile int16_t *wav_bell    = (volatile int16_t *)(AICA_RAM_BASE + 0);
+    volatile int16_t *wav_pad     = (volatile int16_t *)(AICA_RAM_BASE + 512);
+    volatile int16_t *wav_bass    = (volatile int16_t *)(AICA_RAM_BASE + 1024);
+    volatile int16_t *wav_shimmer = (volatile int16_t *)(AICA_RAM_BASE + 1536);
 
     for (int i = 0; i < 256; i++) {
-        wav_chime[i]     = make_crystal_glass_chime(i);
-        wav_pad[i]       = make_aero_glass_pad(i);
-        wav_waterdrop[i] = make_waterdrop_pluck(i);
-        wav_shimmer[i]   = make_aero_shimmer_wash(i);
+        wav_bell[i]    = make_velvet_celesta_bell(i);
+        wav_pad[i]     = make_serene_ambient_pad(i);
+        wav_bass[i]    = make_warm_acoustic_bass(i);
+        wav_shimmer[i] = make_silky_air_bloom(i);
     }
 
     s_seq_frame = 0;
@@ -150,10 +152,10 @@ void sound_play_note(int ch, int midi_note, int volume, int pan, int wavetable_i
     uint32_t smp_offset;
 
     switch (wavetable_id) {
-        case 1:  smp_offset = 512;  break; /* Aero Glass Pad */
-        case 2:  smp_offset = 1024; break; /* Waterdrop Pluck */
-        case 3:  smp_offset = 1536; break; /* Shimmer Wash */
-        default: smp_offset = 0;    break; /* Crystal Glass Chime */
+        case 1:  smp_offset = 512;  break; /* Serene Ambient Pad */
+        case 2:  smp_offset = 1024; break; /* Warm Acoustic Bass */
+        case 3:  smp_offset = 1536; break; /* Silky Stardust Air Bloom */
+        default: smp_offset = 0;    break; /* Velvet Celesta Bell */
     }
 
     /* Stop previous voice on channel */
@@ -162,23 +164,26 @@ void sound_play_note(int ch, int midi_note, int volume, int pan, int wavetable_i
     AICA_CHN_REG(ch, 0x08) = 0;
     AICA_CHN_REG(ch, 0x0C) = 256;
 
-    /* Hardware ADSR Envelopes */
+    /* Hardware ADSR Envelopes:
+     * Reg 0x10: (D2R << 11) | (D1R << 6) | AR
+     * Reg 0x14: (KRS << 10) | (DL << 5)  | RR
+     */
     if (wavetable_id == 0) {
-        /* Crystal Glass Chime: Instant strike, long singing crystalline sustain */
-        AICA_CHN_REG(ch, 0x10) = 0x079C; /* AR=0x1E, D1R=0x1C */
-        AICA_CHN_REG(ch, 0x14) = 0x205E; /* DL=0x08, D2R=0x02, RR=0x0E */
+        /* Velvet Celesta Bell: Smooth felt rise (AR=22 ~6.8ms), singing decay (D1R=6), long sustain */
+        AICA_CHN_REG(ch, 0x10) = (1 << 11) | (6 << 6) | 22; /* D2R=1, D1R=6, AR=22 */
+        AICA_CHN_REG(ch, 0x14) = (0 << 10) | (0 << 5) | 16; /* KRS=0, DL=0, RR=16 */
     } else if (wavetable_id == 1) {
-        /* Aero Glass Pad: Gentle swelling organic attack, warm sustain */
-        AICA_CHN_REG(ch, 0x10) = 0x0282; /* AR=0x0A, D1R=0x02 */
-        AICA_CHN_REG(ch, 0x14) = 0x7828; /* DL=0x1E, D2R=0x01, RR=0x08 */
+        /* Serene Ambient Pad: Gentle breathing rise (AR=18 ~25ms), warm sustained body */
+        AICA_CHN_REG(ch, 0x10) = (1 << 11) | (2 << 6) | 18; /* D2R=1, D1R=2, AR=18 */
+        AICA_CHN_REG(ch, 0x14) = (0 << 10) | (0 << 5) | 12; /* KRS=0, DL=0, RR=12 */
     } else if (wavetable_id == 2) {
-        /* Liquid Waterdrop: Quick rounded attack, resonant decay */
-        AICA_CHN_REG(ch, 0x10) = 0x0796; /* AR=0x1E, D1R=0x16 */
-        AICA_CHN_REG(ch, 0x14) = 0x183E; /* DL=0x06, D2R=0x03, RR=0x0E */
+        /* Warm Acoustic Bass: Rounded deep rise (AR=20 ~12ms), solid warm sustain */
+        AICA_CHN_REG(ch, 0x10) = (1 << 11) | (3 << 6) | 20; /* D2R=1, D1R=3, AR=20 */
+        AICA_CHN_REG(ch, 0x14) = (0 << 10) | (0 << 5) | 14; /* KRS=0, DL=0, RR=14 */
     } else {
-        /* Shimmer Wash: Soft airy fade-in with diffuse delay tail */
-        AICA_CHN_REG(ch, 0x10) = 0x0201; /* AR=0x08, D1R=0x01 */
-        AICA_CHN_REG(ch, 0x14) = 0x6026; /* DL=0x18, D2R=0x01, RR=0x06 */
+        /* Silky Stardust Air Bloom: Slow dreamy rise (AR=16 ~50ms) */
+        AICA_CHN_REG(ch, 0x10) = (1 << 11) | (1 << 6) | 16; /* D2R=1, D1R=1, AR=16 */
+        AICA_CHN_REG(ch, 0x14) = (0 << 10) | (0 << 5) | 10; /* KRS=0, DL=0, RR=10 */
     }
 
     AICA_CHN_REG(ch, 0x18) = pitch;
@@ -203,7 +208,15 @@ void sound_stop(void) {
 }
 
 /* -------------------------------------------------------------------------
- * Frutiger Aero Boot Sound Sequencer (60 FPS VBlank Tick)
+ * Serene Dreamcast Startup Music Sequencer (60 FPS VBlank Tick / 4.0 Seconds)
+ * -------------------------------------------------------------------------
+ * Melody Pacing (seconds):
+ *   - T = 0.0s (Frame 2):   Ambient ocean swell & sub-bass foundation
+ *   - T = 0.4s (Frame 24):  Chime 1 (E4) - Smooth felt bell
+ *   - T = 1.0s (Frame 60):  Chime 2 (G#4) - Serene melodic lift
+ *   - T = 1.6s (Frame 96):  Chime 3 (B4) - Radiant singing bell
+ *   - T = 2.2s (Frame 132): Climax Resolution Bell & Chord Bloom (E5)
+ *   - T = 2.5s..4.0s (Frames 150..240 / 1.5s): Smooth 90-frame gradual fade-out
  * ------------------------------------------------------------------------- */
 void sound_tick(void) {
     if (!s_sound_initialized) return;
@@ -212,107 +225,95 @@ void sound_tick(void) {
 
     switch (tick) {
         /* ==============================================================
-         * 1. INTRO: Warm Ambient Aero Pad Swell & Sub-Bass Foundation
-         *    Chord: E Major 9 (E3 + B3 + F#4 + G#4 + B4 + D#5)
+         * 1. INTRO (T = 0.03s / Frame 2): Soft Ambient Ocean & Strings
+         *    Lush, peaceful E Major 9 chord (E2 + E3 + B3 + G#4)
          * ============================================================== */
         case 2:
-            /* Sub Bass Foundation (E2 = MIDI 40) */
-            sound_play_note(0, 40, 13, 0x10, 2); /* Deep Liquid Sub Center */
+            /* Warm Sub-Bass Foundation (E2 = MIDI 40) - Mellow level 9 */
+            sound_play_note(0, 40, 9, 0x00, 2);
 
-            /* Ethereal Pad Swell in Stereo */
-            sound_play_note(1, 52, 10, 0x1A, 1); /* E3  (Left) */
-            sound_play_note(2, 59, 10, 0x06, 1); /* B3  (Right) */
-            sound_play_note(3, 66, 11, 0x18, 1); /* F#4 (Left) */
-            sound_play_note(4, 68, 11, 0x08, 1); /* G#4 (Right) */
-            sound_play_note(5, 75, 10, 0x14, 1); /* D#5 (Left) */
+            /* Serene Ambient Strings in Stereo - Soft level 8 */
+            sound_play_note(1, 52, 8, 0x1E, 1); /* E3  (Left) */
+            sound_play_note(2, 59, 8, 0x0E, 1); /* B3  (Right) */
+            sound_play_note(3, 68, 8, 0x1A, 1); /* G#4 (Left) */
+            sound_play_note(4, 75, 7, 0x0A, 1); /* D#5 (Right) */
             break;
 
         /* ==============================================================
-         * 2. CRYSTALLINE GLASS CHIME CASCADE (Ascending E Maj9 Arpeggio)
+         * 2. SOOTHING CHIME 1 (T = 0.40s / Frame 24):
+         *    First peaceful felt bell (E4 = MIDI 64) ringing out in space
          * ============================================================== */
-        case 12:
-            /* Note 1: E5 (76) - Glass Strike Left */
-            sound_play_note(6, 76, 14, 0x1A, 0);
-            sound_play_note(7, 76, 10, 0x06, 0);
-            /* Waterdrop accent */
-            sound_play_note(8, 76, 11, 0x14, 2);
-            break;
-
-        case 20:
-            /* Note 2: G#5 (80) - Glass Strike Right */
-            sound_play_note(9,  80, 14, 0x06, 0);
-            sound_play_note(10, 80, 10, 0x1A, 0);
-            break;
-
-        case 28:
-            /* Note 3: B5 (83) - Crystalline Bell Center-Left */
-            sound_play_note(11, 83, 14, 0x16, 0);
-            sound_play_note(12, 83, 11, 0x0A, 0);
-            /* Waterdrop accent */
-            sound_play_note(8, 83, 11, 0x0C, 2);
-            break;
-
-        case 36:
-            /* Note 4: D#6 (87) - High Chime Center-Right */
-            sound_play_note(13, 87, 14, 0x08, 0);
-            sound_play_note(14, 87, 11, 0x18, 0);
-            break;
-
-        case 44:
-            /* Note 5: F#6 (90) - Shimmering Chime Left */
-            sound_play_note(6, 90, 14, 0x1C, 0);
-            sound_play_note(7, 90, 11, 0x04, 0);
-            break;
-
-        case 52:
-            /* Note 6: G#6 (92) - Top Glass Peak Right */
-            sound_play_note(9,  92, 15, 0x04, 0);
-            sound_play_note(10, 92, 12, 0x1C, 0);
+        case 24:
+            sound_play_note(5, 64, 11, 0x18, 0); /* Left-Center Warm Chime (level 11) */
+            sound_play_note(6, 64, 8,  0x08, 0); /* Subtle Stereo Ambient Echo (level 8) */
             break;
 
         /* ==============================================================
-         * 3. CLIMAX BLOOM: High E7 Glass Harmonic + Full Chord Radiance
+         * 3. SOOTHING CHIME 2 (T = 1.00s / Frame 60):
+         *    Second contemplative bell (G#4 = MIDI 68) singing warmly
          * ============================================================== */
         case 60:
-            /* Note 7 (Climax Peak): E7 (100) - Pure Ringing Glass Bell */
-            sound_play_note(11, 100, 15, 0x10, 0); /* Center Climax */
-            sound_play_note(12, 100, 13, 0x1E, 0); /* Left Spread */
-            sound_play_note(13, 100, 13, 0x02, 0); /* Right Spread */
-
-            /* Shimmer wash air bloom */
-            sound_play_note(14, 80, 12, 0x1C, 3);
-            sound_play_note(15, 80, 12, 0x04, 3);
-
-            /* Pad Crescendo Brightness */
-            sound_play_note(1, 52, 12, 0x1C, 1); /* E3 */
-            sound_play_note(2, 64, 12, 0x10, 1); /* E4 */
-            sound_play_note(3, 71, 13, 0x04, 1); /* B4 */
-            sound_play_note(4, 76, 13, 0x18, 1); /* E5 */
-            sound_play_note(5, 83, 12, 0x08, 1); /* B5 */
+            sound_play_note(7, 68, 11, 0x08, 0); /* Right-Center Warm Chime (level 11) */
+            sound_play_note(8, 68, 8,  0x18, 0); /* Subtle Stereo Ambient Echo (level 8) */
             break;
 
         /* ==============================================================
-         * 4. SPATIAL DIFFUSE ECHOES & ETHEREAL DECAY TAIL
+         * 4. SOOTHING CHIME 3 (T = 1.60s / Frame 96):
+         *    Third singing bell (B4 = MIDI 71) ascending smoothly
          * ============================================================== */
-        case 85:
-            /* Glass harmonic echo 1 (G#6 right / E6 left) */
-            sound_play_note(6, 92, 9, 0x06, 0);
-            sound_play_note(7, 88, 8, 0x1A, 0);
+        case 96:
+            sound_play_note(5, 71, 11, 0x16, 0); /* Left-Center Warm Chime (level 11) */
+            sound_play_note(6, 71, 8,  0x0A, 0); /* Subtle Stereo Ambient Echo (level 8) */
             break;
 
-        case 110:
-            /* Glass harmonic echo 2 (B5 center-right) */
-            sound_play_note(8, 83, 7, 0x0A, 0);
-            sound_play_note(9, 76, 6, 0x16, 0);
-            break;
+        /* ==============================================================
+         * 5. SOOTHING RESOLUTION CHIME & CLIMAX BLOOM (T = 2.20s / Frame 132):
+         *    Majestic, calm resolution bell (E5 = MIDI 76)
+         *    accompanied by radiant warm major 9 chord expansion
+         * ============================================================== */
+        case 132:
+            /* Peaceful Resolution Bell (E5) - Mellow level 11 */
+            sound_play_note(9,  76, 11, 0x00, 0); /* Center Melody */
+            sound_play_note(10, 76, 9,  0x1E, 0); /* Soft Left Chorus */
+            sound_play_note(11, 76, 9,  0x0E, 0); /* Soft Right Chorus */
 
-        case 140:
-            /* Final delicate crystal shimmer tail */
-            sound_play_note(10, 100, 5, 0x12, 0);
+            /* Silky Stardust Air Bloom in Stereo - Subtle level 7 */
+            sound_play_note(12, 68, 7, 0x1E, 3); /* G#4 air shimmer */
+            sound_play_note(13, 68, 7, 0x0E, 3); /* G#4 air shimmer */
+
+            /* Ambient Strings Full Warmth Bloom */
+            sound_play_note(1, 52, 9, 0x1E, 1); /* E3 */
+            sound_play_note(2, 64, 9, 0x00, 1); /* E4 */
+            sound_play_note(3, 71, 9, 0x0E, 1); /* B4 */
+            sound_play_note(4, 76, 8, 0x1A, 1); /* E5 */
             break;
 
         default:
             break;
+    }
+
+    /* ==============================================================
+     * 6. EXTENDED 1.5-SECOND MASTER FADE-OUT (T = 2.5s..4.0s / Frames 150..240):
+     *    Very slow, gradual 90-frame perceptual decrescendo (1.5 full seconds)
+     *    giving the resolution chord ample time to bloom and gently dissolve
+     *    into the BIOS dashboard.
+     * ============================================================== */
+    if (tick >= 150 && tick <= 240) {
+        static const uint8_t s_fade_curve[91] = {
+            14, 14, 14, 14, 14, 14, 14, 13, 13, 13,
+            13, 13, 13, 13, 12, 12, 12, 12, 12, 12,
+            12, 12, 11, 11, 11, 11, 11, 11, 11, 10,
+            10, 10, 10, 10, 10,  9,  9,  9,  9,  9,
+             8,  8,  8,  8,  8,  8,  7,  7,  7,  7,
+             7,  6,  6,  6,  6,  6,  5,  5,  5,  5,
+             5,  4,  4,  4,  4,  4,  3,  3,  3,  3,
+             3,  2,  2,  2,  2,  2,  2,  1,  1,  1,
+             1,  1,  1,  1,  1,  0,  0,  0,  0,  0, 0
+        };
+        int idx = (int)tick - 150;
+        if (idx < 0) idx = 0;
+        if (idx > 90) idx = 90;
+        *(volatile uint16_t *)0xA0702800UL = s_fade_curve[idx];
     }
 
     s_seq_frame++;
