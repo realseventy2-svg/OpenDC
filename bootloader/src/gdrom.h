@@ -67,8 +67,9 @@ int gdrom_read_fad(void *buffer, uint32_t fad, uint16_t sectors);
 int gdrom_probe_toc(void);
 int gdrom_probe_iso(uint32_t *data_fad, uint8_t pvd_head[8]);
 
-/* Query cached data track FAD */
+/* Query cached data track FAD and disc type */
 uint32_t gdrom_get_cached_data_fad(void);
+int32_t gdrom_get_cached_disc_type(void);
 
 /* Publish services to RAM */
 void gdrom_install_services(void);

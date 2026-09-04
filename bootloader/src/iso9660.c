@@ -52,6 +52,12 @@ static int filename_match(const char *name, size_t name_len, const char *target)
     return 1;
 }
 
+static uint32_t cached_ip_fad = 0;
+
+uint32_t iso_get_ip_fad(void) {
+    return cached_ip_fad;
+}
+
 int iso_load_1st_read(uint32_t data_fad) {
     uint8_t *sector = (uint8_t *)0x8C004000UL;
     uint32_t file_fad  = 0;
@@ -59,6 +65,7 @@ int iso_load_1st_read(uint32_t data_fad) {
     uint32_t pvd_fad   = 0;
     char boot_file[17] = { 0 };
     char wince_os = '0';
+    cached_ip_fad = 0;
 
     /* 1. Read IP.BIN (sector 0 at data_fad) to determine target boot executable and OS type */
     if(gdrom_read_fad(sector, data_fad, 1) == GDROM_OK) {
@@ -122,9 +129,14 @@ int iso_load_1st_read(uint32_t data_fad) {
             uint8_t flags = sector[pos + 25];
 
             if(!(flags & 0x02) && name_len > 0) {
-                if(filename_match(name, name_len, boot_file) ||
-                   filename_match(name, name_len, "1ST_READ.BIN") ||
-                   filename_match(name, name_len, "0WINCEOS.BIN")) {
+                if(filename_match(name, name_len, "IP.BIN")) {
+                    uint32_t ip_lba = read_le32_unaligned(sector + pos + 2);
+                    cached_ip_fad = lba_to_fad(ip_lba, data_fad);
+                }
+                if(file_fad == 0 &&
+                   (filename_match(name, name_len, boot_file) ||
+                    filename_match(name, name_len, "1ST_READ.BIN") ||
+                    filename_match(name, name_len, "0WINCEOS.BIN"))) {
                     uint32_t lba = read_le32_unaligned(sector + pos + 2);
                     uint32_t sz  = read_le32_unaligned(sector + pos + 10);
                     if(sz > 0 && sz <= 0x00D00000UL) {
@@ -133,13 +145,12 @@ int iso_load_1st_read(uint32_t data_fad) {
                         if(filename_match(name, name_len, "0WINCEOS.BIN")) {
                             wince_os = '1';
                         }
-                        break;
                     }
                 }
             }
             pos += rec_len;
         }
-        if(file_fad != 0) break;
+        if(file_fad != 0 && cached_ip_fad != 0) break;
     }
 
     if(file_fad == 0 || file_size == 0)
@@ -152,7 +163,7 @@ int iso_load_1st_read(uint32_t data_fad) {
     int is_wince = (wince_os == '1' ||
                     filename_match(boot_file, 12, "0WINCEOS.BIN") ||
                     filename_match(boot_file, 8, "0WINCEOS"));
-    int is_gdi   = (data_fad >= 45000U);
+    int is_gdi   = (gdrom_get_cached_disc_type() == 0x80);
 
     if(is_wince && is_gdi) {
         /* Windows CE retail loading:

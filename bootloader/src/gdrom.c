@@ -10,6 +10,10 @@ uint32_t gdrom_get_cached_data_fad(void) {
     return cached_data_fad;
 }
 
+int32_t gdrom_get_cached_disc_type(void) {
+    return cached_disc_type;
+}
+
 uint8_t gdrom_status(void) {
     return ata_status();
 }
@@ -171,7 +175,7 @@ int gdrom_probe_iso(uint32_t *data_fad_out, uint8_t *pvd_head) {
     /* 2. If Session 2 has no data track, try Session 1 (CDI / MIL-CD) */
     if(data_fad == 0) {
         if(gdrom_read_raw_toc(toc, 0) == GDROM_OK) {
-            for(int i = 98; i >= 0; --i) {
+            for(int i = 0; i < 99; ++i) {
                 const uint8_t *entry = toc + (i * 4);
                 if(entry[0] == 0xFF) continue;
                 uint8_t ctrl = (entry[0] >> 4) & 0x0F;

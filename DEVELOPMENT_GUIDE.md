@@ -72,13 +72,15 @@ projects/OpenDC/bootloader/src/
 
 ### 1. Unified Game Launcher (`boot.c`)
 - **Direct Multi-Format Detection**:
-  1. Inspects disc structure via `iso9660.c`.
-  2. Resolves boot binary (`1ST_READ.BIN` or `0WINCEOS.BIN`) across single-session CDI or multi-track high-density GDI tracks (e.g. Track 3 PVD directing extents into Track 5).
-  3. Reverses Dreamcast proprietary byte scrambling in RAM.
+  1. Inspects disc structure via `iso9660.c` and queries physical disc type (`gdrom_get_cached_disc_type()`: `0x80` for GD-ROM, `0x10` for CD-ROM / CDI).
+  2. Resolves boot binary (`1ST_READ.BIN` or `0WINCEOS.BIN`) across single-session CDI, multisession Mil-CD (Session 2 at LBA 45000 / FAD 45150), or multi-track high-density GDI tracks (e.g. Track 3 PVD directing extents into Track 5).
+  3. Detects if the binary is scrambled; performs 2MB Katana sector descrambling in RAM when loading from CD-ROM media (`cached_disc_type != 0x80`).
   4. Checks for Windows CE signature (`wince_detect`). If detected, activates the Windows CE subsystem.
   5. Loads 16 sectors of `IP.BIN` into `0x8C008000`.
   6. Installs syscall vectors, exception tables, and hardware access registers.
-  7. Transfers control to `0xAC008300` (Sega License Screen) or `0x8C010000` (Homebrew direct boot).
+  7. Transfers control:
+     - For **Commercial GD-ROMs** (`cached_disc_type == 0x80`), branches to `0xAC008300` (Sega License Screen) and applies retail security patches.
+     - For **CD-ROMs / CDIs** (both commercial self-boot rips and KallistiOS homebrew), branches directly to `0x8C010000`. This executes the descrambled payload immediately and cleanly bypasses GD-ROM specific track-3 traps (`SYS_MISC 1`) in legacy ripped IP.BINs.
 
 ### 2. Syscall & Exception Engine (`syscalls.c`, `retail_vectors.h`)
 - **Authentic Exception Dispatcher**: Installs the genuine 2048-byte Sega Dreamcast retail exception dispatch engine (`0x0000..0x0800`) directly from the retail BIOS.
@@ -107,6 +109,7 @@ projects/OpenDC/bootloader/src/
 | **Retail Exception Dispatch Engine** | **Complete** | Core | Full 2048-byte retail dispatcher handling `0x100`, `0x400`, and `0x600`. |
 | **BIOS Syscall Vectors** | **Complete** | Core | Complete vector table at `0x8C0000B0..0x8C0000E0` and `0xAC0000B0..0xAC0000E0`. |
 | **Direct GD-ROM Trampoline** | **Complete** | Core | Executable SH-4 machine code trampoline at `0x8C0010F0`. |
+| **Flycast GDB Debugging Suite** | **Complete** | Tooling | Interactive GDB remote server on port 3263 (`flycast-debug`) for live CPU exception and register inspection. |
 | **Soft Reset (ABXY+Start)** | *In Progress* | Core | Intercepting controller soft-reset combo to return to dashboard/bootloader cleanly. |
 | **Dual-BIOS / Flash Chip Flashing** | *Planned* | Hardware | Pinout verification and timing for MX29LV160T / MX29F1610 EEPROMs. |
 | **SCIF / Serial Port GDB Stub** | *Planned* | Debug | Real-time interactive kernel debugging via the Dreamcast serial port. |
@@ -132,6 +135,7 @@ projects/OpenDC/bootloader/src/
 | :--- | :--- | :--- | :--- |
 | **Authentic Sega License Screen** | **Complete** | Boot Flow | Authentic 2-second TMU timer and transition into Bootstrap 1 & Bootstrap 2. |
 | **Katana Retail GDI Games** | **Complete** | Compatibility | Fully boots commercial titles (*Sonic Adventure 2*) into full 3D gameplay. |
+| **Commercial Self-Boot CDI Games** | **Complete** | Compatibility | Multisession CD-ROM support with Session 2 LBA 45000 offset and on-the-fly descrambling (*Sonic Adventure CDI*). |
 | **KallistiOS Homebrew CDI Discs** | **Complete** | Compatibility | Direct boot to `0x8C010000` fully working (*240p Test Suite*). |
 | **MIL-CD Exploit Compatibility** | **Complete** | Compatibility | Compatible with standard multisession CD-ROM homebrew discs. |
 | **Windows CE Detection & Headers** | **Complete** | Windows CE | Modular `wince.c` parsing `ROMHDR` and dynamic `SB_GDSTARD`. |

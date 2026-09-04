@@ -20,8 +20,10 @@ int gdrom_boot_game(uint32_t data_fad) {
     wince_detect((const uint8_t *)0x8CE01000UL);
 
     /* 2. Load IP.BIN (16 sectors) cleanly into 0x8C008000UL */
+    uint32_t ip_fad = iso_get_ip_fad();
+    if(ip_fad == 0) ip_fad = data_fad;
     uint8_t *ip_dest = (uint8_t *)0x8C008000UL;
-    gdrom_read_fad(ip_dest, data_fad, 16);
+    gdrom_read_fad(ip_dest, ip_fad, 16);
 
     /* 3. Populate BIOS syscall vectors and sysinfo table */
     gdrom_install_syscall();
@@ -70,27 +72,28 @@ int gdrom_boot_game(uint32_t data_fad) {
         dst_uncached[i] = src_rom[i];
     }
 
-    /* 6. Apply retail BIOS security DRM patches to IP.BIN (bypasses security fail reset) */
-    *(volatile uint16_t *)(0x8C008300UL + 0x0DD8) = 0x5113;
-    *(volatile uint16_t *)(0x8C008300UL + 0x14BC) = 0x0009; /* nop */
-    *(volatile uint16_t *)(0x8C008300UL + 0x1578) = 0xE030; /* mov #48, r0 */
-    *(volatile uint16_t *)(0xAC008300UL + 0x0DD8) = 0x5113;
-    *(volatile uint16_t *)(0xAC008300UL + 0x14BC) = 0x0009;
-    *(volatile uint16_t *)(0xAC008300UL + 0x1578) = 0xE030;
+    /* 6. Determine boot entrypoint and apply retail BIOS security DRM patches:
+          Commercial GD-ROMs contain Sega license display code at 0x8C008300 and
+          require retail BIOS security DRM patches at 0x0DD8, 0x14BC, and 0x1578.
+          For CD-ROMs / CDIs (both homebrew and self-boot Mil-CDs), 1ST_READ.BIN is
+          already loaded and descrambled cleanly at 0x8C010000. Booting directly from
+          0x8C010000 starts the game immediately and avoids GD-ROM security traps in IP.BIN. */
+    uint32_t boot_entry = 0x8C010000UL;
+    uint32_t *ip_entry = (uint32_t *)0x8C008300UL;
+    if(gdrom_get_cached_disc_type() == 0x80 && *ip_entry != 0 && *ip_entry != 0xFFFFFFFFUL) {
+        boot_entry = 0xAC008300UL;
+        *(volatile uint16_t *)(0x8C008300UL + 0x0DD8) = 0x5113;
+        *(volatile uint16_t *)(0x8C008300UL + 0x14BC) = 0x0009; /* nop */
+        *(volatile uint16_t *)(0x8C008300UL + 0x1578) = 0xE030; /* mov #48, r0 */
+        *(volatile uint16_t *)(0xAC008300UL + 0x0DD8) = 0x5113;
+        *(volatile uint16_t *)(0xAC008300UL + 0x14BC) = 0x0009;
+        *(volatile uint16_t *)(0xAC008300UL + 0x1578) = 0xE030;
+    }
 
     /* 7. Flush & enable SH-4 caches (CCR = 0x092B enables OCRAM at 0x7E001000 for IP.BIN) */
     *(volatile uint32_t *)0xFF00001CUL = 0x0000092BUL;
     __asm__ volatile("nop\n\t" "nop\n\t" "nop\n\t" "nop\n\t"
                      "nop\n\t" "nop\n\t" "nop\n\t" "nop" ::: "memory");
-
-    /* 8. Determine boot entrypoint:
-          Commercial discs contain Sega license display code at 0x8C008300.
-          Homebrew discs (CDI) have 0s at 0x8C008300 and boot directly from 0x8C010000. */
-    uint32_t boot_entry = 0x8C010000UL;
-    uint32_t *ip_entry = (uint32_t *)0x8C008300UL;
-    if(*ip_entry != 0 && *ip_entry != 0xFFFFFFFFUL) {
-        boot_entry = 0xAC008300UL;
-    }
 
     /* 7. Set up exact Dreamcast retail BIOS environment registers and jump to entrypoint */
     __asm__ volatile(
