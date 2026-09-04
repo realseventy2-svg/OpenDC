@@ -412,38 +412,127 @@ static void draw_text_shadow(float start_x, float start_y, float scale, const ch
    DYNAMIC THEMED GRAPHICS ENGINE
    ========================================================================= */
 
-/* 1. Luminous Sky & Atmospheric Background */
+/* 1. Luminous Frutiger Aero Sky & Atmospheric Clouds */
 static void draw_sky_atmosphere(const theme_t *theme, int frame) {
-    draw_quad_gradient(0, 0, 640, 240, 0.5f, theme->sky_top, theme->sky_top, theme->sky_mid, theme->sky_mid);
-    draw_quad_gradient(0, 240, 640, 240, 0.5f, theme->sky_mid, theme->sky_mid, theme->sky_bot, theme->sky_bot);
+    /* 1a. Base Ambient Sky Horizon Gradient */
+    draw_quad_gradient(0, 0, 640, 240, 0.4f, theme->sky_top, theme->sky_top, theme->sky_mid, theme->sky_mid);
+    draw_quad_gradient(0, 240, 640, 240, 0.4f, theme->sky_mid, theme->sky_mid, theme->sky_bot, theme->sky_bot);
 
-    float sun_x = 520.0f + sinf(frame * 0.01f) * 15.0f;
-    float sun_y = 60.0f + cosf(frame * 0.012f) * 10.0f;
-    draw_quad_gradient(sun_x - 160, sun_y - 160, 320, 320, 0.6f,
+    /* 1b. Soft Atmospheric Cloud Billows in Upper Sky */
+    int num_clouds = 16;
+    float cw = 640.0f / (float)num_clouds;
+    for (int i = 0; i < num_clouds; i++) {
+        float x1 = i * cw;
+        float x2 = (i + 1) * cw;
+        float c_wave1 = sinf(i * 0.45f + frame * 0.008f) * 16.0f + cosf(i * 0.20f - frame * 0.005f) * 10.0f;
+        float c_wave2 = sinf((i + 1) * 0.45f + frame * 0.008f) * 16.0f + cosf((i + 1) * 0.20f - frame * 0.005f) * 10.0f;
+
+        float cy1 = 80.0f + c_wave1;
+        float cy2 = 80.0f + c_wave2;
+        float ch1 = 55.0f + sinf(i * 0.35f + frame * 0.006f) * 14.0f;
+        float ch2 = 55.0f + sinf((i + 1) * 0.35f + frame * 0.006f) * 14.0f;
+
+        uint32_t col_cloud_top = PVR_PACK_COLOR(0.28f, 0.90f, 0.96f, 1.0f);
+        uint32_t col_cloud_bot = PVR_PACK_COLOR(0.00f, 0.70f, 0.90f, 1.0f);
+
+        draw_quad_mesh(x1, cy1 - ch1, x2, cy2 - ch2, x1, cy1 + ch1, x2, cy2 + ch2, 0.45f,
+                       col_cloud_top, col_cloud_top, col_cloud_bot, col_cloud_bot);
+    }
+
+    /* 1c. Subtle Ambient Celestial Sun Bloom */
+    float sun_x = 480.0f + sinf(frame * 0.008f) * 12.0f;
+    float sun_y = 55.0f + cosf(frame * 0.010f) * 8.0f;
+    draw_quad_gradient(sun_x - 180, sun_y - 180, 360, 360, 0.5f,
                        theme->sun_fade, theme->sun_fade, theme->sun_fade, theme->sun_core);
 }
 
-/* 2. Undulating Horizon Ribbon Waves */
-static void draw_aurora_ribbons(const theme_t *theme, int frame) {
-    int num_segments = 32;
-    float seg_w = 640.0f / (float)num_segments;
+/* 2. Authentic 3D Frutiger Aero Perspective Water Floor & Slow Organic Ripple Mesh */
+static void draw_3d_water_environment(const theme_t *theme, int frame) {
+    const int NUM_RINGS = 20;
+    const int NUM_SECTORS = 32;
+    const float CX = 320.0f;
+    const float CY = 355.0f;
+    const float MAX_RX = 315.0f;
+    const float MAX_RY = 120.0f;
+
     float spd = theme->wave_speed;
     float amp = theme->wave_amplitude;
+    float time_phase = (float)frame * 0.018f * spd;
 
-    for (int seg = 0; seg < num_segments; seg++) {
-        float x1 = seg * seg_w;
-        float x2 = (seg + 1) * seg_w;
+    /* Precalculate ring vertices with 3D perspective wave elevation & dynamic caustics */
+    typedef struct {
+        float x, y;
+        uint32_t col;
+    } water_vert_t;
 
-        float wave1 = (sinf(seg * 0.35f + frame * 0.04f * spd) * 25.0f + cosf(seg * 0.15f - frame * 0.02f * spd) * 15.0f) * amp;
-        float wave2 = (sinf((seg + 1) * 0.35f + frame * 0.04f * spd) * 25.0f + cosf((seg + 1) * 0.15f - frame * 0.02f * spd) * 15.0f) * amp;
+    water_vert_t grid[21][33];
 
-        float y1 = 380.0f + wave1;
-        float y2 = 380.0f + wave2;
-        float h1 = (90.0f + sinf(seg * 0.2f + frame * 0.03f * spd) * 20.0f) * amp;
-        float h2 = (90.0f + sinf((seg + 1) * 0.2f + frame * 0.03f * spd) * 20.0f) * amp;
+    for (int r = 0; r <= NUM_RINGS; r++) {
+        float tr = (float)r / (float)NUM_RINGS;
+        float rx = tr * MAX_RX;
+        float ry = tr * MAX_RY;
+        float dist = tr * 260.0f;
 
-        draw_quad_mesh(x1, y1 - h1, x2, y2 - h2, x1, y1, x2, y2, 0.7f,
-                       theme->aurora_top, theme->aurora_top, theme->aurora_bot, theme->aurora_bot);
+        /* Slow propagating concentric water ripple rings */
+        float wave1 = sinf(dist * 0.090f - time_phase);
+        float wave2 = sinf(dist * 0.175f - time_phase * 1.6f) * 0.45f;
+        float total_wave = wave1 + wave2;
+
+        /* Wave crest elevation displacement */
+        float center_well = expf(-tr * tr * 6.0f);
+        float elev = total_wave * (1.0f - center_well * 0.5f) * 6.0f * amp;
+
+        /* Dynamic Liquid Color & Caustic Specular Highlights */
+        float base_a = (tr < 0.82f) ? (0.68f + total_wave * 0.18f) : (0.68f * (1.0f - tr) / 0.18f);
+        if (base_a < 0.0f) base_a = 0.0f;
+        if (base_a > 0.95f) base_a = 0.95f;
+
+        /* Center pool: Deep azure blue -> outer radiant cyan caustics */
+        float red = 0.08f + (1.0f - tr) * 0.15f + total_wave * 0.08f;
+        float green = 0.42f + tr * 0.28f + total_wave * 0.22f;
+        float blue = 0.78f + tr * 0.18f + total_wave * 0.14f;
+
+        /* Specular sun glint on ripple crests */
+        if (total_wave > 0.75f) {
+            float glint = (total_wave - 0.75f) / 0.70f;
+            red += glint * 0.45f;
+            green += glint * 0.45f;
+            blue += glint * 0.35f;
+            base_a += glint * 0.20f;
+        }
+
+        if (red > 1.0f) red = 1.0f;
+        if (green > 1.0f) green = 1.0f;
+        if (blue > 1.0f) blue = 1.0f;
+        if (base_a > 1.0f) base_a = 1.0f;
+
+        uint32_t col = PVR_PACK_COLOR(base_a, red, green, blue);
+
+        for (int s = 0; s <= NUM_SECTORS; s++) {
+            float theta = ((float)s / (float)NUM_SECTORS) * (3.14159265f * 2.0f);
+            float cos_t = cosf(theta);
+            float sin_t = sinf(theta);
+
+            /* Azimuthal caustic modulation */
+            float az_wave = sinf(theta * 2.0f + dist * 0.05f - time_phase * 0.5f) * 2.0f;
+
+            grid[r][s].x = CX + cos_t * rx;
+            grid[r][s].y = CY + sin_t * ry + elev + az_wave * (tr * 0.8f);
+            grid[r][s].col = col;
+        }
+    }
+
+    /* Render 3D Water Surface Polygon Strips */
+    for (int r = 0; r < NUM_RINGS; r++) {
+        for (int s = 0; s < NUM_SECTORS; s++) {
+            draw_quad_mesh(grid[r][s].x,     grid[r][s].y,
+                           grid[r][s+1].x,   grid[r][s+1].y,
+                           grid[r+1][s].x,   grid[r+1][s].y,
+                           grid[r+1][s+1].x, grid[r+1][s+1].y,
+                           0.75f,
+                           grid[r][s].col,     grid[r][s+1].col,
+                           grid[r+1][s].col,   grid[r+1][s+1].col);
+        }
     }
 }
 
@@ -534,7 +623,41 @@ static void draw_glass_panel(const theme_t *theme, float x, float y, float w, fl
     draw_quad(x + w - 1.5f, y, 1.5f, h, z + 0.2f, c_border_bot);
 }
 
-/* 6. Smooth Round Glossy Controller Button Gems */
+/* 6a. Authentic Sega Dreamcast D-Pad Directional Cross Icon */
+static void draw_dpad_icon(const theme_t *theme, float cx, float cy, float r) {
+    float arm_w = r * 0.70f;
+    float arm_l = r * 2.00f;
+    float half_w = arm_w * 0.5f;
+    float half_l = arm_l * 0.5f;
+
+    /* Ambient backlight glow */
+    draw_quad(cx - half_l - 2.0f, cy - half_w - 2.0f, arm_l + 4.0f, arm_w + 4.0f, 3.8f, theme->glow_unselected);
+    draw_quad(cx - half_w - 2.0f, cy - half_l - 2.0f, arm_w + 4.0f, arm_l + 4.0f, 3.8f, theme->glow_unselected);
+
+    /* Base glossy acrylic cross body */
+    uint32_t c_base_top = theme->gem_x;
+    uint32_t c_base_bot = theme->glow_selected;
+    draw_quad_gradient(cx - half_l, cy - half_w, arm_l, arm_w, 4.0f, c_base_top, c_base_top, c_base_bot, c_base_bot);
+    draw_quad_gradient(cx - half_w, cy - half_l, arm_w, arm_l, 4.0f, c_base_top, c_base_top, c_base_bot, c_base_bot);
+
+    /* Specular glass bevel highlights */
+    uint32_t c_rim = PVR_PACK_COLOR(0.85f, 0.95f, 1.0f, 1.0f);
+    draw_quad(cx - half_l, cy - half_w, arm_l, 1.2f, 4.2f, c_rim);
+    draw_quad(cx - half_w, cy - half_l, arm_w, 1.2f, 4.2f, c_rim);
+
+    /* Center concave thumb dish */
+    float dish_r = arm_w * 0.38f;
+    draw_quad(cx - dish_r, cy - dish_r, dish_r * 2.0f, dish_r * 2.0f, 4.3f, PVR_PACK_COLOR(0.45f, 0.02f, 0.15f, 0.35f));
+
+    /* Directional arrow notches (Up, Down, Left, Right) */
+    float arr_s = 2.2f;
+    draw_quad(cx - arr_s, cy - half_l + 2.0f, arr_s * 2.0f, 1.8f, 4.4f, 0xFFFFFFFF); /* Up */
+    draw_quad(cx - arr_s, cy + half_l - 3.8f, arr_s * 2.0f, 1.8f, 4.4f, 0xFFFFFFFF); /* Down */
+    draw_quad(cx - half_l + 2.0f, cy - arr_s, 1.8f, arr_s * 2.0f, 4.4f, 0xFFFFFFFF); /* Left */
+    draw_quad(cx + half_l - 3.8f, cy - arr_s, 1.8f, arr_s * 2.0f, 4.4f, 0xFFFFFFFF); /* Right */
+}
+
+/* 6b. Smooth Round Glossy Controller Button Gems */
 static void draw_button_gem(const theme_t *theme, float x, float y, float r, const char *label, int color_type) {
     float u0 = (160.0f - 24.0f) / 256.0f;
     float v0 = (200.0f - 24.0f) / 256.0f;
@@ -733,15 +856,15 @@ int main(int argc, char **argv) {
 
     const char *menu_items[] = {
         "Play Disc",
-        "Memory Cards",
-        "System Settings",
-        "Hardware Stats"
+        "File",
+        "Settings",
+        "Console Info"
     };
     const char *menu_descriptions[] = {
-        "Boot inserted GD-ROM, MIL-CD, or homebrew disc",
-        "Inspect and manage VMU memory cards and save files",
-        "Configure video cables, audio output, and firmware themes",
-        "Real-time SH-4 CPU, CLX2 GPU, and SPU telemetry"
+        "Boot inserted disc and launch Dreamcast game",
+        "Inspect and manage VMU memory cards",
+        "Configure video cables, audio output",
+        "View system hardware"
     };
     int num_items = 4;
 
@@ -835,9 +958,9 @@ int main(int argc, char **argv) {
         pvr_scene_begin();
         pvr_list_begin(PVR_LIST_TR_POLY);
 
-        /* 1. Atmospheric Sky & Horizon */
+        /* 1. Atmospheric Sky, Clouds & 3D Perspective Water Ripple Floor */
         draw_sky_atmosphere(theme, frame);
-        draw_aurora_ribbons(theme, frame);
+        draw_3d_water_environment(theme, frame);
 
         /* 2. Floating Liquid Particles & Water Ripples */
         draw_particles(theme, frame);
@@ -851,7 +974,7 @@ int main(int argc, char **argv) {
         /* Top Banner Typography */
         draw_text_shadow(95.0f, top_y + 8.0f, 1.00f, "OpenDC Dashboard",
                          theme->text_title, theme->text_title_shadow);
-        draw_text_smooth(95.0f, top_y + 36.0f, 0.58f, "Sega Dreamcast | BIOS 0.1b",
+        draw_text_smooth(95.0f, top_y + 36.0f, 0.58f, "Sega Dreamcast",
                          theme->text_sub);
 
         /* Top-Right Live Clock */
@@ -913,10 +1036,10 @@ int main(int argc, char **argv) {
             draw_button_gem(theme, 50.0f, bot_y + 36.0f, 13.0f, "A", 0);
             draw_text_smooth(72.0f, bot_y + 24.0f, 0.78f, "Select", theme->text_title);
 
-            draw_button_gem(theme, 165.0f, bot_y + 36.0f, 13.0f, "D", 2);
-            draw_text_smooth(187.0f, bot_y + 24.0f, 0.78f, "Navigate", theme->text_title);
+            draw_dpad_icon(theme, 168.0f, bot_y + 36.0f, 12.0f);
+            draw_text_smooth(190.0f, bot_y + 24.0f, 0.78f, "Navigate", theme->text_title);
 
-            draw_text_smooth(380.0f, bot_y + 26.0f, 0.70f, "Made with love.", theme->text_sub);
+            draw_text_smooth(380.0f, bot_y + 26.0f, 0.70f, "BIOS 0.1B", theme->text_sub);
 
         } else if (current_view == VIEW_PLAY_DISC) {
             char game_title[128];
