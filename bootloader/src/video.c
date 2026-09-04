@@ -217,10 +217,11 @@ void video_clean_handoff(void) {
     *(volatile uint32_t *)(PVR_BASE + 0x00CC) = 0x00000000; /* SPG_VBLANK_INT */
     *(volatile uint32_t *)(PVR_BASE + 0x011C) = 0x00000000; /* PT_ALPHA_REF (Punch-Through Alpha Ref) */
 
-    /* 3. Zero-fill entire 8 MB VRAM to eradicate all residual bootloader textures and text */
+    /* 3. Set framebuffer to clean frosty white baseline for seamless BIOS handoff */
+    uint32_t white32 = ((uint32_t)RGB565(248, 250, 254) << 16) | (uint32_t)RGB565(248, 250, 254);
     volatile uint32_t *vram = (volatile uint32_t *)VRAM_BASE;
-    for (size_t i = 0; i < (8 * 1024 * 1024) / 4; i++) {
-        vram[i] = 0x00000000;
+    for (size_t i = 0; i < (640 * 480 * 2) / 4; i++) {
+        vram[i] = white32;
     }
 
     /* 4. Reset primary video display registers to clean Katana baseline */

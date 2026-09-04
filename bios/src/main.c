@@ -251,7 +251,7 @@ static void trigger_ripple(float x, float y) {
 
 static void draw_txr_quad(float x, float y, float w, float h, float z,
                           float u0, float v0, float u1, float v1, uint32_t col) {
-    if (!s_atlas_vram) return;
+    if (!s_atlas_vram || w <= 0.0f || h <= 0.0f) return;
     pvr_poly_cxt_t cxt;
     pvr_poly_hdr_t hdr;
     pvr_vertex_t vert;
@@ -282,7 +282,7 @@ static void draw_txr_quad(float x, float y, float w, float h, float z,
 }
 
 static void draw_txr_logo_quad(float x, float y, float w, float h, float z, uint32_t col) {
-    if (!s_logo_vram) return;
+    if (!s_logo_vram || w <= 0.0f || h <= 0.0f) return;
     pvr_poly_cxt_t cxt;
     pvr_poly_hdr_t hdr;
     pvr_vertex_t vert;
@@ -314,6 +314,7 @@ static void draw_txr_logo_quad(float x, float y, float w, float h, float z, uint
 
 static void draw_quad_gradient(float x, float y, float w, float h, float z,
                                uint32_t col_tl, uint32_t col_tr, uint32_t col_bl, uint32_t col_br) {
+    if (w <= 0.0f || h <= 0.0f) return;
     pvr_poly_cxt_t cxt;
     pvr_poly_hdr_t hdr;
     pvr_vertex_t vert;
@@ -379,6 +380,7 @@ static void draw_quad(float x, float y, float w, float h, float z, uint32_t col)
 
 /* Mathematically Exact Proportional Typography */
 static void draw_text_smooth(float start_x, float start_y, float scale, const char *text, uint32_t col) {
+    if (!text || scale <= 0.02f) return;
     float cur_x = start_x;
     for (int i = 0; text[i]; i++) {
         unsigned char c = (unsigned char)text[i];
@@ -563,6 +565,7 @@ static void draw_button_gem(const theme_t *theme, float x, float y, float r, con
 
 /* 7. Authentic 3D Frutiger Aero Translucent Glass Logo */
 static void draw_3d_glass_swirl(const theme_t *theme, float center_x, float center_y, float scale, int frame) {
+    if (scale <= 0.02f) return;
     update_theme_logo(theme);
 
     float float_y = sinf(frame * 0.035f) * 3.5f;
@@ -826,6 +829,12 @@ int main(int argc, char **argv) {
             }
         }
 
+        /* Calculate Seamless Morphing Transition from Bootloader */
+        float intro_t = (frame < 50) ? sinf(((float)frame / 50.0f) * (3.14159265f * 0.5f)) : 1.0f;
+        if (frame == 1) {
+            trigger_ripple(320.0f, 175.0f);
+        }
+
         /* PVR Frame Render Pass */
         pvr_wait_ready();
         pvr_scene_begin();
@@ -839,14 +848,15 @@ int main(int argc, char **argv) {
         draw_particles(theme, frame);
         draw_ripples();
 
-        /* 3. Top Navigation Glass Banner */
-        draw_glass_panel(theme, 20.0f, 16.0f, 600.0f, 66.0f, 2.0f, 0, 0.0f);
-        draw_3d_glass_swirl(theme, 55.0f, 49.0f, 0.40f, frame);
+        /* 3. Top Navigation Glass Banner (Slides in smoothly from top) */
+        float top_y = 16.0f - (1.0f - intro_t) * 90.0f;
+        draw_glass_panel(theme, 20.0f, top_y, 600.0f, 66.0f, 2.0f, 0, 0.0f);
+        draw_3d_glass_swirl(theme, 55.0f, top_y + 33.0f, 0.40f * intro_t, frame);
 
         /* Top Banner Typography */
-        draw_text_shadow(95.0f, 24.0f, 1.00f, "OpenDC Dashboard",
+        draw_text_shadow(95.0f, top_y + 8.0f, 1.00f, "OpenDC Dashboard",
                          theme->text_title, theme->text_title_shadow);
-        draw_text_smooth(95.0f, 52.0f, 0.58f, "Sega Dreamcast | BIOS 0.1b",
+        draw_text_smooth(95.0f, top_y + 36.0f, 0.58f, "Sega Dreamcast | BIOS 0.1b",
                          theme->text_sub);
 
         /* Top-Right Live Clock */
@@ -858,47 +868,60 @@ int main(int argc, char **argv) {
         } else {
             snprintf(clock_buf, sizeof(clock_buf), "12:00:00 UTC");
         }
-        draw_text_shadow(480.0f, 37.0f, 0.75f, clock_buf,
+        draw_text_shadow(480.0f, top_y + 21.0f, 0.75f, clock_buf,
                          theme->text_accent, theme->text_title_shadow);
 
         /* 4. Active View Content */
         if (current_view == VIEW_MAIN_MENU) {
-            /* Left Side: 3D Faceted Glass Swirl Mascot */
-            draw_glass_panel(theme, 25.0f, 92.0f, 175.0f, 286.0f, 2.0f, 0, 0.0f);
-            draw_3d_glass_swirl(theme, 112.0f, 205.0f, 0.85f, frame);
-            draw_text_shadow(60.0f, 328.0f, 0.85f, "Dreamcast",
+            /* Left Side: 3D Faceted Glass Swirl Mascot & Morphing Swirl Glide */
+            float mascot_x = 25.0f - (1.0f - intro_t) * 180.0f;
+            draw_glass_panel(theme, mascot_x, 92.0f, 175.0f, 286.0f, 2.0f, 0, 0.0f);
+
+            /* Seamless Morph: Swirl glides smoothly from (320, 175) down to (112, 205) */
+            float swirl_cx = 320.0f + (112.0f - 320.0f) * intro_t;
+            float swirl_cy = 175.0f + (205.0f - 175.0f) * intro_t;
+            float swirl_scale = 1.0f + (0.85f - 1.0f) * intro_t;
+            draw_3d_glass_swirl(theme, swirl_cx, swirl_cy, swirl_scale, frame);
+
+            draw_text_shadow(mascot_x + 35.0f, 328.0f, 0.85f * intro_t, "Dreamcast",
                              theme->text_title, theme->text_title_shadow);
 
-            /* Right Side: Interactive Glossy Glass Menu Cards (h=58, spacing=70) */
+            /* Right Side: Interactive Glossy Glass Menu Cards (Staggered spring cascade) */
             for (int i = 0; i < num_items; i++) {
                 float card_y = 92.0f + i * 70.0f;
                 int is_sel = (i == menu_sel);
 
-                draw_glass_panel(theme, 215.0f, card_y, 405.0f, 58.0f, 2.0f, is_sel, frame * 0.1f);
+                float card_delay = (float)i * 6.0f;
+                float card_t = (frame < (int)card_delay + 30) ?
+                    sinf((fmaxf(0.0f, (float)frame - card_delay) / 30.0f) * (3.14159265f * 0.5f)) : 1.0f;
+                float card_x = 215.0f + (1.0f - card_t) * 280.0f;
+
+                draw_glass_panel(theme, card_x, card_y, 405.0f, 58.0f, 2.0f, is_sel, frame * 0.1f);
 
                 if (is_sel) {
-                    draw_button_gem(theme, 236.0f, card_y + 29.0f, 9.0f, "", 4);
-                    draw_text_shadow(255.0f, card_y + 6.0f, 0.88f, menu_items[i],
+                    draw_button_gem(theme, card_x + 21.0f, card_y + 29.0f, 9.0f, "", 4);
+                    draw_text_shadow(card_x + 40.0f, card_y + 6.0f, 0.88f, menu_items[i],
                                      theme->text_title, theme->text_title_shadow);
-                    draw_text_smooth(255.0f, card_y + 29.0f, 0.58f, menu_descriptions[i],
+                    draw_text_smooth(card_x + 40.0f, card_y + 29.0f, 0.58f, menu_descriptions[i],
                                      theme->text_body);
                 } else {
-                    draw_text_shadow(235.0f, card_y + 6.0f, 0.85f, menu_items[i],
+                    draw_text_shadow(card_x + 20.0f, card_y + 6.0f, 0.85f, menu_items[i],
                                      theme->text_dim, theme->text_title_shadow);
-                    draw_text_smooth(235.0f, card_y + 29.0f, 0.56f, menu_descriptions[i],
+                    draw_text_smooth(card_x + 20.0f, card_y + 29.0f, 0.56f, menu_descriptions[i],
                                      theme->text_dim);
                 }
             }
 
-            /* Bottom Glass Toolbar */
-            draw_glass_panel(theme, 20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
-            draw_button_gem(theme, 50.0f, 426.0f, 13.0f, "A", 0);
-            draw_text_smooth(72.0f, 414.0f, 0.78f, "Select", theme->text_title);
+            /* Bottom Glass Toolbar (Slides up smoothly from bottom) */
+            float bot_y = 390.0f + (1.0f - intro_t) * 100.0f;
+            draw_glass_panel(theme, 20.0f, bot_y, 600.0f, 72.0f, 2.0f, 0, 0.0f);
+            draw_button_gem(theme, 50.0f, bot_y + 36.0f, 13.0f, "A", 0);
+            draw_text_smooth(72.0f, bot_y + 24.0f, 0.78f, "Select", theme->text_title);
 
-            draw_button_gem(theme, 165.0f, 426.0f, 13.0f, "D", 2);
-            draw_text_smooth(187.0f, 414.0f, 0.78f, "Navigate", theme->text_title);
+            draw_button_gem(theme, 165.0f, bot_y + 36.0f, 13.0f, "D", 2);
+            draw_text_smooth(187.0f, bot_y + 24.0f, 0.78f, "Navigate", theme->text_title);
 
-            draw_text_smooth(380.0f, 416.0f, 0.70f, "Made with love.", theme->text_sub);
+            draw_text_smooth(380.0f, bot_y + 26.0f, 0.70f, "Made with love.", theme->text_sub);
 
         } else if (current_view == VIEW_PLAY_DISC) {
             char game_title[128];
@@ -1013,6 +1036,13 @@ int main(int argc, char **argv) {
             draw_glass_panel(theme, 20.0f, 390.0f, 600.0f, 72.0f, 2.0f, 0, 0.0f);
             draw_button_gem(theme, 50.0f, 426.0f, 13.0f, "B", 1);
             draw_text_smooth(72.0f, 414.0f, 0.78f, "Return to Menu", theme->text_title);
+        }
+
+        /* Soft Optical Glass Melting Wash from Bootloader */
+        if (frame < 30) {
+            float bloom_a = (1.0f - ((float)frame / 30.0f)) * 0.85f;
+            draw_quad(0.0f, 0.0f, 640.0f, 480.0f, 6.0f,
+                      PVR_PACK_COLOR(bloom_a, 0.97f, 0.98f, 1.0f));
         }
 
         pvr_list_finish();

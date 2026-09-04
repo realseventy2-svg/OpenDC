@@ -17,7 +17,7 @@ const boot_theme_t BOOT_THEME_DEFAULT = {
     .subtitle           = "SEGA DREAMCAST ARCHITECTURE",
     .version_text       = "Custom Boot Firmware",
 
-    .splash_delay_seconds = 3,
+    .splash_delay_seconds = BOOT_DURATION_EXTENDED,
     .splash_delay_frames  = 0,
     .show_diagnostics     = 0,
     .show_progress_bar    = 0,

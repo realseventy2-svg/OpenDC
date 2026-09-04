@@ -2,17 +2,15 @@
 #include <stdint.h>
 
 /* =========================================================================
- * Y2K ATMOSPHERIC PAD & POLE LEAD AIRBELL SOUND ENGINE
+ * FRUTIGER AERO CRYSTALLINE GLASS & ETHEREAL AMBIENT SOUND ENGINE
  * =========================================================================
- * Composition:
- *   - Lead Melody: Noisy sine-wave "airbell" pole lead hitting:
- *       D7 -> E5 -> B6 -> B5 -> E6 -> Db7
- *   - Synth Pad: Warm ethereal chord background holding:
- *       A4, B4, D5, and F#5 throughout the sequence.
- *   - Bass & Heartbeat:
- *       Low E4/E2 bass tone + distorted heavy-EQ heartbeat thump pulse.
- *   - Airy Noise:
- *       Filtered cymbal wash fading in halfway with spatial stereo reverb.
+ * Sound Design:
+ *   - Crystal Chime Cascade: Sparkling glass bell strikes with crystalline
+ *     harmonics ascending in E Major 9 (E5 -> G#5 -> B5 -> D#6 -> F#6 -> G#6 -> E7).
+ *   - Aero Glass Pad: Lush, warm, euphoric atmospheric chord background
+ *     swelling with E3, B3, F#4, G#4, B4, D#5.
+ *   - Liquid Glass Droplet: Resonant, organic bubble-drop chime transient.
+ *   - Shimmer Wash: Filtered airy high-frequency atmospheric sheen.
  *
  * Direct Yamaha AICA 64-Channel Hardware Synthesizer.
  * ========================================================================= */
@@ -62,46 +60,44 @@ static int32_t clamp16(int32_t value) {
 }
 
 /* -------------------------------------------------------------------------
- * Y2K Atmospheric Waveform Generators
+ * Frutiger Aero Waveform Generators
  * ------------------------------------------------------------------------- */
 
-/* 1. Pole Lead / Airbell: Noisy sine-wave with breathy air overtones */
-static int16_t make_airbell_lead(int i) {
+/* 1. Crystal Glass Chime: Pure bell fundamental with ringing glass partials */
+static int16_t make_crystal_glass_chime(int i) {
     int32_t s1 = sin_fx(i);
     int32_t s3 = sin_fx(i * 3);
-    int32_t s5 = sin_fx(i * 5);
-    /* Subtle high-frequency air flutter */
-    int32_t noise = ((i * 37 + 11) % 41) - 20;
-    int32_t val = (s1 * 95) + (s3 * 18) + (s5 * 8) + (noise * 12);
+    int32_t s6 = sin_fx(i * 6);
+    int32_t s9 = sin_fx(i * 9);
+    /* Glass metallic bell harmonics */
+    int32_t val = (s1 * 90) + (s3 * 28) + (s6 * 14) + (s9 * 6);
     return (int16_t)clamp16(val);
 }
 
-/* 2. Warm Atmospheric Synth Pad: Rich mellow chord body */
-static int16_t make_warm_pad(int i) {
+/* 2. Aero Glass Pad: Warm, lush, airy choral-pad body */
+static int16_t make_aero_glass_pad(int i) {
     int32_t p1 = sin_fx(i);
     int32_t p2 = sin_fx(i * 2);
-    int32_t p3 = sin_fx(i * 3);
-    int32_t val = (p1 * 88) + (p2 * 26) + (p3 * 10);
+    int32_t p4 = sin_fx(i * 4);
+    int32_t val = (p1 * 92) + (p2 * 24) + (p4 * 12);
     return (int16_t)clamp16(val);
 }
 
-/* 3. Distorted Heartbeat Pulse / Sub-Bass Thump */
-static int16_t make_heartbeat_thump(int i) {
-    int32_t b1 = sin_fx(i);
-    /* Saturated non-linear distortion curve */
-    int32_t sat = (b1 * 140) / 100;
-    if (sat > 200)  sat = 200;
-    if (sat < -200) sat = -200;
-    int32_t val = (sat * 110) + (sin_fx(i * 2) * 20);
+/* 3. Liquid Waterdrop / Glass Droplet Pluck */
+static int16_t make_waterdrop_pluck(int i) {
+    int32_t w1 = sin_fx(i);
+    int32_t w2 = sin_fx(i * 2);
+    int32_t w5 = sin_fx(i * 5);
+    int32_t val = (w1 * 95) + (w2 * 20) + (w5 * 8);
     return (int16_t)clamp16(val);
 }
 
-/* 4. Filtered Airy Cymbal Wash / Noise */
-static int16_t make_airy_wash(int i) {
-    /* Resonant band-filtered white noise approximation */
-    int32_t n = ((i * 107 + 73) % 255) - 128;
-    int32_t s = sin_fx(i * 4);
-    int32_t val = (n * 70) + (s * 35);
+/* 4. Shimmer Wash: Filtered airy high-frequency atmospheric sheen */
+static int16_t make_aero_shimmer_wash(int i) {
+    int32_t n = ((i * 131 + 47) % 255) - 128;
+    int32_t s1 = sin_fx(i * 8);
+    int32_t s2 = sin_fx(i * 12);
+    int32_t val = (n * 45) + (s1 * 30) + (s2 * 18);
     return (int16_t)clamp16(val);
 }
 
@@ -125,16 +121,16 @@ void sound_init(void) {
     }
 
     /* 4. Synthesize 4 16-bit PCM wavetables in SPU RAM */
-    volatile int16_t *wav_airbell   = (volatile int16_t *)(AICA_RAM_BASE + 0);
+    volatile int16_t *wav_chime     = (volatile int16_t *)(AICA_RAM_BASE + 0);
     volatile int16_t *wav_pad       = (volatile int16_t *)(AICA_RAM_BASE + 512);
-    volatile int16_t *wav_heartbeat = (volatile int16_t *)(AICA_RAM_BASE + 1024);
-    volatile int16_t *wav_wash      = (volatile int16_t *)(AICA_RAM_BASE + 1536);
+    volatile int16_t *wav_waterdrop = (volatile int16_t *)(AICA_RAM_BASE + 1024);
+    volatile int16_t *wav_shimmer   = (volatile int16_t *)(AICA_RAM_BASE + 1536);
 
     for (int i = 0; i < 256; i++) {
-        wav_airbell[i]   = make_airbell_lead(i);
-        wav_pad[i]       = make_warm_pad(i);
-        wav_heartbeat[i] = make_heartbeat_thump(i);
-        wav_wash[i]      = make_airy_wash(i);
+        wav_chime[i]     = make_crystal_glass_chime(i);
+        wav_pad[i]       = make_aero_glass_pad(i);
+        wav_waterdrop[i] = make_waterdrop_pluck(i);
+        wav_shimmer[i]   = make_aero_shimmer_wash(i);
     }
 
     s_seq_frame = 0;
@@ -154,10 +150,10 @@ void sound_play_note(int ch, int midi_note, int volume, int pan, int wavetable_i
     uint32_t smp_offset;
 
     switch (wavetable_id) {
-        case 1:  smp_offset = 512;  break; /* Warm Pad */
-        case 2:  smp_offset = 1024; break; /* Heartbeat / Bass */
-        case 3:  smp_offset = 1536; break; /* Airy Wash */
-        default: smp_offset = 0;    break; /* Airbell Pole Lead */
+        case 1:  smp_offset = 512;  break; /* Aero Glass Pad */
+        case 2:  smp_offset = 1024; break; /* Waterdrop Pluck */
+        case 3:  smp_offset = 1536; break; /* Shimmer Wash */
+        default: smp_offset = 0;    break; /* Crystal Glass Chime */
     }
 
     /* Stop previous voice on channel */
@@ -168,21 +164,21 @@ void sound_play_note(int ch, int midi_note, int volume, int pan, int wavetable_i
 
     /* Hardware ADSR Envelopes */
     if (wavetable_id == 0) {
-        /* Pole Lead Airbell: Crisp strike, singing ethereal decay */
-        AICA_CHN_REG(ch, 0x10) = 0x0796; /* AR=0x1E, D1R=0x16 */
-        AICA_CHN_REG(ch, 0x14) = 0x306E; /* DL=0x0C, D2R=0x03, RR=0x0E */
+        /* Crystal Glass Chime: Instant strike, long singing crystalline sustain */
+        AICA_CHN_REG(ch, 0x10) = 0x079C; /* AR=0x1E, D1R=0x1C */
+        AICA_CHN_REG(ch, 0x14) = 0x205E; /* DL=0x08, D2R=0x02, RR=0x0E */
     } else if (wavetable_id == 1) {
-        /* Warm Atmospheric Pad: Swelling organic attack, long sustain */
-        AICA_CHN_REG(ch, 0x10) = 0x0302; /* AR=0x0C, D1R=0x02 */
-        AICA_CHN_REG(ch, 0x14) = 0x7826; /* DL=0x1E, D2R=0x01, RR=0x06 */
+        /* Aero Glass Pad: Gentle swelling organic attack, warm sustain */
+        AICA_CHN_REG(ch, 0x10) = 0x0282; /* AR=0x0A, D1R=0x02 */
+        AICA_CHN_REG(ch, 0x14) = 0x7828; /* DL=0x1E, D2R=0x01, RR=0x08 */
     } else if (wavetable_id == 2) {
-        /* Heartbeat Thump / Bass: Fast punchy transient, quick release */
-        AICA_CHN_REG(ch, 0x10) = 0x079E; /* AR=0x1E, D1R=0x1E */
-        AICA_CHN_REG(ch, 0x14) = 0x104F; /* DL=0x04, D2R=0x04, RR=0x0F */
+        /* Liquid Waterdrop: Quick rounded attack, resonant decay */
+        AICA_CHN_REG(ch, 0x10) = 0x0796; /* AR=0x1E, D1R=0x16 */
+        AICA_CHN_REG(ch, 0x14) = 0x183E; /* DL=0x06, D2R=0x03, RR=0x0E */
     } else {
-        /* Airy Noise Wash: Slow ethereal swell and delay tail */
+        /* Shimmer Wash: Soft airy fade-in with diffuse delay tail */
         AICA_CHN_REG(ch, 0x10) = 0x0201; /* AR=0x08, D1R=0x01 */
-        AICA_CHN_REG(ch, 0x14) = 0x6024; /* DL=0x18, D2R=0x01, RR=0x04 */
+        AICA_CHN_REG(ch, 0x14) = 0x6026; /* DL=0x18, D2R=0x01, RR=0x06 */
     }
 
     AICA_CHN_REG(ch, 0x18) = pitch;
@@ -207,7 +203,7 @@ void sound_stop(void) {
 }
 
 /* -------------------------------------------------------------------------
- * Y2K Sound Sequencer (60 FPS VBlank Tick)
+ * Frutiger Aero Boot Sound Sequencer (60 FPS VBlank Tick)
  * ------------------------------------------------------------------------- */
 void sound_tick(void) {
     if (!s_sound_initialized) return;
@@ -216,113 +212,103 @@ void sound_tick(void) {
 
     switch (tick) {
         /* ==============================================================
-         * 1. SYNTH PAD: Warm chord holding A4, B4, D5, F#5 throughout
+         * 1. INTRO: Warm Ambient Aero Pad Swell & Sub-Bass Foundation
+         *    Chord: E Major 9 (E3 + B3 + F#4 + G#4 + B4 + D#5)
          * ============================================================== */
         case 2:
-            /* Warm Pad Chord: A4 (69), B4 (71), D5 (74), F#5 (78) in stereo */
-            sound_play_note(0, 69, 11, 0x1C, 1); /* A4  (Left) */
-            sound_play_note(1, 71, 10, 0x04, 1); /* B4  (Right) */
-            sound_play_note(2, 74, 11, 0x18, 1); /* D5  (Left) */
-            sound_play_note(3, 78, 10, 0x08, 1); /* F#5 (Right) */
+            /* Sub Bass Foundation (E2 = MIDI 40) */
+            sound_play_note(0, 40, 13, 0x10, 2); /* Deep Liquid Sub Center */
+
+            /* Ethereal Pad Swell in Stereo */
+            sound_play_note(1, 52, 10, 0x1A, 1); /* E3  (Left) */
+            sound_play_note(2, 59, 10, 0x06, 1); /* B3  (Right) */
+            sound_play_note(3, 66, 11, 0x18, 1); /* F#4 (Left) */
+            sound_play_note(4, 68, 11, 0x08, 1); /* G#4 (Right) */
+            sound_play_note(5, 75, 10, 0x14, 1); /* D#5 (Left) */
             break;
 
         /* ==============================================================
-         * 2. BASS & HEARTBEAT: Distorted EQ pulse ("lub-dub" thumps)
+         * 2. CRYSTALLINE GLASS CHIME CASCADE (Ascending E Maj9 Arpeggio)
          * ============================================================== */
-        case 8:
-            /* Heartbeat 1 - Pulse A (Low E2/E4 thump) */
-            sound_play_note(4, 40, 14, 0x14, 2); /* E2 Heavy Sub Left */
-            sound_play_note(5, 64, 13, 0x0C, 2); /* E4 Punch Right */
+        case 12:
+            /* Note 1: E5 (76) - Glass Strike Left */
+            sound_play_note(6, 76, 14, 0x1A, 0);
+            sound_play_note(7, 76, 10, 0x06, 0);
+            /* Waterdrop accent */
+            sound_play_note(8, 76, 11, 0x14, 2);
             break;
 
-        case 16:
-            /* Heartbeat 1 - Pulse B */
-            sound_play_note(4, 40, 12, 0x10, 2);
-            sound_play_note(5, 64, 11, 0x10, 2);
+        case 20:
+            /* Note 2: G#5 (80) - Glass Strike Right */
+            sound_play_note(9,  80, 14, 0x06, 0);
+            sound_play_note(10, 80, 10, 0x1A, 0);
             break;
 
-        /* ==============================================================
-         * 3. LEAD MELODY: Noisy sine "airbell" pole lead
-         *    Notes: D7 -> E5 -> B6 -> B5 -> E6 -> Db7
-         * ============================================================== */
-        case 24:
-            /* Melody 1: D7 (98) */
-            sound_play_note(6, 98, 14, 0x18, 0); /* D7 Left */
-            sound_play_note(7, 98, 11, 0x08, 0); /* D7 Spatial Right */
+        case 28:
+            /* Note 3: B5 (83) - Crystalline Bell Center-Left */
+            sound_play_note(11, 83, 14, 0x16, 0);
+            sound_play_note(12, 83, 11, 0x0A, 0);
+            /* Waterdrop accent */
+            sound_play_note(8, 83, 11, 0x0C, 2);
+            break;
+
+        case 36:
+            /* Note 4: D#6 (87) - High Chime Center-Right */
+            sound_play_note(13, 87, 14, 0x08, 0);
+            sound_play_note(14, 87, 11, 0x18, 0);
             break;
 
         case 44:
-            /* Melody 2: E5 (76) */
-            sound_play_note(8, 76, 13, 0x0A, 0); /* E5 Right */
-            sound_play_note(9, 76, 10, 0x16, 0); /* E5 Left */
+            /* Note 5: F#6 (90) - Shimmering Chime Left */
+            sound_play_note(6, 90, 14, 0x1C, 0);
+            sound_play_note(7, 90, 11, 0x04, 0);
             break;
 
-        case 64:
-            /* Melody 3: B6 (95) */
-            sound_play_note(6, 95, 14, 0x1A, 0); /* B6 Left */
-            sound_play_note(7, 95, 11, 0x06, 0); /* B6 Right */
-            break;
-
-        /* ==============================================================
-         * 4. AIRY NOISE & SECOND HEARTBEAT (HALFWAY SWELL)
-         * ============================================================== */
-        case 70:
-            /* Heartbeat 2 - Pulse A */
-            sound_play_note(4, 40, 14, 0x14, 2);
-            sound_play_note(5, 64, 13, 0x0C, 2);
-
-            /* Filtered airy cymbal wash fades in */
-            sound_play_note(10, 72, 12, 0x1E, 3); /* Wash Left */
-            sound_play_note(11, 72, 12, 0x02, 3); /* Wash Right */
-            break;
-
-        case 78:
-            /* Heartbeat 2 - Pulse B */
-            sound_play_note(4, 40, 12, 0x10, 2);
-            sound_play_note(5, 64, 11, 0x10, 2);
-            break;
-
-        case 84:
-            /* Melody 4: B5 (83) */
-            sound_play_note(8, 83, 13, 0x08, 0); /* B5 Right */
-            sound_play_note(9, 83, 10, 0x18, 0); /* B5 Left */
-            break;
-
-        case 104:
-            /* Melody 5: E6 (88) */
-            sound_play_note(6, 88, 14, 0x16, 0); /* E6 Left */
-            sound_play_note(7, 88, 11, 0x0A, 0); /* E6 Right */
-            break;
-
-        case 124:
-            /* Melody 6: Db7 (97) - Resolving Climax Note */
-            sound_play_note(8, 97, 15, 0x00, 0); /* Db7 Center Peak */
-            sound_play_note(9, 97, 12, 0x14, 0); /* Db7 Stereo Spread */
+        case 52:
+            /* Note 6: G#6 (92) - Top Glass Peak Right */
+            sound_play_note(9,  92, 15, 0x04, 0);
+            sound_play_note(10, 92, 12, 0x1C, 0);
             break;
 
         /* ==============================================================
-         * 5. CLIMAX BLOOM & SPATIAL REVERB / DELAY TAIL (130+)
+         * 3. CLIMAX BLOOM: High E7 Glass Harmonic + Full Chord Radiance
          * ============================================================== */
-        case 130:
-            /* Heartbeat 3 - Climax Pulse & Low E Bass Foundation */
-            sound_play_note(4, 40, 15, 0x10, 2); /* Deep E2 Sub */
-            sound_play_note(5, 64, 14, 0x10, 2); /* E4 Bass Sustained */
+        case 60:
+            /* Note 7 (Climax Peak): E7 (100) - Pure Ringing Glass Bell */
+            sound_play_note(11, 100, 15, 0x10, 0); /* Center Climax */
+            sound_play_note(12, 100, 13, 0x1E, 0); /* Left Spread */
+            sound_play_note(13, 100, 13, 0x02, 0); /* Right Spread */
 
-            /* Pad crescendo bloom */
-            sound_play_note(0, 69, 13, 0x1E, 1); /* A4 */
-            sound_play_note(1, 71, 12, 0x02, 1); /* B4 */
-            sound_play_note(2, 74, 13, 0x1A, 1); /* D5 */
-            sound_play_note(3, 78, 12, 0x06, 1); /* F#5 */
+            /* Shimmer wash air bloom */
+            sound_play_note(14, 80, 12, 0x1C, 3);
+            sound_play_note(15, 80, 12, 0x04, 3);
+
+            /* Pad Crescendo Brightness */
+            sound_play_note(1, 52, 12, 0x1C, 1); /* E3 */
+            sound_play_note(2, 64, 12, 0x10, 1); /* E4 */
+            sound_play_note(3, 71, 13, 0x04, 1); /* B4 */
+            sound_play_note(4, 76, 13, 0x18, 1); /* E5 */
+            sound_play_note(5, 83, 12, 0x08, 1); /* B5 */
             break;
 
-        /* Spatial diffuse echoes of resolving Db7 / E6 */
-        case 155:
-            sound_play_note(6, 97, 8, 0x0E, 0); /* Db7 Echo Right */
-            sound_play_note(7, 88, 7, 0x12, 0); /* E6 Echo Left */
+        /* ==============================================================
+         * 4. SPATIAL DIFFUSE ECHOES & ETHEREAL DECAY TAIL
+         * ============================================================== */
+        case 85:
+            /* Glass harmonic echo 1 (G#6 right / E6 left) */
+            sound_play_note(6, 92, 9, 0x06, 0);
+            sound_play_note(7, 88, 8, 0x1A, 0);
             break;
 
-        case 180:
-            sound_play_note(8, 97, 5, 0x14, 0); /* Db7 Diffuse Tail */
+        case 110:
+            /* Glass harmonic echo 2 (B5 center-right) */
+            sound_play_note(8, 83, 7, 0x0A, 0);
+            sound_play_note(9, 76, 6, 0x16, 0);
+            break;
+
+        case 140:
+            /* Final delicate crystal shimmer tail */
+            sound_play_note(10, 100, 5, 0x12, 0);
             break;
 
         default:

@@ -392,6 +392,11 @@ void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
         logo_alpha = sdiv32_anim((frame - 3) * 256, 30);
         if (logo_alpha > 256) logo_alpha = 256;
     }
+    if (frame > 140 && total_frames >= 170) {
+        int fade_out = sdiv32_anim((total_frames - frame) * 256, total_frames - 140);
+        if (fade_out < 0) fade_out = 0;
+        logo_alpha = (logo_alpha * fade_out) >> 8;
+    }
 
     if (logo_alpha > 0) {
         int logo_y = center_y + ((sin_fx(frame * 4) * 3) >> 8);
@@ -403,6 +408,11 @@ void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
     if (frame > 20) {
         text_alpha = sdiv32_anim((frame - 20) * 256, 30);
         if (text_alpha > 256) text_alpha = 256;
+    }
+    if (frame > 140 && total_frames >= 170) {
+        int fade_out = sdiv32_anim((total_frames - frame) * 256, total_frames - 140);
+        if (fade_out < 0) fade_out = 0;
+        text_alpha = (text_alpha * fade_out) >> 8;
     }
 
     if (text_alpha > 0) {
