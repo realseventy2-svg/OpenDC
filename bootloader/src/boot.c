@@ -73,21 +73,23 @@ int gdrom_boot_game(uint32_t data_fad) {
     }
 
     /* 6. Determine boot entrypoint and apply retail BIOS security DRM patches:
-          Commercial GD-ROMs contain Sega license display code at 0x8C008300 and
-          require retail BIOS security DRM patches at 0x0DD8, 0x14BC, and 0x1578.
-          For CD-ROMs / CDIs (both homebrew and self-boot Mil-CDs), 1ST_READ.BIN is
-          already loaded and descrambled cleanly at 0x8C010000. Booting directly from
-          0x8C010000 starts the game immediately and avoids GD-ROM security traps in IP.BIN. */
+          Commercial discs (both GD-ROM and self-boot CDIs) contain bootstrap code at 0x8C008300.
+          If retail BIOS security check instructions (0xE100 at 0x0DD8 and 0xBE25 at 0x14BC) are
+          present, patch them to bypass the security reset.
+          Homebrew discs (CDI) have 0s at 0x8C008300 and boot directly from 0x8C010000. */
     uint32_t boot_entry = 0x8C010000UL;
     uint32_t *ip_entry = (uint32_t *)0x8C008300UL;
-    if(gdrom_get_cached_disc_type() == 0x80 && *ip_entry != 0 && *ip_entry != 0xFFFFFFFFUL) {
+    if(*ip_entry != 0 && *ip_entry != 0xFFFFFFFFUL) {
         boot_entry = 0xAC008300UL;
-        *(volatile uint16_t *)(0x8C008300UL + 0x0DD8) = 0x5113;
-        *(volatile uint16_t *)(0x8C008300UL + 0x14BC) = 0x0009; /* nop */
-        *(volatile uint16_t *)(0x8C008300UL + 0x1578) = 0xE030; /* mov #48, r0 */
-        *(volatile uint16_t *)(0xAC008300UL + 0x0DD8) = 0x5113;
-        *(volatile uint16_t *)(0xAC008300UL + 0x14BC) = 0x0009;
-        *(volatile uint16_t *)(0xAC008300UL + 0x1578) = 0xE030;
+        if(*(volatile uint16_t *)(0x8C008300UL + 0x0DD8) == 0xE100 &&
+           *(volatile uint16_t *)(0x8C008300UL + 0x14BC) == 0xBE25) {
+            *(volatile uint16_t *)(0x8C008300UL + 0x0DD8) = 0x5113;
+            *(volatile uint16_t *)(0x8C008300UL + 0x14BC) = 0x0009; /* nop */
+            *(volatile uint16_t *)(0x8C008300UL + 0x1578) = 0xE030; /* mov #48, r0 */
+            *(volatile uint16_t *)(0xAC008300UL + 0x0DD8) = 0x5113;
+            *(volatile uint16_t *)(0xAC008300UL + 0x14BC) = 0x0009;
+            *(volatile uint16_t *)(0xAC008300UL + 0x1578) = 0xE030;
+        }
     }
 
     /* 7. Flush & enable SH-4 caches (CCR = 0x092B enables OCRAM at 0x7E001000 for IP.BIN) */

@@ -128,16 +128,29 @@ int gdrom_probe_toc(void) {
     int result = gdrom_prepare_disk();
     if(result != GDROM_OK) return result;
 
-    result = gdrom_read_raw_toc(toc, 1);
-    if(result != GDROM_OK)
-        result = gdrom_read_raw_toc(toc, 0);
+    /* 1. Try Area 1 (GD-ROM Double Density) */
+    int is_gdrom = 0;
+    if(gdrom_read_raw_toc(toc, 1) == GDROM_OK) {
+        /* On GD-ROM, Track 3 is in Area 1 (index 2: toc + 8).
+           Also check first track at toc[99*4]. On CD-ROM, Area 1 is all 0xFF. */
+        if(toc[8] != 0xFF || toc[99 * 4] != 0xFF) {
+            is_gdrom = 1;
+        }
+    }
 
-    if(result == GDROM_OK) {
+    if(is_gdrom) {
         cached_disc_status = 2; /* STANDBY */
-        cached_disc_type = (toc[0] != 0xFF && toc[0] != 0) ? 0x80 : 0x10;
+        cached_disc_type = 0x80;
     } else {
-        cached_disc_status = 7; /* NO_DISC */
-        cached_disc_type = 0;
+        /* 2. Try Area 0 (CD-ROM / CDI Single Density) */
+        result = gdrom_read_raw_toc(toc, 0);
+        if(result == GDROM_OK && (toc[0] != 0xFF || toc[99 * 4] != 0xFF)) {
+            cached_disc_status = 2;
+            cached_disc_type = 0x10;
+        } else {
+            cached_disc_status = 7; /* NO_DISC */
+            cached_disc_type = 0;
+        }
     }
     return result;
 }
