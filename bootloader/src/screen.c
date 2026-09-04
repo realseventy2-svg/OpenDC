@@ -309,16 +309,18 @@ void screen_animate_splash(int duration_frames) {
     uint16_t color = current_theme->cube_color;
     uint16_t bg = current_theme->bg_color;
 
-    /* Cube Bounding Box for Partial Frame Clearing */
+    /* Cube Bounding Box for Clearing */
     int clear_w = 200;
     int clear_h = 160;
     int clear_x = cx - (clear_w / 2);
     int clear_y = cy - (clear_h / 2);
 
-    for (int frame = 0; frame < duration_frames; frame++) {
-        video_wait_vblank();
+    /* Clone static background, diagnostics, and text to back buffer */
+    video_sync_buffers();
+    video_set_target_buffer(video_get_back_fb());
 
-        /* Partial clear of only the cube region for 60 FPS flicker-free animation */
+    for (int frame = 0; frame < duration_frames; frame++) {
+        /* Clear previous cube position on back buffer (invisible to user) */
         video_fill_rect(clear_x, clear_y, clear_w, clear_h, bg);
 
         /* Smooth 3-axis rotation */
@@ -326,6 +328,15 @@ void screen_animate_splash(int duration_frames) {
         int ay = (frame * 3) & 0xFF;
         int az = (frame * 1) & 0xFF;
 
+        /* Draw new cube into back buffer */
         screen_draw_cube(cx, cy, size, ax, ay, az, color);
+
+        /* Hardware Page-Flip on VBlank with zero flicker */
+        video_flip_buffer();
     }
+
+    /* Synchronize final frame to both buffers and set Page 0 active for game boot */
+    video_sync_buffers();
+    video_set_target_buffer(VRAM_PAGE_0);
+    *(volatile uint32_t *)0xA05F8050UL = 0x00000000UL;
 }

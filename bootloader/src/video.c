@@ -120,6 +120,9 @@ static const uint8_t FONT_8X8[95][8] = {
     /* 126 '~'*/ { 0x76, 0xDC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }
 };
 
+static int s_current_page = 0;
+static volatile uint16_t *s_draw_fb = (volatile uint16_t *)VRAM_PAGE_0;
+
 void video_init(void) {
     PVR_VIDEO_CFG     = 0x00000008;
     PVR_BORDER_COLOR  = 0x00000000;
@@ -140,6 +143,9 @@ void video_init(void) {
     PVR_FB_SIZE       = (1 << 20) | (479 << 10) | 319;
 
     PVR_VIDEO_CFG     = 0x00000000;
+
+    s_current_page    = 0;
+    s_draw_fb         = (volatile uint16_t *)VRAM_PAGE_0;
 }
 
 void video_wait_vblank(void) {
@@ -156,15 +162,42 @@ void video_wait_seconds(int seconds) {
     }
 }
 
+void video_set_target_buffer(uint32_t addr) {
+    s_draw_fb = (volatile uint16_t *)addr;
+}
+
+uint32_t video_get_current_fb(void) {
+    return (s_current_page == 0) ? VRAM_PAGE_0 : VRAM_PAGE_1;
+}
+
+uint32_t video_get_back_fb(void) {
+    return (s_current_page == 0) ? VRAM_PAGE_1 : VRAM_PAGE_0;
+}
+
+void video_flip_buffer(void) {
+    video_wait_vblank();
+    s_current_page ^= 1;
+    PVR_FB_ADDR = (s_current_page == 0) ? 0x00000000UL : 0x00100000UL;
+    s_draw_fb = (s_current_page == 0) ? (volatile uint16_t *)VRAM_PAGE_1 : (volatile uint16_t *)VRAM_PAGE_0;
+}
+
+void video_sync_buffers(void) {
+    volatile uint32_t *src = (volatile uint32_t *)video_get_current_fb();
+    volatile uint32_t *dst = (volatile uint32_t *)video_get_back_fb();
+    for (size_t i = 0; i < (SCREEN_WIDTH * SCREEN_HEIGHT * 2) / 4; i++) {
+        dst[i] = src[i];
+    }
+}
+
 void video_clear(uint16_t color) {
-    volatile uint16_t *fb = (volatile uint16_t *)VRAM_BASE;
+    volatile uint16_t *fb = s_draw_fb;
     for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
         fb[i] = color;
     }
 }
 
 void video_fill_rect(int x, int y, int w, int h, uint16_t color) {
-    volatile uint16_t *fb = (volatile uint16_t *)VRAM_BASE;
+    volatile uint16_t *fb = s_draw_fb;
     for (int row = y; row < y + h; row++) {
         if ((unsigned)row >= SCREEN_HEIGHT) continue;
         volatile uint16_t *line = fb + (row * SCREEN_WIDTH) + x;
@@ -177,8 +210,7 @@ void video_fill_rect(int x, int y, int w, int h, uint16_t color) {
 
 void video_draw_pixel(int x, int y, uint16_t color) {
     if ((unsigned)x < SCREEN_WIDTH && (unsigned)y < SCREEN_HEIGHT) {
-        volatile uint16_t *fb = (volatile uint16_t *)VRAM_BASE;
-        fb[y * SCREEN_WIDTH + x] = color;
+        s_draw_fb[y * SCREEN_WIDTH + x] = color;
     }
 }
 
