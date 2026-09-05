@@ -412,7 +412,7 @@ void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
 
         /* Bottom-Right: Modern Copyright Line */
         uint16_t copy_col = RGB565(90, 110, 135);
-        draw_modern_text(fb, 395, 436, "(C) SEGA ENTERPRISES 2026", copy_col, text_alpha);
+        draw_modern_text(fb, 395, 436, " ", copy_col, text_alpha); //sega enterprises
     }
 }
 

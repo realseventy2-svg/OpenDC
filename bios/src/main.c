@@ -237,7 +237,7 @@ static void trigger_ripple(float x, float y) {
             ripples[i].y = y;
             ripples[i].radius = 6.0f;
             ripples[i].max_radius = 85.0f;
-            ripples[i].alpha = 0.85f;
+            ripples[i].alpha = 0.95f;
             ripples[i].active = 1;
             break;
         }

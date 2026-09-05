@@ -14,8 +14,8 @@ const boot_theme_t BOOT_THEME_DEFAULT = {
     .bar_complete_color = RGB565(90, 210, 255),
 
     .title              = "Open Dreamcast",
-    .subtitle           = "SEGA DREAMCAST ARCHITECTURE",
-    .version_text       = "Custom Boot Firmware",
+    .subtitle           = "",
+    .version_text       = "",
 
     .splash_delay_seconds = 8,
     .splash_delay_frames  = 0,

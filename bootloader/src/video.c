@@ -197,7 +197,31 @@ void video_sync_buffers(void) {
     }
 }
 
+void video_purge_all_vram(uint32_t clear_val) {
+    /* Fast 32-byte burst Store Queue purge of entire 8MB (8,388,608 bytes) VRAM */
+    volatile uint32_t *sq = (volatile uint32_t *)0xE0000000UL;
+
+    /* Set Store Queue Destination to VRAM (0xA5000000) */
+    *(volatile uint32_t *)0xFF000038UL = (((0xA5000000UL) >> 26) << 2) & 0x1C;
+    *(volatile uint32_t *)0xFF00003CUL = (((0xA5000000UL) >> 26) << 2) & 0x1C;
+
+    /* Fill BOTH SQ0 (words 0..7) and SQ1 (words 8..15) completely with clear_val */
+    for (int i = 0; i < 16; i++) {
+        sq[i] = clear_val;
+    }
+
+    uint32_t dest = 0xE0000000UL;
+    /* 8MB = 8,388,608 bytes / 32 bytes per burst = 262,144 bursts */
+    for (uint32_t i = 0; i < (8 * 1024 * 1024) / 32; i++) {
+        __asm__ volatile("pref @%0" : : "r"(dest));
+        dest += 32;
+    }
+}
+
 void video_clean_handoff(void) {
+    /* 0. Wait for vertical blanking to eliminate tearing */
+    video_wait_vblank();
+
     /* 1. Reset PowerVR Tile Accelerator (TA) and Core graphics pipelines */
     *(volatile uint32_t *)(PVR_BASE + 0x0008) = 0x00000003;
     for (volatile int i = 0; i < 0x2000; i++) {
@@ -217,12 +241,8 @@ void video_clean_handoff(void) {
     *(volatile uint32_t *)(PVR_BASE + 0x00CC) = 0x00000000; /* SPG_VBLANK_INT */
     *(volatile uint32_t *)(PVR_BASE + 0x011C) = 0x00000000; /* PT_ALPHA_REF (Punch-Through Alpha Ref) */
 
-    /* 3. Set framebuffer to clean frosty white baseline for seamless BIOS handoff */
-    uint32_t white32 = ((uint32_t)RGB565(248, 250, 254) << 16) | (uint32_t)RGB565(248, 250, 254);
-    volatile uint32_t *vram = (volatile uint32_t *)VRAM_BASE;
-    for (size_t i = 0; i < (640 * 480 * 2) / 4; i++) {
-        vram[i] = white32;
-    }
+    /* 3. Completely purge entire 8MB VRAM to total zero/black so no visual leftover exists */
+    video_purge_all_vram(0x00000000UL);
 
     /* 4. Reset primary video display registers to clean Katana baseline */
     PVR_FB_ADDR       = 0x00000000;

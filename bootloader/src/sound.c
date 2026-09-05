@@ -129,7 +129,7 @@ static int16_t make_silky_air_bloom(int i) {
 
 static uint32_t s_seq_frame = 0;
 static int s_sound_initialized = 0;
-static int s_total_duration = 480;
+static int s_total_duration = 280;
 
 void sound_init(void) {
     /* 1. Hold AICA ARM7 sound CPU in reset */
@@ -158,7 +158,7 @@ void sound_init(void) {
     }
 
     s_seq_frame = 0;
-    s_total_duration = 480;
+    s_total_duration = 280;
     s_sound_initialized = 1;
 }
 
@@ -212,7 +212,7 @@ void sound_play_note(int ch, int midi_note, int volume, int pan, int wavetable_i
     AICA_CHN_REG(ch, 0x18) = pitch;
 
     /* Direct Send Level attenuation: 15 = 0 dB (full volume), 0 = -90 dB */
-    uint32_t disdl = (volume >= 15) ? 0 : (15 - (volume & 0x0F));
+    uint32_t disdl = (volume >= 17) ? 0 : (17 - (volume & 0x0F));
     AICA_CHN_REG(ch, 0x24) = (disdl << 8) | (pan & 0x1F);
 
     /* Bypass LPF and trigger key-on */
