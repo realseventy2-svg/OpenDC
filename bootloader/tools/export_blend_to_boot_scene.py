@@ -131,28 +131,41 @@ def export_boot_scene():
 
     print(f"Sphere: {len(sphere_verts)} vertices, {len(me_sphere.loop_triangles)} triangles.")
 
-    # 4. Collect 2D sprite letter planes
-    sprite_objs = [o for o in scene.objects if o.name.startswith('Sprite_Text')]
-    sprite_objs.sort(key=lambda o: o.name)
-    print(f"Found {len(sprite_objs)} 2D sprite objects")
+    # 4. Collect 2D sprite letter planes / 3D Font text objects
+    text_objs = [o for o in scene.objects if o.type == 'FONT']
+    text_objs.sort(key=lambda o: o.name)
+    if not text_objs:
+        text_objs = [o for o in scene.objects if o.name.startswith('Sprite_Text')]
+        text_objs.sort(key=lambda o: o.name)
+    print(f"Found {len(text_objs)} 2D text/sprite objects")
 
-    # Load letter PNGs and rasterize to ARGB4444
+    # Load letter PNGs and rasterize to ARGB4444 with exact tight glyph cropping
     scene.frame_set(250)
+    dg = bpy.context.evaluated_depsgraph_get()
     sprite_data = [] # (width, height, argb4444_bytes)
 
-    for i, spr_obj in enumerate(sprite_objs):
-        mat = spr_obj.matrix_world
+    for i, t_obj in enumerate(text_objs):
+        eval_obj = t_obj.evaluated_get(dg)
+        me = eval_obj.to_mesh()
         coords_2d = []
-        for v in spr_obj.data.vertices:
-            wco = mat @ v.co
+        for v in me.vertices:
+            wco = eval_obj.matrix_world @ v.co
             p2d = bpy_extras.object_utils.world_to_camera_view(scene, cam, wco)
             coords_2d.append((p2d.x * 640.0, (1.0 - p2d.y) * 480.0))
-        w = max(1, int(round(max(c[0] for c in coords_2d) - min(c[0] for c in coords_2d))))
-        h = max(1, int(round(max(c[1] for c in coords_2d) - min(c[1] for c in coords_2d))))
+        eval_obj.to_mesh_clear()
+
+        min_x = min(c[0] for c in coords_2d)
+        max_x = max(c[0] for c in coords_2d)
+        min_y = min(c[1] for c in coords_2d)
+        max_y = max(c[1] for c in coords_2d)
+
+        w = max(1, int(round(max_x - min_x)))
+        h = max(1, int(round(max_y - min_y)))
 
         png_candidates = [
-            os.path.join(LETTERS_DIR, f"letter_{i:02d}_{spr_obj.name.replace('Sprite_', '')}.png"),
-            os.path.join(LETTERS_DIR, f"letter_{i:02d}_{spr_obj.name}.png"),
+            os.path.join(LETTERS_DIR, f"letter_{i:02d}_{t_obj.name}.png"),
+            os.path.join(LETTERS_DIR, f"letter_{i:02d}_{t_obj.name.replace('Sprite_', '')}.png"),
+            os.path.join(LETTERS_DIR, f"letter_{i:02d}_Text{t_obj.name.replace('Sprite_Text', '').replace('Text', '')}.png"),
         ]
         png_path = None
         for p in png_candidates:
@@ -165,27 +178,44 @@ def export_boot_scene():
                 png_path = os.path.join(LETTERS_DIR, png_files[0])
 
         if not png_path:
-            raise Exception(f"Letter PNG for {spr_obj.name} not found in {LETTERS_DIR}")
+            raise Exception(f"Letter PNG for {t_obj.name} not found in {LETTERS_DIR}")
 
         img = bpy.data.images.load(png_path)
         src_w, src_h = img.size[0], img.size[1]
         src_pixels = list(img.pixels)
         bpy.data.images.remove(img)
 
-        # High-quality sub-pixel area-averaging downsampler (anti-aliased vector text edges)
+        # Find exact non-alpha crop bounds in source PNG
+        min_px = src_w; max_px = 0; min_py = src_h; max_py = 0
+        for py in range(src_h):
+            for px in range(src_w):
+                a = src_pixels[(py * src_w + px) * 4 + 3]
+                if a > 0.05:
+                    if px < min_px: min_px = px
+                    if px > max_px: max_px = px
+                    if py < min_py: min_py = py
+                    if py > max_py: max_py = py
+
+        if min_px > max_px or min_py > max_py:
+            min_px, max_px, min_py, max_py = 0, src_w - 1, 0, src_h - 1
+
+        crop_w = max_px - min_px + 1
+        crop_h = max_py - min_py + 1
+
+        # High-quality sub-pixel area-averaging downsampler tightly mapped to cropped glyph
         raw_pixels = bytearray()
-        scale_x = src_w / float(w)
-        scale_y = src_h / float(h)
+        scale_x = crop_w / float(w)
+        scale_y = crop_h / float(h)
 
         for dy in range(h - 1, -1, -1):
-            sy_start = dy * scale_y
-            sy_end = (dy + 1) * scale_y
+            sy_start = min_py + dy * scale_y
+            sy_end = min_py + (dy + 1) * scale_y
             iy_start = int(math.floor(sy_start))
             iy_end = min(int(math.ceil(sy_end)), src_h)
 
             for dx in range(w):
-                sx_start = dx * scale_x
-                sx_end = (dx + 1) * scale_x
+                sx_start = min_px + dx * scale_x
+                sx_end = min_px + (dx + 1) * scale_x
                 ix_start = int(math.floor(sx_start))
                 ix_end = min(int(math.ceil(sx_end)), src_w)
 
@@ -215,7 +245,7 @@ def export_boot_scene():
                 raw_pixels.extend(struct.pack('<H', val16))
 
         sprite_data.append((w, h, raw_pixels))
-        print(f"  Sprite {i:02d} ({spr_obj.name}): {w}x{h} px ({len(raw_pixels)} bytes)")
+        print(f"  Sprite {i:02d} ({t_obj.name}): {w}x{h} px ({len(raw_pixels)} bytes)")
 
     # 5. Pack Geometry (Swirl = Object 0, Sphere = Object 1)
     vert_bytes = bytearray()
@@ -241,7 +271,7 @@ def export_boot_scene():
     for idx in sphere_indices:
         idx_bytes.extend(struct.pack('<H', idx))
 
-    swirl_col_raw = get_object_color(swirl, fallback=(0.973, 0.109, 0.053))
+    swirl_col_raw = (0.797451, 0.141914, 0.011529) # Calibrated Sega Burnt Orange #BF5216
     sphere_col_raw = swirl_col_raw
 
     swirl_color = color_to_rgb565(swirl_col_raw)
@@ -334,13 +364,30 @@ def export_boot_scene():
                 sr20, sr21, sr22, st2
             ))
 
-        # --- 2D Sprites ---
-        for i, spr_obj in enumerate(sprite_objs):
-            p2d = bpy_extras.object_utils.world_to_camera_view(scene, cam, spr_obj.matrix_world.translation)
-            w, h, _ = sprite_data[i]
-            dest_x = int(round(p2d.x * 640.0 - (w / 2.0)))
-            dest_y = int(round((1.0 - p2d.y) * 480.0 - (h / 2.0)))
-            alpha = 255 if p2d.z > 0 else 0
+        # --- 2D Sprites (Text Glyphs) ---
+        dg = bpy.context.evaluated_depsgraph_get()
+        for i, t_obj in enumerate(text_objs):
+            p2d_center = bpy_extras.object_utils.world_to_camera_view(scene, cam, t_obj.matrix_world.translation)
+            eval_obj = t_obj.evaluated_get(dg)
+            me = eval_obj.to_mesh()
+            v_coords = []
+            for v in me.vertices:
+                wco = eval_obj.matrix_world @ v.co
+                p2d_v = bpy_extras.object_utils.world_to_camera_view(scene, cam, wco)
+                v_coords.append((p2d_v.x * 640.0, (1.0 - p2d_v.y) * 480.0))
+            eval_obj.to_mesh_clear()
+
+            if v_coords:
+                min_vx = min(c[0] for c in v_coords)
+                min_vy = min(c[1] for c in v_coords)
+                dest_x = int(round(min_vx))
+                dest_y = int(round(min_vy))
+            else:
+                w, h, _ = sprite_data[i]
+                dest_x = int(round(p2d_center.x * 640.0 - (w / 2.0)))
+                dest_y = int(round((1.0 - p2d_center.y) * 480.0 - (h / 2.0)))
+
+            alpha = 255 if (p2d_center.z > 0 and dest_y < 460) else 0
             spr_frame_bytes.extend(struct.pack('<hhBBH', dest_x, dest_y, alpha, 100, 0))
 
     # 7. Load or Convert Audio Sample (11,025 Hz 8-bit Signed PCM)
@@ -381,7 +428,7 @@ def export_boot_scene():
     off_sprites = off_objs + len(obj_table_bytes)
     
     sprite_header_bytes = bytearray()
-    off_spr_frames = off_sprites + len(sprite_objs) * 8
+    off_spr_frames = off_sprites + len(text_objs) * 8
     off_pixels_base = off_spr_frames + len(spr_frame_bytes)
 
     pixel_data_bytes = bytearray()
@@ -409,7 +456,7 @@ def export_boot_scene():
         off_wav,             # off_wavetables (PCM audio data)
         off_objs,            # off_objects
         off_sprites,         # off_sprites
-        len(sprite_objs),    # sprite_count
+        len(text_objs),      # sprite_count
         stored_frames,       # stored_frames (188)
         off_spr_frames,      # off_sprite_frames
         len(audio_pcm_bytes) # audio_sample_bytes
