@@ -181,12 +181,12 @@ static int project_vertex(const int32_t v_cam[3], int *sx, int *sy)
     if (z_fx <= 655) return 0;   /* near plane clip: closer than ~0.01 units or behind */
 
     /*
-     * Full 16.16 fixed-point perspective division without precision loss.
+     * Full 16.16 fixed-point perspective division using standalone sdiv32 (no libgcc __divdi3).
      * sx = cx + (x_cam * focal_length) / z_cam
      * Both v_cam[0] and z_fx are scaled by 65536, so the scale factor cancels out.
      */
-    int32_t proj_x = (int32_t)(((int64_t)v_cam[0] * BOOT_SCENE_FOCAL_LEN) / z_fx);
-    int32_t proj_y = (int32_t)(((int64_t)v_cam[1] * BOOT_SCENE_FOCAL_LEN) / z_fx);
+    int32_t proj_x = sdiv32(v_cam[0] * BOOT_SCENE_FOCAL_LEN, z_fx);
+    int32_t proj_y = sdiv32(v_cam[1] * BOOT_SCENE_FOCAL_LEN, z_fx);
 
     int screen_x = 320 + proj_x;
     int screen_y = 240 - proj_y; /* flip Y for screen coordinates (Y-down) */
@@ -195,6 +195,7 @@ static int project_vertex(const int32_t v_cam[3], int *sx, int *sy)
     *sy = screen_y;
     return 1;
 }
+
 
 /* =========================================================================
  * Internal: Flat-shaded wireframe triangle rasterizer
