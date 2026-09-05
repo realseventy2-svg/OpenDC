@@ -17,7 +17,9 @@ typedef struct {
     uint16_t swirl_glint_color; /* Specular glint color */
     uint16_t bg_color;          /* Screen background clear color */
     int num_particles;          /* Active 3D orbital particle count */
+    int hide_2d_logo;           /* 1 = suppress 2D glass logo sprite when 3D scene is active */
 } boot_scene_config_t;
+
 
 /* Initialize 3D camera, vertex buffers, and particle vortex */
 void boot_anim_init(const boot_scene_config_t *config);

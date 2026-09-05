@@ -32,24 +32,6 @@ SECTIONS
         *(.rodata*)
     } > ROM
 
-    /*
-     * DCBS plug-and-play container — placed at 0xA0010000 (ROM + 64 KB).
-     * The linker symbol _boot_scene_bin_start exposes the blob address so
-     * payload.c can pass it directly to boot_scene_mount() without a copy.
-     * boot_scene.bin is linked in as a binary object via objcopy.
-     */
-    .boot_scene 0xA0010000 :
-    {
-        . = ALIGN(64);
-        _boot_scene_bin_start = .;
-        __boot_scene_bin_start = .;
-        boot_scene_bin_start = .;
-        KEEP(*(.boot_scene*))
-        _boot_scene_bin_end = .;
-        __boot_scene_bin_end = .;
-        boot_scene_bin_end = .;
-    } > ROM
-
     /* Stage 3: Initialized data (Stored in ROM, Relocated to Low SDRAM) */
     __data_lma = .;
     .data : AT (__data_lma)
@@ -74,7 +56,26 @@ SECTIONS
         __bss_end = .;
     } > STATE
 
+    /*
+     * DCBS plug-and-play container — placed at 0xA0080000 (ROM + 512 KB).
+     * Placed after custom_bios.bin (0xA0010000..0xA007FFFF, 448 KB) to prevent
+     * payload collision and ensure clean chainloading into the KOS dashboard.
+     * The linker symbol _boot_scene_bin_start exposes the direct ROM pointer.
+     */
+    .boot_scene 0xA0080000 :
+    {
+        . = ALIGN(64);
+        _boot_scene_bin_start = .;
+        __boot_scene_bin_start = .;
+        boot_scene_bin_start = .;
+        KEEP(*(.boot_scene*))
+        _boot_scene_bin_end = .;
+        __boot_scene_bin_end = .;
+        boot_scene_bin_end = .;
+    } > ROM
+
     __stack_top = 0x8D000000;
+
 
     /DISCARD/ :
     {

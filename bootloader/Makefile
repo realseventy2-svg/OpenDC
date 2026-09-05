@@ -96,18 +96,22 @@ $(TARGET).bin: $(TARGET).elf
 
 # Build the final 2 MB ROM image:
 #   1. Start from the retail ROM base (for font/system tables) or zero-filled.
-#   2. Patch the bootloader binary at offset 0 (0xA0000000).
-#   3. boot_scene.bin is already embedded at 0x10000 via the linker/objcopy step,
-#      so boot.bin already contains the full blob — no extra patching needed.
+#   2. Patch the bootloader binary (0xA0000000) and boot_scene (0xA0080000).
+#   3. Inject custom_bios.bin (the KOS Dashboard payload) at offset 64 KB (0x10000).
 dc_boot.bin: $(TARGET).bin
 	python3 -c "\
 import os; \
-r_path='/mnt/d/Github/Personal/KallistiOS/bios/jc-bootROM-retail-v1.032.bin'; \
-r=bytearray(open(r_path,'rb').read() if os.path.exists(r_path) else b'\x00'*$(ROM_SIZE)); \
-b=open('$<','rb').read(); \
-r[:len(b)]=b; \
-open('$@','wb').write(r[:$(ROM_SIZE)]); \
-print(f'Built $@: {$(ROM_SIZE):,} bytes')"
+sz = $(ROM_SIZE); \
+r_path = '/mnt/d/Github/Personal/KallistiOS/bios/jc-bootROM-retail-v1.032.bin'; \
+r = bytearray(open(r_path, 'rb').read()) if os.path.exists(r_path) else bytearray(sz); \
+b = open('$<', 'rb').read(); \
+r[:len(b)] = b; \
+c_candidates = ['../bios/custom_bios.bin', '/mnt/d/Github/Personal/KallistiOS/projects/OpenDC/bios/custom_bios.bin']; \
+[r.__setitem__(slice(65536, 65536 + len(open(cp, 'rb').read())), open(cp, 'rb').read()) for cp in c_candidates if os.path.exists(cp)]; \
+open('$@', 'wb').write(r[:sz]); \
+print(f'Built $@: {sz:,} bytes')"
 
 clean:
 	rm -f $(OBJS) $(TARGET).elf $(TARGET).bin dc_boot.bin boot_scene_blob.o
+
+

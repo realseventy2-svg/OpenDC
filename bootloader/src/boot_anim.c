@@ -326,10 +326,11 @@ void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
         logo_alpha = (logo_alpha * fade_out) >> 8;
     }
 
-    if (logo_alpha > 0) {
+    if (logo_alpha > 0 && !s_config.hide_2d_logo) {
         int logo_y = center_y + ((sin_fx(frame * 4) * 3) >> 8);
         draw_glass_logo_fb(fb, center_x, logo_y, logo_alpha, frame);
     }
+
 
     /* 3. High-Definition Anti-Aliased Modern Typography & Branding */
     int text_alpha = 0;

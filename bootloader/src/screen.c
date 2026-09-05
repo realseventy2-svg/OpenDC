@@ -381,8 +381,10 @@ void screen_animate_splash(int duration_frames) {
     cfg.swirl_glint_color = RGB565(255, 255, 255);
     cfg.bg_color = current_theme->bg_color;
     cfg.num_particles = 32;
+    cfg.hide_2d_logo = has_dcbs;
 
     boot_anim_init(&cfg);
+
 
     if (current_theme->music_enabled) {
         sound_set_duration(duration_frames);
