@@ -45,6 +45,12 @@ static inline uint32_t rd32(const void *p)
          | ((uint32_t)b[3] << 24);
 }
 
+static inline uint16_t rd16(const void *p)
+{
+    const uint8_t *b = (const uint8_t *)p;
+    return (uint16_t)b[0] | ((uint16_t)b[1] << 8);
+}
+
 /* =========================================================================
  * Internal: Float read from packed blob (IEEE-754 little-endian on SH-4)
  * The SH-4 is natively IEEE-754 little-endian in single precision mode,
@@ -198,28 +204,90 @@ static int project_vertex(const int32_t v_cam[3], int *sx, int *sy)
 
 
 /* =========================================================================
- * Internal: Flat-shaded wireframe triangle rasterizer
- *
- * Draws 3 lines forming the triangle edges.  The calling convention keeps
- * this compatible with video_draw_line() from video.h.
+ * Internal: Fast Solid Filled Triangle Rasterizer (Scanline Span Fill)
  * ========================================================================= */
-static void draw_triangle_fb(int x0, int y0, int x1, int y1,
-                              int x2, int y2, uint16_t color)
+static inline void draw_span_fb(uint32_t fb_addr, int y, int x0, int x1, uint16_t color)
 {
-    video_draw_line(x0, y0, x1, y1, color);
-    video_draw_line(x1, y1, x2, y2, color);
-    video_draw_line(x2, y2, x0, y0, color);
+    if (y < 0 || y >= 480) return;
+    if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
+    if (x0 < 0) x0 = 0;
+    if (x1 >= 640) x1 = 639;
+    if (x0 > x1) return;
+
+    volatile uint16_t *dst = (volatile uint16_t *)fb_addr + (y * 640) + x0;
+    int count = x1 - x0 + 1;
+
+    /* 32-bit aligned burst writes */
+    uint32_t c32 = (uint32_t)color | ((uint32_t)color << 16);
+    if (((uint32_t)dst & 2) && count > 0) {
+        *dst++ = color;
+        count--;
+    }
+    volatile uint32_t *dst32 = (volatile uint32_t *)dst;
+    while (count >= 2) {
+        *dst32++ = c32;
+        count -= 2;
+    }
+    if (count > 0) {
+        *(volatile uint16_t *)dst32 = color;
+    }
+}
+
+static void draw_filled_triangle_fb(uint32_t fb_addr,
+                                    int x0, int y0,
+                                    int x1, int y1,
+                                    int x2, int y2,
+                                    uint16_t color)
+{
+    /* Sort vertices by Y: y0 <= y1 <= y2 */
+    if (y0 > y1) { int tx = x0; x0 = x1; x1 = tx; int ty = y0; y0 = y1; y1 = ty; }
+    if (y0 > y2) { int tx = x0; x0 = x2; x2 = tx; int ty = y0; y0 = y2; y2 = ty; }
+    if (y1 > y2) { int tx = x1; x1 = x2; x2 = tx; int ty = y1; y1 = y2; y2 = ty; }
+
+    if (y0 == y2 || y2 < 0 || y0 >= 480) return;
+
+    /* Fixed-point 16.16 slope stepping: 0 divisions per scanline */
+    int32_t total_h = y2 - y0;
+    int32_t dx02 = sdiv32((x2 - x0) << 16, total_h);
+
+    /* Top segment: y0 to y1 */
+    int h0 = y1 - y0;
+    if (h0 > 0) {
+        int32_t dx01 = sdiv32((x1 - x0) << 16, h0);
+        int start_y = (y0 < 0) ? 0 : y0;
+        int end_y = (y1 >= 480) ? 479 : y1;
+        int32_t cur_xa = (x0 << 16) + dx02 * (start_y - y0);
+        int32_t cur_xb = (x0 << 16) + dx01 * (start_y - y0);
+
+        for (int y = start_y; y <= end_y; y++) {
+            draw_span_fb(fb_addr, y, cur_xa >> 16, cur_xb >> 16, color);
+            cur_xa += dx02;
+            cur_xb += dx01;
+        }
+    }
+
+    /* Bottom segment: y1 to y2 */
+    int h1 = y2 - y1;
+    if (h1 > 0) {
+        int32_t dx12 = sdiv32((x2 - x1) << 16, h1);
+        int start_y = (y1 < 0) ? 0 : y1;
+        int end_y = (y2 >= 480) ? 479 : y2;
+        int32_t cur_xa = (x0 << 16) + dx02 * (start_y - y0);
+        int32_t cur_xb = (x1 << 16) + dx12 * (start_y - y1);
+
+        for (int y = start_y; y <= end_y; y++) {
+            draw_span_fb(fb_addr, y, cur_xa >> 16, cur_xb >> 16, color);
+            cur_xa += dx02;
+            cur_xb += dx12;
+        }
+    }
 }
 
 /* =========================================================================
  * Internal: Back-face cull via 2D cross product sign
- *
- * In screen coordinates with Y pointing DOWN, CCW front-facing triangles
- * produce a NEGATIVE 2D cross product ((x1-x0)*(y2-y0) - (y1-y0)*(x2-x0) < 0).
  * ========================================================================= */
 static int is_front_face(int x0, int y0, int x1, int y1, int x2, int y2)
 {
-    /* 2D cross product: (v1-v0) × (v2-v0) in screen space */
     int32_t cross = (int32_t)(x1 - x0) * (int32_t)(y2 - y0)
                   - (int32_t)(y1 - y0) * (int32_t)(x2 - x0);
     return cross < 0;
@@ -247,6 +315,54 @@ static void upload_wavetable(uint32_t dst_spu_offset, const int16_t *src)
 }
 
 /* =========================================================================
+ * Internal: 2D Alpha-Blended ARGB4444 Sprite Blitter
+ * ========================================================================= */
+static void blit_sprite_argb4444(uint32_t fb_addr, int dest_x, int dest_y, int width, int height, const uint16_t *pixels, int global_alpha)
+{
+    if (global_alpha <= 0 || width <= 0 || height <= 0 || !pixels) return;
+    volatile uint16_t *fb = (volatile uint16_t *)fb_addr;
+
+    for (int y = 0; y < height; y++) {
+        int py = dest_y + y;
+        if (py < 0 || py >= 330) continue; /* Mask line at Y=330: hide below baseline until popped up */
+        volatile uint16_t *dst_row = fb + (py * 640);
+        const uint16_t *src_row = pixels + (y * width);
+
+        for (int x = 0; x < width; x++) {
+            int px = dest_x + x;
+            if (px < 0 || px >= 640) continue;
+
+            uint16_t p = src_row[x];
+            uint8_t a = (p >> 12) & 0x0F;
+            if (a == 0) continue;
+
+            int eff_a = (a * 17 * global_alpha) >> 8;
+            if (eff_a <= 0) continue;
+
+            int r_src = ((p >> 8) & 0x0F) * 2;   /* 0..30 (5-bit) */
+            int g_src = ((p >> 4) & 0x0F) * 4;   /* 0..60 (6-bit) */
+            int b_src = (p & 0x0F) * 2;          /* 0..30 (5-bit) */
+            uint16_t src_col = (uint16_t)((r_src << 11) | (g_src << 5) | b_src);
+
+            if (eff_a >= 250) {
+                dst_row[px] = src_col;
+            } else {
+                uint16_t dst_col = dst_row[px];
+                int r_dst = (dst_col >> 11) & 0x1F;
+                int g_dst = (dst_col >> 5)  & 0x3F;
+                int b_dst = dst_col & 0x1F;
+
+                int r = r_dst + (((r_src - r_dst) * eff_a) >> 8);
+                int g = g_dst + (((g_src - g_dst) * eff_a) >> 8);
+                int b = b_dst + (((b_src - b_dst) * eff_a) >> 8);
+
+                dst_row[px] = (uint16_t)((r << 11) | (g << 5) | b);
+            }
+        }
+    }
+}
+
+/* =========================================================================
  * Public: boot_scene_mount()
  * ========================================================================= */
 int boot_scene_mount(const void *blob)
@@ -257,21 +373,31 @@ int boot_scene_mount(const void *blob)
 
     /* Validate magic and version */
     const BootSceneHeader *h = (const BootSceneHeader *)base;
-    if (rd32(&h->magic)   != BOOT_SCENE_MAGIC)   return -1;
-    if (h->version        != BOOT_SCENE_VERSION)  return -1;
+    if (rd32(&h->magic) != BOOT_SCENE_MAGIC) return -1;
+    uint16_t ver = rd16(&h->version);
+    if (ver < 1 || ver > 2) return -1;
 
     /* Sanity: audio_cue_count must not exceed our maximum */
     uint32_t cue_count = rd32(&h->audio_cue_count);
     if (cue_count > BOOT_SCENE_MAX_CUES) return -1;
 
-    /* Map all sub-pointers (zero-copy casts) */
-    s_scene.hdr        = h;
-    s_scene.transforms = (const float *)(base + rd32(&h->off_transforms));
-    s_scene.vertices   = (const float *)(base + rd32(&h->off_vertices));
-    s_scene.indices    = (const uint16_t *)(base + rd32(&h->off_indices));
-    s_scene.cues       = (const BootSceneAudioCue *)(base + rd32(&h->off_audio_cues));
-    s_scene.tick       = 0;
-    s_scene.mounted    = 1;
+    s_scene.hdr           = h;
+    s_scene.transforms    = (const float *)(base + rd32(&h->off_transforms));
+    s_scene.vertices      = (const float *)(base + rd32(&h->off_vertices));
+    s_scene.indices       = (const uint16_t *)(base + rd32(&h->off_indices));
+    if (ver >= 2 && rd16(&h->object_count) > 0) {
+        s_scene.objects   = (const BootSceneObject *)(base + rd32(&h->off_colors));
+        s_scene.colors    = (const uint16_t *)0;
+    } else {
+        s_scene.objects   = (const BootSceneObject *)0;
+        s_scene.colors    = (rd32(&h->off_colors) != 0) ? (const uint16_t *)(base + rd32(&h->off_colors)) : (const uint16_t *)0;
+    }
+    s_scene.cues          = (const BootSceneAudioCue *)(base + rd32(&h->off_audio_cues));
+    s_scene.sprites       = (rd32(&h->off_sprites) != 0) ? (const BootSceneSprite *)(base + rd32(&h->off_sprites)) : (const BootSceneSprite *)0;
+    s_scene.sprite_frames = (rd32(&h->off_sprite_frames) != 0) ? (const BootSceneSpriteFrame *)(base + rd32(&h->off_sprite_frames)) : (const BootSceneSpriteFrame *)0;
+    s_scene.blob_base     = base;
+    s_scene.tick          = 0;
+    s_scene.mounted       = 1;
 
     /* Upload 4 wavetables to AICA SPU RAM at 0xA0800000 */
     const int16_t *wav_block = (const int16_t *)(base + rd32(&h->off_wavetables));
@@ -295,97 +421,197 @@ void boot_scene_tick(uint32_t fb_addr)
     if (s_scene.tick >= total_frames) return;
 
     uint32_t tick          = s_scene.tick;
-    uint32_t vertex_count  = rd32(&h->vertex_count);
-    uint32_t index_count   = rd32(&h->index_count);
     uint32_t cue_count     = rd32(&h->audio_cue_count);
+    uint16_t ver           = rd16(&h->version);
+    uint32_t obj_count     = (ver >= 2) ? (uint32_t)rd16(&h->object_count) : 0;
 
-    /* ------------------------------------------------------------------
-     * 1. Read per-frame transform (12 floats)
-     * ------------------------------------------------------------------ */
-    const float *tf = s_scene.transforms + tick * BOOT_SCENE_TRANSFORM_FLOATS;
-
-    float mpos_x = tf[0],  mpos_y = tf[1],  mpos_z = tf[2];
-    float mrot_x = tf[3],  mrot_y = tf[4],  mrot_z = tf[5];
-    float cpos_x = tf[6],  cpos_y = tf[7],  cpos_z = tf[8];
-    float crot_x = tf[9],  crot_y = tf[10], crot_z = tf[11];
-
-    /* ------------------------------------------------------------------
-     * 2. Build rotation matrices (integer angles in 256-unit circle)
-     * ------------------------------------------------------------------ */
-    int32_t m_rot[9], c_rot[9];
-    build_rot3x3(deg_to_angle(mrot_x), deg_to_angle(mrot_y), deg_to_angle(mrot_z), m_rot);
-    build_rot3x3(deg_to_angle(crot_x), deg_to_angle(crot_y), deg_to_angle(crot_z), c_rot);
-
-    /* Convert positions to 16.16 */
-    int32_t m_pos16[3], c_pos16[3];
-    m_pos16[0] = (int32_t)(mpos_x * FX16); m_pos16[1] = (int32_t)(mpos_y * FX16); m_pos16[2] = (int32_t)(mpos_z * FX16);
-    c_pos16[0] = (int32_t)(cpos_x * FX16); c_pos16[1] = (int32_t)(cpos_y * FX16); c_pos16[2] = (int32_t)(cpos_z * FX16);
-
-    /* ------------------------------------------------------------------
-     * 3. Project all vertices → screen-space
-     *    We use a small fixed-size scratch buffer on the stack.
-     *    Cap at 512 verts max to bound stack usage (512 × 8 bytes = 4 KB).
-     * ------------------------------------------------------------------ */
-#define MAX_VERTS 512
+#define MAX_VERTS 24576
     int sx_buf[MAX_VERTS], sy_buf[MAX_VERTS];
-    uint8_t vis_buf[MAX_VERTS];   /* 1 = visible, 0 = clipped */
+    uint8_t vis_buf[MAX_VERTS];
 
-    uint32_t nv = (vertex_count < MAX_VERTS) ? vertex_count : MAX_VERTS;
+    if (ver >= 2 && obj_count > 0 && s_scene.objects) {
+        /* ==============================================================
+         * Version 2: Multi-Object Scene Graph (Direct 3x4 Camera Matrix)
+         * ============================================================== */
+#define MAX_SCENE_OBJECTS 128
+        uint32_t frame_stride = obj_count * BOOT_SCENE_TRANSFORM_FLOATS;
+        const float *tf_frame = s_scene.transforms + tick * frame_stride;
 
-    for (uint32_t i = 0; i < nv; i++) {
-        const float *v = s_scene.vertices + i * 3;
+        /* Depth-sort objects (Painter's algorithm: draw farthest objects first) */
+        uint32_t sorted_objs[MAX_SCENE_OBJECTS];
+        int32_t obj_depths[MAX_SCENE_OBJECTS];
+        uint32_t render_count = 0;
+        uint32_t max_o = (obj_count < MAX_SCENE_OBJECTS) ? obj_count : MAX_SCENE_OBJECTS;
 
-        /* Convert vertex to 16.16 */
-        int32_t vert16[3];
-        vert16[0] = (int32_t)(v[0] * FX16);
-        vert16[1] = (int32_t)(v[1] * FX16);
-        vert16[2] = (int32_t)(v[2] * FX16);
+        for (uint32_t o = 0; o < max_o; o++) {
+            const float *tf_obj = tf_frame + o * BOOT_SCENE_TRANSFORM_FLOATS;
+            int32_t tz = (int32_t)(tf_obj[11] * FX16);
+            int32_t depth = -tz; /* positive depth in front of camera */
 
-        /* Apply model rotation + translation → world space (16.16) */
-        int32_t world[3];
+            /* Insertion sort descending */
+            uint32_t ins = render_count;
+            while (ins > 0 && obj_depths[ins - 1] < depth) {
+                sorted_objs[ins] = sorted_objs[ins - 1];
+                obj_depths[ins] = obj_depths[ins - 1];
+                ins--;
+            }
+            sorted_objs[ins] = o;
+            obj_depths[ins] = depth;
+            render_count++;
+        }
+
+        for (uint32_t r_idx = 0; r_idx < render_count; r_idx++) {
+            uint32_t o = sorted_objs[r_idx];
+            const BootSceneObject *obj = &s_scene.objects[o];
+            const float *tf_obj = tf_frame + o * BOOT_SCENE_TRANSFORM_FLOATS;
+
+            int32_t m16[12];
+            for (int k = 0; k < 12; k++) {
+                m16[k] = (int32_t)(tf_obj[k] * FX16);
+            }
+
+            uint32_t sv = rd32(&obj->start_vert);
+            uint32_t nv = rd32(&obj->vert_count);
+            if (nv > MAX_VERTS) nv = MAX_VERTS;
+
+            for (uint32_t i = 0; i < nv; i++) {
+                const float *v = s_scene.vertices + (sv + i) * 3;
+                int32_t vert16[3];
+                vert16[0] = (int32_t)(v[0] * FX16);
+                vert16[1] = (int32_t)(v[1] * FX16);
+                vert16[2] = (int32_t)(v[2] * FX16);
+
+                int32_t cam[3];
 #define MUL16(a, b) ((int32_t)(((int64_t)(a) * (b)) >> 16))
-        world[0] = MUL16(m_rot[0], vert16[0]) + MUL16(m_rot[1], vert16[1]) + MUL16(m_rot[2], vert16[2]) + m_pos16[0];
-        world[1] = MUL16(m_rot[3], vert16[0]) + MUL16(m_rot[4], vert16[1]) + MUL16(m_rot[5], vert16[2]) + m_pos16[1];
-        world[2] = MUL16(m_rot[6], vert16[0]) + MUL16(m_rot[7], vert16[1]) + MUL16(m_rot[8], vert16[2]) + m_pos16[2];
+                cam[0] = MUL16(m16[0], vert16[0]) + MUL16(m16[1], vert16[1]) + MUL16(m16[2], vert16[2]) + m16[3];
+                cam[1] = MUL16(m16[4], vert16[0]) + MUL16(m16[5], vert16[1]) + MUL16(m16[6], vert16[2]) + m16[7];
+                cam[2] = MUL16(m16[8], vert16[0]) + MUL16(m16[9], vert16[1]) + MUL16(m16[10], vert16[2]) + m16[11];
 #undef MUL16
 
-        /* Transform into camera space: cam_space = c_rot^T * (world - c_pos) */
-        int32_t cam[3];
-        transform_vertex(c_pos16, c_rot, world, cam);
+                vis_buf[i] = (uint8_t)project_vertex(cam, &sx_buf[i], &sy_buf[i]);
+            }
 
-        /* Perspective project → screen pixels */
-        vis_buf[i] = (uint8_t)project_vertex(cam, &sx_buf[i], &sy_buf[i]);
-    }
+            uint32_t st = rd32(&obj->start_tri);
+            uint32_t tc = rd32(&obj->tri_count);
+            uint16_t base_color = rd16(&obj->color);
 
-    /* ------------------------------------------------------------------
-     * 4. Rasterize triangles
-     * ------------------------------------------------------------------ */
-    uint32_t tri_count = index_count / 3;
-    uint16_t mesh_color = RGB565(90, 210, 255);   /* Ice-cyan wireframe */
+            for (uint32_t t = 0; t < tc; t++) {
+                uint32_t base_idx = (st + t) * 3;
+                uint16_t i0 = s_scene.indices[base_idx + 0];
+                uint16_t i1 = s_scene.indices[base_idx + 1];
+                uint16_t i2 = s_scene.indices[base_idx + 2];
 
-    for (uint32_t t = 0; t < tri_count; t++) {
-        uint32_t base_idx = t * 3;
-        uint16_t i0 = s_scene.indices[base_idx + 0];
-        uint16_t i1 = s_scene.indices[base_idx + 1];
-        uint16_t i2 = s_scene.indices[base_idx + 2];
+                if (i0 >= nv || i1 >= nv || i2 >= nv) continue;
+                if (!vis_buf[i0] || !vis_buf[i1] || !vis_buf[i2]) continue;
+                if (!is_front_face(sx_buf[i0], sy_buf[i0], sx_buf[i1], sy_buf[i1], sx_buf[i2], sy_buf[i2])) continue;
 
-        /* Bounds guard */
-        if (i0 >= nv || i1 >= nv || i2 >= nv) continue;
+                draw_filled_triangle_fb(fb_addr, sx_buf[i0], sy_buf[i0], sx_buf[i1], sy_buf[i1], sx_buf[i2], sy_buf[i2], base_color);
+            }
+        }
+    } else {
+        /* ==============================================================
+         * Version 1: Single Mesh with per-frame camera/model transform
+         * ============================================================== */
+        uint32_t vertex_count  = rd32(&h->vertex_count);
+        uint32_t index_count   = rd32(&h->index_count);
 
-        /* Skip if any vertex behind camera */
-        if (!vis_buf[i0] || !vis_buf[i1] || !vis_buf[i2]) continue;
+        const float *tf = s_scene.transforms + tick * BOOT_SCENE_TRANSFORM_FLOATS;
+        float mpos_x = tf[0],  mpos_y = tf[1],  mpos_z = tf[2];
+        float mrot_x = tf[3],  mrot_y = tf[4],  mrot_z = tf[5];
+        float cpos_x = tf[6],  cpos_y = tf[7],  cpos_z = tf[8];
+        float crot_x = tf[9],  crot_y = tf[10], crot_z = tf[11];
 
-        /* Back-face cull */
-        if (!is_front_face(sx_buf[i0], sy_buf[i0],
-                           sx_buf[i1], sy_buf[i1],
-                           sx_buf[i2], sy_buf[i2])) continue;
+        int32_t m_rot[9], c_rot[9];
+        build_rot3x3(deg_to_angle(mrot_x), deg_to_angle(mrot_y), deg_to_angle(mrot_z), m_rot);
+        build_rot3x3(deg_to_angle(crot_x), deg_to_angle(crot_y), deg_to_angle(crot_z), c_rot);
 
-        draw_triangle_fb(sx_buf[i0], sy_buf[i0],
-                         sx_buf[i1], sy_buf[i1],
-                         sx_buf[i2], sy_buf[i2],
-                         mesh_color);
+        int32_t m_pos16[3], c_pos16[3];
+        m_pos16[0] = (int32_t)(mpos_x * FX16); m_pos16[1] = (int32_t)(mpos_y * FX16); m_pos16[2] = (int32_t)(mpos_z * FX16);
+        c_pos16[0] = (int32_t)(cpos_x * FX16); c_pos16[1] = (int32_t)(cpos_y * FX16); c_pos16[2] = (int32_t)(cpos_z * FX16);
+
+        uint32_t nv = (vertex_count < MAX_VERTS) ? vertex_count : MAX_VERTS;
+
+        for (uint32_t i = 0; i < nv; i++) {
+            const float *v = s_scene.vertices + i * 3;
+            int32_t vert16[3];
+            vert16[0] = (int32_t)(v[0] * FX16);
+            vert16[1] = (int32_t)(v[1] * FX16);
+            vert16[2] = (int32_t)(v[2] * FX16);
+
+            int32_t world[3];
+#define MUL16(a, b) ((int32_t)(((int64_t)(a) * (b)) >> 16))
+            world[0] = MUL16(m_rot[0], vert16[0]) + MUL16(m_rot[1], vert16[1]) + MUL16(m_rot[2], vert16[2]) + m_pos16[0];
+            world[1] = MUL16(m_rot[3], vert16[0]) + MUL16(m_rot[4], vert16[1]) + MUL16(m_rot[5], vert16[2]) + m_pos16[1];
+            world[2] = MUL16(m_rot[6], vert16[0]) + MUL16(m_rot[7], vert16[1]) + MUL16(m_rot[8], vert16[2]) + m_pos16[2];
+#undef MUL16
+
+            int32_t cam[3];
+            transform_vertex(c_pos16, c_rot, world, cam);
+            vis_buf[i] = (uint8_t)project_vertex(cam, &sx_buf[i], &sy_buf[i]);
+        }
+
+        uint32_t tri_count = index_count / 3;
+
+        for (uint32_t t = 0; t < tri_count; t++) {
+            uint32_t base_idx = t * 3;
+            uint16_t i0 = s_scene.indices[base_idx + 0];
+            uint16_t i1 = s_scene.indices[base_idx + 1];
+            uint16_t i2 = s_scene.indices[base_idx + 2];
+
+            if (i0 >= nv || i1 >= nv || i2 >= nv) continue;
+            if (!vis_buf[i0] || !vis_buf[i1] || !vis_buf[i2]) continue;
+            if (!is_front_face(sx_buf[i0], sy_buf[i0], sx_buf[i1], sy_buf[i1], sx_buf[i2], sy_buf[i2])) continue;
+
+            int32_t dx1 = sx_buf[i1] - sx_buf[i0];
+            int32_t dy1 = sy_buf[i1] - sy_buf[i0];
+            int32_t dx2 = sx_buf[i2] - sx_buf[i0];
+            int32_t dy2 = sy_buf[i2] - sy_buf[i0];
+
+            int32_t nz = dx1 * dy2 - dy1 * dx2;
+            if (nz < 0) nz = -nz;
+
+            int shade = 140 + ((nz & 0x7F) * 115 / 128);
+            if (shade > 255) shade = 255;
+
+            uint16_t base_color = (s_scene.colors) ? s_scene.colors[t] : RGB565(255, 110, 20);
+            int r = (base_color >> 11) & 0x1F;
+            int g = (base_color >> 5)  & 0x3F;
+            int b = base_color & 0x1F;
+
+            int r_shaded = (r * shade) >> 8;
+            int g_shaded = (g * shade) >> 8;
+            int b_shaded = (b * shade) >> 8;
+
+            uint16_t shaded_color = (uint16_t)((r_shaded << 11) | (g_shaded << 5) | b_shaded);
+
+            draw_filled_triangle_fb(fb_addr,
+                                    sx_buf[i0], sy_buf[i0],
+                                    sx_buf[i1], sy_buf[i1],
+                                    sx_buf[i2], sy_buf[i2],
+                                    shaded_color);
+        }
     }
 #undef MAX_VERTS
+
+    /* ------------------------------------------------------------------
+     * 4.5. Blit 2D Alpha-Blended Sprites (Crisp 2D Text & Logos)
+     * ------------------------------------------------------------------ */
+    uint16_t sprite_count = rd16(&h->sprite_count);
+    if (sprite_count > 0 && s_scene.sprites && s_scene.sprite_frames) {
+        const BootSceneSpriteFrame *frame_sprites = s_scene.sprite_frames + tick * sprite_count;
+        for (uint16_t s = 0; s < sprite_count; s++) {
+            const BootSceneSprite *spr = &s_scene.sprites[s];
+            const BootSceneSpriteFrame *frm = &frame_sprites[s];
+            if (frm->alpha == 0) continue;
+
+            uint16_t w = rd16(&spr->width);
+            uint16_t ht = rd16(&spr->height);
+            uint32_t off_px = rd32(&spr->off_pixels);
+            const uint16_t *pixels = (const uint16_t *)(s_scene.blob_base + off_px);
+
+            blit_sprite_argb4444(fb_addr, (int)frm->x, (int)frm->y, (int)w, (int)ht, pixels, (int)frm->alpha);
+        }
+    }
 
     /* ------------------------------------------------------------------
      * 5. Fire audio cues matching this tick
@@ -413,13 +639,18 @@ void boot_scene_tick(uint32_t fb_addr)
  * ========================================================================= */
 void boot_scene_unmount(void)
 {
-    s_scene.hdr        = (const BootSceneHeader *)0;
-    s_scene.transforms = (const float *)0;
-    s_scene.vertices   = (const float *)0;
-    s_scene.indices    = (const uint16_t *)0;
-    s_scene.cues       = (const BootSceneAudioCue *)0;
-    s_scene.tick       = 0;
-    s_scene.mounted    = 0;
+    s_scene.hdr           = (const BootSceneHeader *)0;
+    s_scene.transforms    = (const float *)0;
+    s_scene.vertices      = (const float *)0;
+    s_scene.indices       = (const uint16_t *)0;
+    s_scene.colors        = (const uint16_t *)0;
+    s_scene.objects       = (const BootSceneObject *)0;
+    s_scene.cues          = (const BootSceneAudioCue *)0;
+    s_scene.sprites       = (const BootSceneSprite *)0;
+    s_scene.sprite_frames = (const BootSceneSpriteFrame *)0;
+    s_scene.blob_base     = (const uint8_t *)0;
+    s_scene.tick          = 0;
+    s_scene.mounted       = 0;
 }
 
 /* =========================================================================

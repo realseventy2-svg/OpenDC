@@ -42,47 +42,58 @@ extern "C" {
 /* AICA SPU RAM base (uncached P2 mirror) */
 #define BOOT_SCENE_AICA_RAM_BASE      0xA0800000UL
 
-/* Focal length for perspective projection (screen units @ 640×480) */
-#define BOOT_SCENE_FOCAL_LEN          256
+/* Focal length for perspective projection (screen units @ 640×480: 35mm / 32mm * 640 = 700) */
+#define BOOT_SCENE_FOCAL_LEN          700
 
 /* =========================================================================
  * Packed Structures (map directly onto blob bytes)
  * ========================================================================= */
 
+typedef struct {
+    uint32_t start_vert;  /* Starting vertex index in s_scene.vertices */
+    uint32_t vert_count;  /* Number of vertices for this object         */
+    uint32_t start_tri;   /* Starting triangle index in s_scene.indices */
+    uint32_t tri_count;   /* Number of triangles for this object        */
+    uint16_t color;       /* Base RGB565 material color from Blender    */
+    uint16_t flags;       /* Reserved                                   */
+} __attribute__((packed)) BootSceneObject;
+
+/* 2D Sprite Definition */
+typedef struct {
+    uint16_t width;
+    uint16_t height;
+    uint32_t off_pixels;  /* Byte offset → ARGB4444 uint16_t pixels      */
+} __attribute__((packed)) BootSceneSprite;
+
+/* 2D Sprite per-frame state */
+typedef struct {
+    int16_t  x;           /* Screen X (top-left)                         */
+    int16_t  y;           /* Screen Y (top-left)                         */
+    uint8_t  alpha;       /* Opacity 0..255                              */
+    uint8_t  scale;       /* Reserved / scale                            */
+    uint16_t flags;       /* Reserved                                    */
+} __attribute__((packed)) BootSceneSpriteFrame;
+
 /* 64-byte container header — must be kept exactly 64 bytes */
 typedef struct {
     uint32_t magic;           /* 0x53424344  "DCBS"                     */
-    uint16_t version;         /* Must equal BOOT_SCENE_VERSION (1)       */
-    uint16_t flags;           /* Reserved, must be 0                     */
+    uint16_t version;         /* 1 = single-mesh, 2 = multi-object scene */
+    uint16_t object_count;    /* Number of objects (version >= 2)        */
     uint32_t total_frames;    /* Number of animation ticks (VBlanks)     */
     uint32_t vertex_count;    /* Number of float[3] vertices             */
     uint32_t index_count;     /* Number of uint16_t indices (tri×3)      */
     uint32_t audio_cue_count; /* Entries in AudioCue array (max 32)      */
-    uint32_t off_transforms;  /* Byte offset → float[12] × total_frames  */
+    uint32_t off_transforms;  /* Byte offset → transforms buffer         */
     uint32_t off_vertices;    /* Byte offset → float[3] × vertex_count   */
     uint32_t off_indices;     /* Byte offset → uint16_t × index_count    */
     uint32_t off_audio_cues;  /* Byte offset → AudioCue × audio_cue_count*/
     uint32_t off_wavetables;  /* Byte offset → 4 × 512-byte wavetables   */
-    /*
-     * Layout: 4+2+2 + 9×4 + 5×4 = 8 + 36 + 20 = 64 bytes exactly.
-     *
-     *   0x00  magic           4
-     *   0x04  version         2
-     *   0x06  flags           2
-     *   0x08  total_frames    4
-     *   0x0C  vertex_count    4
-     *   0x10  index_count     4
-     *   0x14  audio_cue_count 4
-     *   0x18  off_transforms  4
-     *   0x1C  off_vertices    4
-     *   0x20  off_indices     4
-     *   0x24  off_audio_cues  4
-     *   0x28  off_wavetables  4
-     *   0x2C  reserved[0..4] 20  (5 × uint32)
-     *   ─────────────────────────
-     *   Total               64
-     */
-    uint32_t reserved[5];     /* Pad to exactly 64 bytes                 */
+    uint32_t off_colors;      /* Byte offset → colors or objects table   */
+    uint32_t off_sprites;     /* Byte offset → BootSceneSprite array     */
+    uint16_t sprite_count;    /* Number of 2D sprites                    */
+    uint16_t reserved_h;      /* Padding                                 */
+    uint32_t off_sprite_frames;/* Byte offset → sprite frames table      */
+    uint32_t reserved;        /* Pad to exactly 64 bytes                 */
 } __attribute__((packed)) BootSceneHeader;
 
 /* Compile-time layout guard */
@@ -92,7 +103,7 @@ typedef char _bsh_size_check[ (sizeof(BootSceneHeader) == 64) ? 1 : -1 ];
  * Per-frame transform: 12 floats packed as:
  *   [0..2]  model position  (x, y, z)
  *   [3..5]  model rotation  (rx, ry, rz) degrees
- *   [6..8]  camera position (x, y, z)
+ *   [6..8]  camera position / scale (x, y, z)
  *   [9..11] camera rotation (rx, ry, rz) degrees
  */
 #define BOOT_SCENE_TRANSFORM_FLOATS  12
@@ -111,7 +122,6 @@ typedef struct {
     uint8_t  adsr_preset;     /* 0=Bell 1=Strings 2=Bass 3=Shimmer       */
     uint8_t  reserved[6];     /* Pad to 16 bytes: 4+6+6 = 16             */
 } __attribute__((packed)) BootSceneAudioCue;
-/* Layout: uint32(4) + 6×uint8(6) + reserved[6](6) = 16 bytes */
 
 typedef char _bsac_size_check[ (sizeof(BootSceneAudioCue) == 16) ? 1 : -1 ];
 
@@ -121,11 +131,16 @@ typedef char _bsac_size_check[ (sizeof(BootSceneAudioCue) == 16) ? 1 : -1 ];
 
 typedef struct {
     /* Cached sub-pointers into the mounted blob */
-    const BootSceneHeader    *hdr;
-    const float              *transforms;   /* float[12] × total_frames  */
-    const float              *vertices;     /* float[3]  × vertex_count  */
-    const uint16_t           *indices;      /* uint16_t  × index_count   */
-    const BootSceneAudioCue  *cues;         /* AudioCue  × cue_count     */
+    const BootSceneHeader       *hdr;
+    const float                 *transforms;   /* float[12] transforms      */
+    const float                 *vertices;     /* float[3]  × vertex_count  */
+    const uint16_t              *indices;      /* uint16_t  × index_count   */
+    const uint16_t              *colors;       /* uint16_t  × (tri_count)   */
+    const BootSceneObject       *objects;      /* BootSceneObject × obj_cnt */
+    const BootSceneAudioCue     *cues;         /* AudioCue  × cue_count     */
+    const BootSceneSprite       *sprites;      /* 2D Sprites table          */
+    const BootSceneSpriteFrame  *sprite_frames;/* 2D Sprite frames table    */
+    const uint8_t               *blob_base;    /* Blob base pointer         */
 
     /* Playback state */
     uint32_t tick;           /* Current VBlank frame index               */
