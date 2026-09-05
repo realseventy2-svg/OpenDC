@@ -27,5 +27,6 @@ void rasterizer_draw_triangle_gouraud_ssaa(uint32_t fb_addr,
                                            int x2, int y2, uint16_t c2);
 
 uint16_t rasterizer_calc_lighting(float nx, float ny, float nz, float n2, uint16_t base_color);
+uint16_t rasterizer_calc_lighting_fast(float dot, uint16_t base_color);
 
 #endif /* OPENDC_RASTERIZER_H */

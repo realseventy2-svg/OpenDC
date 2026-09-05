@@ -115,10 +115,13 @@ def export_boot_scene():
     bm_swirl.free()
     print(f"Swirl: {len(swirl_verts)} vertices, {len(face_reveal)} triangles.")
 
-    # 3. Use full high-quality sphere geometry for smooth ball tip
+    # 3. High-quality smooth sphere geometry optimized for 60 FPS SSAA
+    mod_dec = sphere.modifiers.new('OpenDC_Decimate', 'DECIMATE')
+    mod_dec.ratio = 0.16
     depsgraph = bpy.context.evaluated_depsgraph_get()
     sphere_eval = sphere.evaluated_get(depsgraph)
     me_sphere = sphere_eval.to_mesh()
+    sphere.modifiers.remove(mod_dec)
     me_sphere.calc_loop_triangles()
 
     sphere_verts = [(v.co.x, v.co.y, v.co.z, v.normal.x, v.normal.y, v.normal.z) for v in me_sphere.vertices]

@@ -116,15 +116,17 @@ void boot_scene_tick(uint32_t fb_addr)
     uint16_t ver = rd16(&h->version);
     uint16_t obj_count = rd16(&h->object_count);
 
-    static int prev_bb_min_x = 0, prev_bb_min_y = 0, prev_bb_max_x = 1279, prev_bb_max_y = 959;
+    static int prev_bb_min_x = 1280, prev_bb_min_y = 960, prev_bb_max_x = -1, prev_bb_max_y = -1;
     uint16_t bg_col = boot_scene_get_bg_color();
 
     if (ver >= 2 && obj_count > 0) {
-        /* Clear previous frame's SSAA bounding box in fast SDRAM */
-        postprocess_clear_ssaa_box(BOOT_SCENE_SSAA_BASE,
-                                   prev_bb_min_x - 8, prev_bb_min_y - 8,
-                                   prev_bb_max_x + 8, prev_bb_max_y + 8,
-                                   bg_col);
+        /* Clear only previous frame's actual rendered bounding box in fast SDRAM */
+        if (prev_bb_max_x >= prev_bb_min_x && prev_bb_max_y >= prev_bb_min_y) {
+            postprocess_clear_ssaa_box(BOOT_SCENE_SSAA_BASE,
+                                       prev_bb_min_x - 8, prev_bb_min_y - 8,
+                                       prev_bb_max_x + 8, prev_bb_max_y + 8,
+                                       bg_col);
+        }
 
         int bb_min_x = 1280, bb_min_y = 960, bb_max_x = -1, bb_max_y = -1;
 
@@ -193,7 +195,19 @@ void boot_scene_tick(uint32_t fb_addr)
 
             uint16_t base_color = rd16(&obj->color);
 
-            for (uint32_t i = 0; i < nv; i++) {
+            /* Pre-transform camera light direction into object space (saves 9 float ops per vertex) */
+            float lx = -0.267f, ly = 0.535f, lz = 0.802f;
+            float l_obj_x = m0 * lx + m4 * ly + m8 * lz;
+            float l_obj_y = m1 * lx + m5 * ly + m9 * lz;
+            float l_obj_z = m2 * lx + m6 * ly + m10 * lz;
+
+            uint32_t active_nv = nv;
+            if (flags & 1) {
+                active_nv = ((visible_tris * 3 + 1) >> 1) + 32;
+                if (active_nv > nv) active_nv = nv;
+            }
+
+            for (uint32_t i = 0; i < active_nv; i++) {
                 const float *v = s_scene.vertices + (sv + i) * 6;
                 float vx = v[0], vy = v[1], vz = v[2];
                 float nx = v[3], ny = v[4], nz = v[5];
@@ -216,13 +230,8 @@ void boot_scene_tick(uint32_t fb_addr)
                     vis_buf[i] = 1;
                 }
 
-                /* Rotate smoothed vertex normal by camera 3x3 matrix */
-                float rnx = m0 * nx + m1 * ny + m2 * nz;
-                float rny = m4 * nx + m5 * ny + m6 * nz;
-                float rnz = m8 * nx + m9 * ny + m10 * nz;
-                float rn2 = rnx * rnx + rny * rny + rnz * rnz;
-
-                col_buf[i] = rasterizer_calc_lighting(rnx, rny, rnz, rn2, base_color);
+                float dot = nx * l_obj_x + ny * l_obj_y + nz * l_obj_z;
+                col_buf[i] = rasterizer_calc_lighting_fast(dot, base_color);
             }
 
             uint32_t st = rd32(&obj->start_tri);
@@ -233,13 +242,13 @@ void boot_scene_tick(uint32_t fb_addr)
                 uint16_t i1 = s_scene.indices[base_idx + 1];
                 uint16_t i2 = s_scene.indices[base_idx + 2];
 
-                if (i0 >= nv || i1 >= nv || i2 >= nv) continue;
+                if (i0 >= active_nv || i1 >= active_nv || i2 >= active_nv) continue;
                 if (!vis_buf[i0] || !vis_buf[i1] || !vis_buf[i2]) continue;
                 if (!is_front_face(sx_buf[i0], sy_buf[i0], sx_buf[i1], sy_buf[i1], sx_buf[i2], sy_buf[i2])) continue;
 
                 int x_min = sx_buf[i0]; if (sx_buf[i1] < x_min) x_min = sx_buf[i1]; if (sx_buf[i2] < x_min) x_min = sx_buf[i2];
                 int x_max = sx_buf[i0]; if (sx_buf[i1] > x_max) x_max = sx_buf[i1]; if (sx_buf[i2] > x_max) x_max = sx_buf[i2];
-                int y_min = sy_buf[i0]; if (sy_buf[i1] < y_min) y_min = sy_buf[i0]; if (sy_buf[i2] < y_min) y_min = sy_buf[i2];
+                int y_min = sy_buf[i0]; if (sy_buf[i1] < y_min) y_min = sy_buf[i1]; if (sy_buf[i2] < y_min) y_min = sy_buf[i2];
                 int y_max = sy_buf[i0]; if (sy_buf[i1] > y_max) y_max = sy_buf[i1]; if (sy_buf[i2] > y_max) y_max = sy_buf[i2];
 
                 if (x_min < bb_min_x) bb_min_x = x_min;

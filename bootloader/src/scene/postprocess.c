@@ -149,7 +149,7 @@ void postprocess_clear_ssaa_box(uint32_t ssaa_fb_addr, int min_x, int min_y, int
     }
 }
 
-/* 2x2 SSAA Box Downsampling Resolve: 1280x960 (SDRAM) -> 640x480 (VRAM) */
+/* 2x2 SSAA Box Downsampling Resolve: 1280x960 (SDRAM) -> 640x480 (VRAM) with 32-bit burst writes */
 void postprocess_resolve_2x_ssaa(uint32_t ssaa_fb_addr, uint32_t dst_fb_addr, int min_x, int min_y, int max_x, int max_y)
 {
     if (min_x < 0) min_x = 0;
@@ -162,28 +162,90 @@ void postprocess_resolve_2x_ssaa(uint32_t ssaa_fb_addr, uint32_t dst_fb_addr, in
     uint16_t *dst_base = (uint16_t *)dst_fb_addr;
 
     for (int y = min_y; y <= max_y; y++) {
-        const uint16_t *s_row0 = ssaa_base + ((y * 2) * 1280) + (min_x * 2);
-        const uint16_t *s_row1 = ssaa_base + ((y * 2 + 1) * 1280) + (min_x * 2);
+        const uint32_t *s_row0_32 = (const uint32_t *)(ssaa_base + ((y * 2) * 1280) + (min_x * 2));
+        const uint32_t *s_row1_32 = (const uint32_t *)(ssaa_base + ((y * 2 + 1) * 1280) + (min_x * 2));
         uint16_t *d_row = dst_base + (y * 640) + min_x;
 
         int width = max_x - min_x + 1;
-        for (int x = 0; x < width; x++) {
-            uint16_t p00 = s_row0[x * 2];
-            uint16_t p01 = s_row0[x * 2 + 1];
-            uint16_t p10 = s_row1[x * 2];
-            uint16_t p11 = s_row1[x * 2 + 1];
+        int src_idx = 0;
 
-            /* Fast path: if all 4 subpixels are identical, skip unpacking */
+        if (((uintptr_t)d_row & 2) && width > 0) {
+            uint32_t pair0 = s_row0_32[src_idx];
+            uint32_t pair1 = s_row1_32[src_idx];
+            uint16_t p00 = (uint16_t)pair0;
+            uint16_t p01 = (uint16_t)(pair0 >> 16);
+            uint16_t p10 = (uint16_t)pair1;
+            uint16_t p11 = (uint16_t)(pair1 >> 16);
+
             if (p00 == p01 && p01 == p10 && p10 == p11) {
-                d_row[x] = p00;
-                continue;
+                *d_row++ = p00;
+            } else {
+                int r = (((p00 >> 11) & 0x1F) + ((p01 >> 11) & 0x1F) + ((p10 >> 11) & 0x1F) + ((p11 >> 11) & 0x1F) + 2) >> 2;
+                int g = (((p00 >> 5)  & 0x3F) + ((p01 >> 5)  & 0x3F) + ((p10 >> 5)  & 0x3F) + ((p11 >> 5)  & 0x3F) + 2) >> 2;
+                int b = (( p00        & 0x1F) + ( p01        & 0x1F) + ( p10        & 0x1F) + ( p11        & 0x1F) + 2) >> 2;
+                *d_row++ = (uint16_t)((r << 11) | (g << 5) | b);
+            }
+            src_idx++;
+            width--;
+        }
+
+        uint32_t *d_row32 = (uint32_t *)d_row;
+        int width32 = width >> 1;
+
+        for (int i = 0; i < width32; i++) {
+            uint32_t pair00 = s_row0_32[src_idx];
+            uint32_t pair01 = s_row1_32[src_idx];
+            uint32_t pair10 = s_row0_32[src_idx + 1];
+            uint32_t pair11 = s_row1_32[src_idx + 1];
+            src_idx += 2;
+
+            uint16_t res0, res1;
+
+            if (pair00 == pair01 && ((uint16_t)pair00 == (uint16_t)(pair00 >> 16))) {
+                res0 = (uint16_t)pair00;
+            } else {
+                uint16_t p00 = (uint16_t)pair00;
+                uint16_t p01 = (uint16_t)(pair00 >> 16);
+                uint16_t p10 = (uint16_t)pair01;
+                uint16_t p11 = (uint16_t)(pair01 >> 16);
+                int r = (((p00 >> 11) & 0x1F) + ((p01 >> 11) & 0x1F) + ((p10 >> 11) & 0x1F) + ((p11 >> 11) & 0x1F) + 2) >> 2;
+                int g = (((p00 >> 5)  & 0x3F) + ((p01 >> 5)  & 0x3F) + ((p10 >> 5)  & 0x3F) + ((p11 >> 5)  & 0x3F) + 2) >> 2;
+                int b = (( p00        & 0x1F) + ( p01        & 0x1F) + ( p10        & 0x1F) + ( p11        & 0x1F) + 2) >> 2;
+                res0 = (uint16_t)((r << 11) | (g << 5) | b);
             }
 
-            int r = (((p00 >> 11) & 0x1F) + ((p01 >> 11) & 0x1F) + ((p10 >> 11) & 0x1F) + ((p11 >> 11) & 0x1F) + 2) >> 2;
-            int g = (((p00 >> 5)  & 0x3F) + ((p01 >> 5)  & 0x3F) + ((p10 >> 5)  & 0x3F) + ((p11 >> 5)  & 0x3F) + 2) >> 2;
-            int b = (( p00        & 0x1F) + ( p01        & 0x1F) + ( p10        & 0x1F) + ( p11        & 0x1F) + 2) >> 2;
+            if (pair10 == pair11 && ((uint16_t)pair10 == (uint16_t)(pair10 >> 16))) {
+                res1 = (uint16_t)pair10;
+            } else {
+                uint16_t p02 = (uint16_t)pair10;
+                uint16_t p03 = (uint16_t)(pair10 >> 16);
+                uint16_t p12 = (uint16_t)pair11;
+                uint16_t p13 = (uint16_t)(pair11 >> 16);
+                int r = (((p02 >> 11) & 0x1F) + ((p03 >> 11) & 0x1F) + ((p12 >> 11) & 0x1F) + ((p13 >> 11) & 0x1F) + 2) >> 2;
+                int g = (((p02 >> 5)  & 0x3F) + ((p03 >> 5)  & 0x3F) + ((p12 >> 5)  & 0x3F) + ((p13 >> 5)  & 0x3F) + 2) >> 2;
+                int b = (( p02        & 0x1F) + ( p03        & 0x1F) + ( p12        & 0x1F) + ( p13        & 0x1F) + 2) >> 2;
+                res1 = (uint16_t)((r << 11) | (g << 5) | b);
+            }
 
-            d_row[x] = (uint16_t)((r << 11) | (g << 5) | b);
+            d_row32[i] = (uint32_t)res0 | ((uint32_t)res1 << 16);
+        }
+
+        if (width & 1) {
+            uint32_t pair0 = s_row0_32[src_idx];
+            uint32_t pair1 = s_row1_32[src_idx];
+            uint16_t p00 = (uint16_t)pair0;
+            uint16_t p01 = (uint16_t)(pair0 >> 16);
+            uint16_t p10 = (uint16_t)pair1;
+            uint16_t p11 = (uint16_t)(pair1 >> 16);
+
+            if (p00 == p01 && p01 == p10 && p10 == p11) {
+                ((uint16_t *)d_row32)[width - 1] = p00;
+            } else {
+                int r = (((p00 >> 11) & 0x1F) + ((p01 >> 11) & 0x1F) + ((p10 >> 11) & 0x1F) + ((p11 >> 11) & 0x1F) + 2) >> 2;
+                int g = (((p00 >> 5)  & 0x3F) + ((p01 >> 5)  & 0x3F) + ((p10 >> 5)  & 0x3F) + ((p11 >> 5)  & 0x3F) + 2) >> 2;
+                int b = (( p00        & 0x1F) + ( p01        & 0x1F) + ( p10        & 0x1F) + ( p11        & 0x1F) + 2) >> 2;
+                ((uint16_t *)d_row32)[width - 1] = (uint16_t)((r << 11) | (g << 5) | b);
+            }
         }
     }
 }
