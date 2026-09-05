@@ -1,4 +1,4 @@
-﻿"""
+"""
 Export Dreamcast Boot Scene (boot_scene.bin)
 Version 3: High-Performance Solid Mesh + Progressive Spiral Swirl + ARGB4444 2D Sprites + 11kHz AICA Boot Audio
 """
@@ -31,6 +31,25 @@ def color_to_rgb565(col):
     g = int(min(max(g_srgb, 0.0), 1.0) * 63.0)
     b = int(min(max(b_srgb, 0.0), 1.0) * 31.0)
     return (r << 11) | (g << 5) | b
+
+def get_object_color(obj, fallback=(0.973, 0.109, 0.053)):
+    if obj and obj.data and hasattr(obj.data, 'materials') and len(obj.data.materials) > 0:
+        mat = obj.data.materials[0]
+        if mat:
+            if mat.use_nodes and mat.node_tree:
+                for n in mat.node_tree.nodes:
+                    if n.type == 'BSDF_PRINCIPLED' and 'Base Color' in n.inputs:
+                        col = n.inputs['Base Color'].default_value
+                        return (col[0], col[1], col[2])
+                    elif n.type == 'EMISSION' and 'Color' in n.inputs:
+                        col = n.inputs['Color'].default_value
+                        return (col[0], col[1], col[2])
+            if hasattr(mat, 'diffuse_color'):
+                col = mat.diffuse_color
+                return (col[0], col[1], col[2])
+    if obj and hasattr(obj, 'color') and any(c < 0.99 for c in obj.color[:3]):
+        return (obj.color[0], obj.color[1], obj.color[2])
+    return fallback
 
 def export_boot_scene():
     scene = bpy.context.scene
@@ -190,13 +209,21 @@ def export_boot_scene():
     for idx in sphere_indices:
         idx_bytes.extend(struct.pack('<H', idx))
 
-    orange_color = color_to_rgb565((0.973, 0.109, 0.053)) # Vivid Sega Dreamcast Orange (0xF940)
+    swirl_col_raw = get_object_color(swirl, fallback=(0.973, 0.109, 0.053))
+    sphere_col_raw = get_object_color(sphere, fallback=swirl_col_raw)
+    # If swirl was changed to custom color (e.g. PAL/Bleemcast blue) and sphere still has default orange material, match sphere to swirl
+    if sphere_col_raw == (0.9734399318695068, 0.10946179926395416, 0.05286070704460144) and swirl_col_raw != (0.9734399318695068, 0.10946179926395416, 0.05286070704460144):
+        sphere_col_raw = swirl_col_raw
+
+    swirl_color = color_to_rgb565(swirl_col_raw)
+    sphere_color = color_to_rgb565(sphere_col_raw)
+    print(f"Material Colors: Swirl=0x{swirl_color:04X} (linear {swirl_col_raw[:3]}), Sphere=0x{sphere_color:04X}")
 
     # Object Table: (start_vert, vert_count, start_tri, tri_count, color, flags)
     # Swirl has flags=1 (progressive reveal), Sphere has flags=0
     obj_defs = [
-        (start_v_swirl, v_count_swirl, start_t_swirl, t_count_swirl, orange_color, 1),
-        (start_v_sphere, v_count_sphere, start_t_sphere, t_count_sphere, orange_color, 0),
+        (start_v_swirl, v_count_swirl, start_t_swirl, t_count_swirl, swirl_color, 1),
+        (start_v_sphere, v_count_sphere, start_t_sphere, t_count_sphere, sphere_color, 0),
     ]
 
     # 6. Extract Animation Keyframes (Ensure exact Frame 374 is the final hold keyframe)
