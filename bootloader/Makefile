@@ -18,7 +18,7 @@ LDFLAGS = -m4-single-only -ml -nostdlib \
           -Wl,-T,linker.ld \
           -Wl,--gc-sections
 
-OBJS = crt0.o video.o boot_anim.o boot_scene.o screen.o sound.o payload.o ata.o gdrom.o iso9660.o gdi_loader.o homebrew_cdi.o selfboot_cdi.o scramble.o syscalls.o wince.o boot.o
+OBJS = crt0.o video.o boot_anim.o boot_scene.o screen.o sound.o payload.o ata.o gdrom.o iso9660.o gdi_loader.o homebrew_cdi.o selfboot_cdi.o scramble.o syscalls.o wince.o boot.o boot_scene_blob.o
 
 .PHONY: all clean rom
 
@@ -76,15 +76,38 @@ wince.o: src/wince.c src/wince.h
 boot.o: src/boot.c src/boot.h src/gdrom.h src/iso9660.h src/syscalls.h src/wince.h src/video.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Wrap boot_scene.bin as a linkable ELF object with a .boot_scene section.
+# sh-elf-objcopy --input-target binary renames the section to .data by default;
+# --rename-section moves it to .boot_scene so the linker script can place it at
+# exactly 0xA0010000 (64 KB above the bootloader entry point).
+boot_scene_blob.o: boot_scene.bin
+	$(OBJCOPY) \
+	  --input-target  binary \
+	  --output-target elf32-shl \
+	  --binary-architecture sh \
+	  --rename-section .data=.boot_scene,alloc,load,readonly,data,contents \
+	  $< $@
+
 $(TARGET).elf: $(OBJS) linker.ld
 	$(CC) $(LDFLAGS) $(OBJS) -o $@
 
 $(TARGET).bin: $(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 
-# Pad with retail ROM tables to exactly 2 MB (2,097,152 bytes) for full Katana SDK font/system compatibility
+# Build the final 2 MB ROM image:
+#   1. Start from the retail ROM base (for font/system tables) or zero-filled.
+#   2. Patch the bootloader binary at offset 0 (0xA0000000).
+#   3. boot_scene.bin is already embedded at 0x10000 via the linker/objcopy step,
+#      so boot.bin already contains the full blob — no extra patching needed.
 dc_boot.bin: $(TARGET).bin
-	python3 -c "import os; r_path='/mnt/d/Github/Personal/KallistiOS/bios/jc-bootROM-retail-v1.032.bin'; r=bytearray(open(r_path,'rb').read() if os.path.exists(r_path) else b'\x00'*$(ROM_SIZE)); b=open('$<','rb').read(); r[:len(b)]=b; open('$@','wb').write(r[:$(ROM_SIZE)]); print(f'Built $@: {$(ROM_SIZE):,} bytes')"
+	python3 -c "\
+import os; \
+r_path='/mnt/d/Github/Personal/KallistiOS/bios/jc-bootROM-retail-v1.032.bin'; \
+r=bytearray(open(r_path,'rb').read() if os.path.exists(r_path) else b'\x00'*$(ROM_SIZE)); \
+b=open('$<','rb').read(); \
+r[:len(b)]=b; \
+open('$@','wb').write(r[:$(ROM_SIZE)]); \
+print(f'Built $@: {$(ROM_SIZE):,} bytes')"
 
 clean:
-	rm -f $(OBJS) $(TARGET).elf $(TARGET).bin dc_boot.bin
+	rm -f $(OBJS) $(TARGET).elf $(TARGET).bin dc_boot.bin boot_scene_blob.o

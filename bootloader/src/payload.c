@@ -11,6 +11,11 @@ extern const uint8_t vector_stub_template_end[];
 extern const uint8_t interrupt_stub_template[];
 extern const uint8_t interrupt_stub_template_end[];
 
+/* Linker symbol: boot_scene.bin blob placed at 0xA0010000 in ROM.
+ * Defined by the .boot_scene section in linker.ld + boot_scene_blob.o.
+ * The address is a direct ROM pointer — no copy into SDRAM needed. */
+extern const uint8_t _boot_scene_bin_start[];
+
 static void install_exception_vectors(void) {
     /* Copy authentic retail exception vectors (0x0000..0x0800, 2048 bytes).
        This includes the real general exception (0x100), TLB miss (0x400),
@@ -99,9 +104,12 @@ void main(void) {
     /* 4. Update modular UI with disc status and diagnostics */
     screen_draw_disc_status(toc_result == GDROM_OK, iso_result == GDROM_OK, iso_fad, iso_head);
 
-    /* 5. 60 FPS Animated 3D Spinning Cube Splash with Ambient MIDI Music */
+    /* 5. 60 FPS DCBS 3D Scene Animation with Ambient MIDI Music.
+     *    Register the ROM blob first — screen_animate_splash() will mount
+     *    and run it, then fall back to the legacy boot_anim if mount fails. */
     int frames = screen_get_boot_duration_frames();
     if (frames > 0) {
+        screen_set_boot_scene(_boot_scene_bin_start);
         screen_animate_splash(frames);
     }
 

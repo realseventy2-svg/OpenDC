@@ -4,7 +4,7 @@ ENTRY(_start)
 
 MEMORY
 {
-    ROM (rx)    : ORIGIN = 0xA0000000, LENGTH = 0x00010000   /* 64 KB Bootloader Flash ROM */
+    ROM (rx)    : ORIGIN = 0xA0000000, LENGTH = 0x00200000   /* 2 MB Flash ROM */
     /* Resident BIOS RAM state: 0x8C000800 to 0x8C000F00 (safe private BIOS workspace).
        Leaves 0x8C001000-0x8C007FFF 100% free for Katana SDK game buffers and CRT0. */
     STATE (rwx) : ORIGIN = 0x8C000800, LENGTH = 0x00000700
@@ -30,6 +30,20 @@ SECTIONS
     {
         . = ALIGN(4);
         *(.rodata*)
+    } > ROM
+
+    /*
+     * DCBS plug-and-play container — placed at 0xA0010000 (ROM + 64 KB).
+     * The linker symbol _boot_scene_bin_start exposes the blob address so
+     * payload.c can pass it directly to boot_scene_mount() without a copy.
+     * boot_scene.bin is linked in as a binary object via objcopy.
+     */
+    .boot_scene 0xA0010000 :
+    {
+        . = ALIGN(64);
+        _boot_scene_bin_start = .;
+        *(.boot_scene*)
+        _boot_scene_bin_end = .;
     } > ROM
 
     /* Stage 3: Initialized data (Stored in ROM, Relocated to Low SDRAM) */
