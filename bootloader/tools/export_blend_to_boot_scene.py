@@ -1,13 +1,10 @@
-"""
+﻿"""
 Export Dreamcast Boot Scene (boot_scene.bin)
-Compatible with Blender 3.x / 4.x
-Extracts:
-  - 3D Animated Meshes (Swirl, Spheres, Cubes) with direct 3x4 camera matrices
-  - Vibrant RGB565 material base colors
-  - 2D Bleemcast Letter Sprites (ARGB4444) with frame-by-frame 2D trajectories
+Version 3: High-Performance Solid Mesh + Progressive Spiral Swirl + ARGB4444 2D Sprites
 """
 
 import bpy
+import bmesh
 import bpy_extras
 import struct
 import math
@@ -15,9 +12,7 @@ import os
 
 OUTPUT_BIN = r"d:\Github\Personal\KallistiOS\projects\OpenDC\bootloader\boot_scene.bin"
 LETTERS_DIR = os.path.expanduser(r"~\Desktop\bleemcast_letters")
-START_FRAME = 1
-END_FRAME = 374
-FRAME_STEP = 2   # 30 fps playback
+FRAME_STEP = 2   # 30 fps keyframe stepping (1/2 rate of 60 Hz timeline)
 
 def linear_to_srgb(c):
     c = max(c, 0.0)
@@ -34,22 +29,7 @@ def color_to_rgb565(col):
     b = int(min(max(b_srgb, 0.0), 1.0) * 31.0)
     return (r << 11) | (g << 5) | b
 
-def get_material_color(obj):
-    if obj.data and obj.data.materials:
-        mat = obj.data.materials[0]
-        if mat and mat.use_nodes and mat.node_tree:
-            for node in mat.node_tree.nodes:
-                if node.type == 'BSDF_PRINCIPLED':
-                    c = node.inputs['Base Color'].default_value
-                    return color_to_rgb565((c[0], c[1], c[2]))
-                elif node.type == 'EMISSION':
-                    c = node.inputs['Color'].default_value
-                    return color_to_rgb565((c[0], c[1], c[2]))
-        elif mat:
-            return color_to_rgb565((mat.diffuse_color[0], mat.diffuse_color[1], mat.diffuse_color[2]))
-    return color_to_rgb565((1.0, 0.43, 0.08)) # Default Dreamcast Orange
-
-def export_scene():
+def export_boot_scene():
     scene = bpy.context.scene
     cam = scene.camera
     if not cam:
@@ -60,29 +40,84 @@ def export_scene():
     if not cam:
         raise Exception("No camera found in scene!")
 
-    # 1. Collect 3D meshes (exclude sprite plane objects)
-    mesh_objs = []
-    for o in scene.objects:
-        if o.type == 'MESH' and not o.name.startswith('Sprite_Text'):
-            if len(o.data.vertices) > 0 and len(o.data.polygons) > 0:
-                mesh_objs.append(o)
-    
-    # Sort with Swirl and Spheres first for consistent ordering
-    mesh_objs.sort(key=lambda o: (0 if 'Swirl' in o.name else (1 if 'Sphere' in o.name else 2), o.name))
-    print(f"Found {len(mesh_objs)} 3D mesh objects")
+    swirl = bpy.data.objects.get('Swirl')
+    sphere = bpy.data.objects.get('Sphere.002')
+    if not sphere:
+        sphere = bpy.data.objects.get('Sphere.001')
+    if not swirl or not sphere:
+        raise Exception("Required 3D objects 'Swirl' and 'Sphere.002' not found!")
 
-    # 2. Collect 2D sprite objects
+    swirl_mat_inv = swirl.matrix_world.inverted()
+
+    # 1. Record Ball trajectory in swirl local coordinate space (frames 316..374)
+    ball_pts = []
+    for f in range(316, 375):
+        scene.frame_set(f)
+        p_local = swirl_mat_inv @ sphere.matrix_world.translation
+        ball_pts.append((f, p_local.x, p_local.y))
+
+    # 2. Triangulate Swirl and sort faces along spiral curve from inner center to outer tail
+    bm_swirl = bmesh.new()
+    bm_swirl.from_mesh(swirl.data)
+    bmesh.ops.triangulate(bm_swirl, faces=bm_swirl.faces, quad_method='BEAUTY', ngon_method='BEAUTY')
+
+    face_reveal = []
+    for f in bm_swirl.faces:
+        c = f.calc_center_median()
+        best_dist = 1e9
+        best_frame = 316
+        for frame, bx, by in ball_pts:
+            d = (c.x - bx)**2 + (c.y - by)**2
+            if d < best_dist:
+                best_dist = d
+                best_frame = frame
+        face_reveal.append((best_frame, f))
+
+    # Sort faces chronologically by reveal frame
+    face_reveal.sort(key=lambda item: item[0])
+
+    swirl_verts = []
+    swirl_vert_map = {}
+    swirl_indices = []
+
+    for rev_frame, f in face_reveal:
+        tri_idx = []
+        for v in f.verts:
+            if v not in swirl_vert_map:
+                swirl_vert_map[v] = len(swirl_verts)
+                swirl_verts.append((v.co.x, v.co.y, v.co.z))
+            tri_idx.append(swirl_vert_map[v])
+        swirl_indices.extend(tri_idx)
+
+    bm_swirl.free()
+    print(f"Swirl: {len(swirl_verts)} vertices, {len(face_reveal)} triangles.")
+
+    # 3. Decimate rolling ball to smooth low-poly sphere (~192 tris)
+    mod_dec = sphere.modifiers.new('Decimate', 'DECIMATE')
+    mod_dec.ratio = 0.20
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    sphere_eval = sphere.evaluated_get(depsgraph)
+    me_sphere = sphere_eval.to_mesh()
+    me_sphere.calc_loop_triangles()
+
+    sphere_verts = [(v.co.x, v.co.y, v.co.z) for v in me_sphere.vertices]
+    sphere_indices = []
+    for tri in me_sphere.loop_triangles:
+        sphere_indices.extend([tri.vertices[0], tri.vertices[1], tri.vertices[2]])
+    
+    sphere.modifiers.remove(mod_dec)
+    print(f"Sphere: {len(sphere_verts)} vertices, {len(me_sphere.loop_triangles)} triangles.")
+
+    # 4. Collect 2D sprite letter planes
     sprite_objs = [o for o in scene.objects if o.name.startswith('Sprite_Text')]
     sprite_objs.sort(key=lambda o: o.name)
     print(f"Found {len(sprite_objs)} 2D sprite objects")
 
-    # 3. Load letter PNGs and determine native sprite dimensions
-    # Sprite resting dimensions at 640x480 screen resolution
+    # Load letter PNGs and rasterize to ARGB4444
     scene.frame_set(250)
     sprite_data = [] # (width, height, argb4444_bytes)
 
     for i, spr_obj in enumerate(sprite_objs):
-        # Calculate screen bounding box at frame 250
         mat = spr_obj.matrix_world
         coords_2d = []
         for v in spr_obj.data.vertices:
@@ -111,9 +146,8 @@ def export_scene():
 
         img = bpy.data.images.load(png_path)
         img.scale(w, h)
-        pixels = list(img.pixels) # floats 0..1, (r, g, b, a) bottom-to-top
+        pixels = list(img.pixels)
         
-        # Convert to ARGB4444 row-by-row (top-to-bottom for framebuffer blit)
         raw_pixels = bytearray()
         for y in range(h - 1, -1, -1):
             for x in range(w):
@@ -127,80 +161,130 @@ def export_scene():
         
         bpy.data.images.remove(img)
         sprite_data.append((w, h, raw_pixels))
-        print(f"  Sprite {i} ({spr_obj.name}): {w}x{h} ({len(raw_pixels)} bytes)")
+        print(f"  Sprite {i:02d} ({spr_obj.name}): {w}x{h} px ({len(raw_pixels)} bytes)")
 
-    # 4. Extract 3D geometry
+    # 5. Pack Geometry (Swirl = Object 0, Sphere = Object 1)
     vert_bytes = bytearray()
     idx_bytes = bytearray()
-    obj_defs = [] # (start_vert, vert_count, start_tri, tri_count, color, flags)
+    
+    # Swirl vertices & indices
+    start_v_swirl = 0
+    v_count_swirl = len(swirl_verts)
+    for vx, vy, vz in swirl_verts:
+        vert_bytes.extend(struct.pack('<3f', vx, vy, vz))
+    start_t_swirl = 0
+    t_count_swirl = len(face_reveal)
+    for idx in swirl_indices:
+        idx_bytes.extend(struct.pack('<H', idx))
 
-    total_verts = 0
-    total_tris = 0
+    # Sphere vertices & indices
+    start_v_sphere = v_count_swirl
+    v_count_sphere = len(sphere_verts)
+    for vx, vy, vz in sphere_verts:
+        vert_bytes.extend(struct.pack('<3f', vx, vy, vz))
+    start_t_sphere = t_count_swirl
+    t_count_sphere = len(sphere_indices) // 3
+    for idx in sphere_indices:
+        idx_bytes.extend(struct.pack('<H', idx))
 
-    for o in mesh_objs:
-        me = o.data
-        start_v = total_verts
-        v_count = len(me.vertices)
-        for v in me.vertices:
-            vert_bytes.extend(struct.pack('<3f', v.co.x, v.co.y, v.co.z))
-        total_verts += v_count
+    orange_color = color_to_rgb565((0.973, 0.109, 0.053)) # Vivid Sega Dreamcast Orange (0xF940)
 
-        start_t = total_tris
-        t_count = 0
-        for p in me.polygons:
-            if len(p.vertices) == 3:
-                idx_bytes.extend(struct.pack('<3H', p.vertices[0], p.vertices[1], p.vertices[2]))
-                t_count += 1
-            elif len(p.vertices) == 4:
-                idx_bytes.extend(struct.pack('<3H', p.vertices[0], p.vertices[1], p.vertices[2]))
-                idx_bytes.extend(struct.pack('<3H', p.vertices[0], p.vertices[2], p.vertices[3]))
-                t_count += 2
-        total_tris += t_count
+    # Object Table: (start_vert, vert_count, start_tri, tri_count, color, flags)
+    # Swirl has flags=1 (progressive reveal), Sphere has flags=0
+    obj_defs = [
+        (start_v_swirl, v_count_swirl, start_t_swirl, t_count_swirl, orange_color, 1),
+        (start_v_sphere, v_count_sphere, start_t_sphere, t_count_sphere, orange_color, 0),
+    ]
 
-        color = get_material_color(o)
-        obj_defs.append((start_v, v_count, start_t, t_count, color, 0))
-
-    # 5. Extract animation frames
-    frames = list(range(START_FRAME, END_FRAME + 1, FRAME_STEP))
-    num_frames = len(frames)
-    print(f"Exporting {num_frames} frames ({START_FRAME}..{END_FRAME}, step {FRAME_STEP})...")
+    # 6. Extract Animation Keyframes
+    start_f = scene.frame_start
+    end_f = scene.frame_end
+    last_motion_frame = min(end_f, 374)
+    anim_frames = list(range(start_f, last_motion_frame + 1, FRAME_STEP))
+    stored_frames = len(anim_frames)
+    total_playback_ticks = (end_f - start_f + 1) // FRAME_STEP
+    print(f"Exporting {stored_frames} keyframes (duration: {total_playback_ticks} ticks = {total_playback_ticks/30:.1f}s)...")
 
     tf_bytes = bytearray()
     spr_frame_bytes = bytearray()
 
-    for f in frames:
+    for f in anim_frames:
         scene.frame_set(f)
         cam_mat_inv = cam.matrix_world.inverted()
 
-        # 3D Transforms (12 floats per object = 3x4 row-major local-to-camera matrix)
-        for o in mesh_objs:
-            local_to_cam = cam_mat_inv @ o.matrix_world
-            # Extract 3x4: [row0, row1, row2]
-            # row 0: (m00, m01, m02, tx)
-            # row 1: (m10, m11, m12, ty)
-            # row 2: (m20, m21, m22, tz)
-            tf_bytes.extend(struct.pack('<12f',
-                local_to_cam[0][0], local_to_cam[0][1], local_to_cam[0][2], local_to_cam[0][3],
-                local_to_cam[1][0], local_to_cam[1][1], local_to_cam[1][2], local_to_cam[1][3],
-                local_to_cam[2][0], local_to_cam[2][1], local_to_cam[2][2], local_to_cam[2][3]
+        # --- Object 0: Swirl ---
+        m_swirl = cam_mat_inv @ swirl.matrix_world
+        r00 = int(round(m_swirl[0][0] * 8192.0))
+        r01 = int(round(m_swirl[0][1] * 8192.0))
+        t0  = int(round(m_swirl[0][3] * 128.0))
+
+        r10 = int(round(m_swirl[1][0] * 8192.0))
+        r11 = int(round(m_swirl[1][1] * 8192.0))
+        r12 = int(round(m_swirl[1][2] * 8192.0))
+        t1  = int(round(m_swirl[1][3] * 128.0))
+
+        r20 = int(round(m_swirl[2][0] * 8192.0))
+        r21 = int(round(m_swirl[2][1] * 8192.0))
+        r22 = int(round(m_swirl[2][2] * 8192.0))
+        t2  = int(round(m_swirl[2][3] * 128.0))
+
+        # Dynamic Reveal Count for Swirl
+        if f < 316:
+            visible_tris = 0
+        elif f >= 374:
+            visible_tris = t_count_swirl
+        else:
+            visible_tris = sum(1 for rev_frame, _ in face_reveal if rev_frame <= f)
+
+        r02 = visible_tris  # Stored in tf[2] for progressive reveal
+
+        tf_bytes.extend(struct.pack('<12h',
+            r00, r01, r02, t0,
+            r10, r11, r12, t1,
+            r20, r21, r22, t2
+        ))
+
+        # --- Object 1: Sphere (Rolling Ball & Rounded Tail Cap) ---
+        if f < 42:
+            # Sphere is hidden before dropping
+            tf_bytes.extend(struct.pack('<12h', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        else:
+            # Sphere is active during bounce, spiral trace, and remains as the rounded tail cap
+            m_sph = cam_mat_inv @ sphere.matrix_world
+            sr00 = int(round(m_sph[0][0] * 8192.0))
+            sr01 = int(round(m_sph[0][1] * 8192.0))
+            sr02 = int(round(m_sph[0][2] * 8192.0))
+            st0  = int(round(m_sph[0][3] * 128.0))
+
+            sr10 = int(round(m_sph[1][0] * 8192.0))
+            sr11 = int(round(m_sph[1][1] * 8192.0))
+            sr12 = int(round(m_sph[1][2] * 8192.0))
+            st1  = int(round(m_sph[1][3] * 128.0))
+
+            sr20 = int(round(m_sph[2][0] * 8192.0))
+            sr21 = int(round(m_sph[2][1] * 8192.0))
+            sr22 = int(round(m_sph[2][2] * 8192.0))
+            st2  = int(round(m_sph[2][3] * 128.0))
+
+            tf_bytes.extend(struct.pack('<12h',
+                sr00, sr01, sr02, st0,
+                sr10, sr11, sr12, st1,
+                sr20, sr21, sr22, st2
             ))
 
-        # 2D Sprite Transforms (x, y, alpha, scale, flags)
+        # --- 2D Sprites ---
         for i, spr_obj in enumerate(sprite_objs):
             p2d = bpy_extras.object_utils.world_to_camera_view(scene, cam, spr_obj.matrix_world.translation)
             w, h, _ = sprite_data[i]
-            # Center sprite on projected point
             dest_x = int(round(p2d.x * 640.0 - (w / 2.0)))
             dest_y = int(round((1.0 - p2d.y) * 480.0 - (h / 2.0)))
             alpha = 255 if p2d.z > 0 else 0
             spr_frame_bytes.extend(struct.pack('<hhBBH', dest_x, dest_y, alpha, 100, 0))
 
-    # 6. Audio cues & Wavetables
-    cue_bytes = bytearray() # Empty for now
-    wav_bytes = bytearray(2048) # 4 wavetables × 512 bytes
+    # 7. Assemble binary container
+    cue_bytes = bytearray()
+    wav_bytes = bytearray(2048)
 
-    # 7. Assemble binary layout
-    # Header: 64 bytes
     HEADER_SIZE = 64
     off_tf = HEADER_SIZE
     off_v = off_tf + len(tf_bytes)
@@ -215,9 +299,7 @@ def export_scene():
     
     off_sprites = off_objs + len(obj_table_bytes)
     
-    # Sprite headers table (8 bytes each)
     sprite_header_bytes = bytearray()
-    # Pixel data will be placed after sprite frames table
     off_spr_frames = off_sprites + len(sprite_objs) * 8
     off_pixels_base = off_spr_frames + len(spr_frame_bytes)
 
@@ -228,11 +310,14 @@ def export_scene():
         pixel_data_bytes.extend(px)
         current_px_off += len(px)
 
+    total_verts = len(swirl_verts) + len(sphere_verts)
+    total_tris = t_count_swirl + t_count_sphere
+
     header = struct.pack('<IHHIIIIIIIIIIIHHII',
         0x53424344,          # magic "DCBS"
-        2,                   # version 2
-        len(mesh_objs),      # object_count
-        num_frames,          # total_frames
+        3,                   # version 3
+        len(obj_defs),       # object_count = 2
+        total_playback_ticks,# total_frames (300 ticks)
         total_verts,         # vertex_count
         total_tris * 3,      # index_count
         0,                   # audio_cue_count
@@ -241,31 +326,32 @@ def export_scene():
         off_idx,             # off_indices
         off_cues,            # off_audio_cues
         off_wav,             # off_wavetables
-        off_objs,            # off_colors (points to BootSceneObject array)
+        off_objs,            # off_objects
         off_sprites,         # off_sprites
         len(sprite_objs),    # sprite_count
-        0,                   # reserved_h
+        stored_frames,       # stored_frames (187)
         off_spr_frames,      # off_sprite_frames
-        0                    # reserved
+        0                    # pad
     )
 
-    assert len(header) == 64, f"Header size mismatch: {len(header)} != 64"
+    full_blob = (
+        header +
+        tf_bytes +
+        vert_bytes +
+        idx_bytes +
+        cue_bytes +
+        wav_bytes +
+        obj_table_bytes +
+        sprite_header_bytes +
+        spr_frame_bytes +
+        pixel_data_bytes
+    )
 
     os.makedirs(os.path.dirname(OUTPUT_BIN), exist_ok=True)
     with open(OUTPUT_BIN, 'wb') as f:
-        f.write(header)
-        f.write(tf_bytes)
-        f.write(vert_bytes)
-        f.write(idx_bytes)
-        f.write(cue_bytes)
-        f.write(wav_bytes)
-        f.write(obj_table_bytes)
-        f.write(sprite_header_bytes)
-        f.write(spr_frame_bytes)
-        f.write(pixel_data_bytes)
+        f.write(full_blob)
 
-    total_sz = os.path.getsize(OUTPUT_BIN)
-    print(f"SUCCESS: Exported {total_sz:,} bytes to {OUTPUT_BIN}")
+    print(f"Successfully exported {len(full_blob):,} bytes to {OUTPUT_BIN}")
 
 if __name__ == '__main__':
-    export_scene()
+    export_boot_scene()

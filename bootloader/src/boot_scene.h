@@ -91,7 +91,7 @@ typedef struct {
     uint32_t off_colors;      /* Byte offset → colors or objects table   */
     uint32_t off_sprites;     /* Byte offset → BootSceneSprite array     */
     uint16_t sprite_count;    /* Number of 2D sprites                    */
-    uint16_t reserved_h;      /* Padding                                 */
+    uint16_t stored_frames;   /* Number of unique animated keyframes     */
     uint32_t off_sprite_frames;/* Byte offset → sprite frames table      */
     uint32_t reserved;        /* Pad to exactly 64 bytes                 */
 } __attribute__((packed)) BootSceneHeader;
