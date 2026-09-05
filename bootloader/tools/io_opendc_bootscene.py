@@ -1,4 +1,4 @@
-﻿import bpy
+import bpy
 import bmesh
 import bpy_extras
 import struct
@@ -264,7 +264,7 @@ def export_opendc_boot_scene(output_path=DEFAULT_OUTPUT_BIN,
         anim_frames.append(last_motion)
 
     stored_frames = len(anim_frames)
-    total_playback_ticks = (end_f - start_f + 1) // frame_step
+    total_playback_ticks = end_f - start_f + 1  # 1:1 total duration from Blender scene
 
     def clamp16(v):
         return max(-32768, min(32767, int(round(v))))

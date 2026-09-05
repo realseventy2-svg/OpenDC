@@ -114,9 +114,7 @@ def export_boot_scene():
     bm_swirl.free()
     print(f"Swirl: {len(swirl_verts)} vertices, {len(face_reveal)} triangles.")
 
-    # 3. Decimate rolling ball to smooth low-poly sphere (~192 tris)
-    mod_dec = sphere.modifiers.new('Decimate', 'DECIMATE')
-    mod_dec.ratio = 0.20
+    # 3. Use full high-quality sphere geometry for smooth ball tip
     depsgraph = bpy.context.evaluated_depsgraph_get()
     sphere_eval = sphere.evaluated_get(depsgraph)
     me_sphere = sphere_eval.to_mesh()
@@ -126,8 +124,7 @@ def export_boot_scene():
     sphere_indices = []
     for tri in me_sphere.loop_triangles:
         sphere_indices.extend([tri.vertices[0], tri.vertices[1], tri.vertices[2]])
-    
-    sphere.modifiers.remove(mod_dec)
+
     print(f"Sphere: {len(sphere_verts)} vertices, {len(me_sphere.loop_triangles)} triangles.")
 
     # 4. Collect 2D sprite letter planes
@@ -210,10 +207,7 @@ def export_boot_scene():
         idx_bytes.extend(struct.pack('<H', idx))
 
     swirl_col_raw = get_object_color(swirl, fallback=(0.973, 0.109, 0.053))
-    sphere_col_raw = get_object_color(sphere, fallback=swirl_col_raw)
-    # If swirl was changed to custom color (e.g. PAL/Bleemcast blue) and sphere still has default orange material, match sphere to swirl
-    if sphere_col_raw == (0.9734399318695068, 0.10946179926395416, 0.05286070704460144) and swirl_col_raw != (0.9734399318695068, 0.10946179926395416, 0.05286070704460144):
-        sphere_col_raw = swirl_col_raw
+    sphere_col_raw = swirl_col_raw
 
     swirl_color = color_to_rgb565(swirl_col_raw)
     sphere_color = color_to_rgb565(sphere_col_raw)
@@ -235,8 +229,8 @@ def export_boot_scene():
         anim_frames.append(last_motion_frame)
 
     stored_frames = len(anim_frames)
-    total_playback_ticks = (end_f - start_f + 1) // FRAME_STEP
-    print(f"Exporting {stored_frames} keyframes (duration: {total_playback_ticks} ticks = {total_playback_ticks/30:.1f}s)...")
+    total_playback_ticks = end_f - start_f + 1  # 1:1 total duration from Blender scene
+    print(f"Exporting {stored_frames} keyframes (duration: {total_playback_ticks} ticks / frames from Blender scene)...")
 
     tf_bytes = bytearray()
     spr_frame_bytes = bytearray()

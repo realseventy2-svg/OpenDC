@@ -5,6 +5,14 @@ CC      = /opt/toolchains/dc/sh-elf/bin/sh-elf-gcc
 AS      = /opt/toolchains/dc/sh-elf/bin/sh-elf-as
 OBJCOPY = /opt/toolchains/dc/sh-elf/bin/sh-elf-objcopy
 
+INCLUDES = -Isrc/core \
+           -Isrc/storage \
+           -Isrc/video \
+           -Isrc/audio \
+           -Isrc/scene \
+           -Isrc/fallback_anim \
+           -Isrc
+
 CFLAGS = -m4-single-only -ml -mno-ieee \
          -ffreestanding \
          -fno-builtin \
@@ -12,74 +20,98 @@ CFLAGS = -m4-single-only -ml -mno-ieee \
          -fomit-frame-pointer \
          -O2 \
          -ffunction-sections \
-         -fdata-sections
+         -fdata-sections \
+         $(INCLUDES)
 
 LDFLAGS = -m4-single-only -ml -nostdlib \
           -Wl,-T,linker.ld \
           -Wl,--gc-sections
 
-OBJS = crt0.o video.o boot_anim.o boot_scene.o screen.o sound.o payload.o ata.o gdrom.o iso9660.o gdi_loader.o homebrew_cdi.o selfboot_cdi.o scramble.o syscalls.o wince.o boot.o boot_scene_blob.o
+# Subsystem Object Groups
+CORE_OBJS     = crt0.o syscalls.o wince.o payload.o
+STORAGE_OBJS  = ata.o gdrom.o iso9660.o gdi_loader.o selfboot_cdi.o homebrew_cdi.o scramble.o boot.o
+VIDEO_OBJS    = video.o screen.o
+AUDIO_OBJS    = sound.o
+SCENE_OBJS    = scene_loader.o rasterizer.o postprocess.o sprite.o scene_render.o boot_scene_blob.o
+FALLBACK_OBJS = boot_anim.o
+
+OBJS = $(CORE_OBJS) $(STORAGE_OBJS) $(VIDEO_OBJS) $(AUDIO_OBJS) $(SCENE_OBJS) $(FALLBACK_OBJS)
 
 .PHONY: all clean rom
 
 all: $(TARGET).bin dc_boot.bin
 rom: dc_boot.bin
 
-crt0.o: src/crt0.s
+# 1. Core Subsystem
+crt0.o: src/core/crt0.s
 	$(CC) $(CFLAGS) -c $< -o $@
 
-video.o: src/video.c src/video.h
+syscalls.o: src/core/syscalls.c src/core/syscalls.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-boot_anim.o: src/boot_anim.c src/boot_anim.h src/video.h src/math_fx.h
+wince.o: src/core/wince.c src/core/wince.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-boot_scene.o: src/boot_scene.c src/boot_scene.h src/math_fx.h src/sound.h src/video.h
+payload.o: src/core/payload.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-screen.o: src/screen.c src/screen.h src/video.h src/sound.h src/boot_anim.h src/boot_scene.h
+# 2. Storage & Boot Subsystem
+ata.o: src/storage/ata.c src/storage/ata.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-sound.o: src/sound.c src/sound.h src/math_fx.h
+gdrom.o: src/storage/gdrom.c src/storage/gdrom.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-payload.o: src/payload.c src/video.h src/screen.h src/sound.h
+iso9660.o: src/storage/iso9660.c src/storage/iso9660.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-ata.o: src/ata.c src/ata.h
+gdi_loader.o: src/storage/gdi_loader.c src/storage/gdi_loader.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-gdrom.o: src/gdrom.c src/gdrom.h src/ata.h
+selfboot_cdi.o: src/storage/selfboot_cdi.c src/storage/selfboot_cdi.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-iso9660.o: src/iso9660.c src/iso9660.h src/gdrom.h src/scramble.h src/gdi_loader.h src/homebrew_cdi.h src/selfboot_cdi.h src/screen.h
+homebrew_cdi.o: src/storage/homebrew_cdi.c src/storage/homebrew_cdi.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-gdi_loader.o: src/gdi_loader.c src/gdi_loader.h src/gdrom.h src/screen.h
+scramble.o: src/storage/scramble.c src/storage/scramble.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-homebrew_cdi.o: src/homebrew_cdi.c src/homebrew_cdi.h src/gdrom.h src/scramble.h src/screen.h
+boot.o: src/storage/boot.c src/storage/boot.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-selfboot_cdi.o: src/selfboot_cdi.c src/selfboot_cdi.h src/gdrom.h src/scramble.h src/screen.h
+# 3. Video Subsystem
+video.o: src/video/video.c src/video/video.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-scramble.o: src/scramble.c src/scramble.h
+screen.o: src/video/screen.c src/video/screen.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-syscalls.o: src/syscalls.c src/syscalls.h src/gdrom.h src/wince.h
+# 4. Audio Subsystem
+sound.o: src/audio/sound.c src/audio/sound.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-wince.o: src/wince.c src/wince.h
+# 5. Modular 3D Boot Scene Engine
+scene_loader.o: src/scene/scene_loader.c src/scene/scene_loader.h src/scene/scene_types.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-boot.o: src/boot.c src/boot.h src/gdrom.h src/iso9660.h src/syscalls.h src/wince.h src/video.h
+rasterizer.o: src/scene/rasterizer.c src/scene/rasterizer.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+postprocess.o: src/scene/postprocess.c src/scene/postprocess.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+sprite.o: src/scene/sprite.c src/scene/sprite.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+scene_render.o: src/scene/scene_render.c src/scene/boot_scene.h src/scene/scene_types.h src/scene/scene_math.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# 6. Fallback 2D Splash Engine
+boot_anim.o: src/fallback_anim/boot_anim.c src/fallback_anim/boot_anim.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Wrap boot_scene.bin as a linkable ELF object with a .boot_scene section.
-# sh-elf-objcopy --input-target binary renames the section to .data by default;
-# --rename-section moves it to .boot_scene so the linker script can place it at
-# exactly 0xA0010000 (64 KB above the bootloader entry point).
 boot_scene_blob.o: boot_scene.bin
 	$(OBJCOPY) \
 	  --input-target  binary \
@@ -95,9 +127,6 @@ $(TARGET).bin: $(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 
 # Build the final 2 MB ROM image:
-#   1. Start from the retail ROM base (for font/system tables) or zero-filled.
-#   2. Patch the bootloader binary (0xA0000000) and boot_scene (0xA0080000).
-#   3. Inject custom_bios.bin (the KOS Dashboard payload) at offset 64 KB (0x10000).
 dc_boot.bin: $(TARGET).bin
 	python3 -c "\
 import os; \
@@ -113,5 +142,3 @@ print(f'Built $@: {sz:,} bytes')"
 
 clean:
 	rm -f $(OBJS) $(TARGET).elf $(TARGET).bin dc_boot.bin boot_scene_blob.o
-
-

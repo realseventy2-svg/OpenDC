@@ -74,13 +74,13 @@ void sound_init(void) {
     /* 1. Hold AICA ARM7 sound CPU in reset */
     *(volatile uint32_t *)0xA0702C00UL |= 1;
 
-    /* 2. Configure master dry volume output */
-    *(volatile uint16_t *)0xA0702800UL = 0x000E;
+    /* 2. Configure master dry volume output: 0x000F = max volume (15) */
+    *(volatile uint16_t *)0xA0702800UL = 0x000F;
 
     /* 3. Stop and mute all 64 AICA hardware channels */
     for (int ch = 0; ch < 64; ch++) {
         AICA_CHN_REG(ch, 0x00) = 0x8000;
-        AICA_CHN_REG(ch, 0x24) = 0x0F00; /* DISDL = 15 (silence) */
+        AICA_CHN_REG(ch, 0x24) = 0x0000; /* DISDL = 0 (muted) */
     }
 
     /* 4. Synthesize single-cycle wavetables at exact byte offsets */
@@ -150,13 +150,54 @@ void sound_play_note(int ch, int midi_note, int volume, int pan, int wavetable_i
 
     AICA_CHN_REG(ch, 0x18) = pitch;
 
-    /* Direct Send Level attenuation: 15 = 0 dB (full volume), 0 = -90 dB */
-    uint32_t disdl = (volume >= 17) ? 0 : (17 - (volume & 0x0F));
+    /* Direct Send Level: 15 = full volume (0 dB), 0 = mute */
+    uint32_t disdl = volume & 0x0F;
     AICA_CHN_REG(ch, 0x24) = (disdl << 8) | (pan & 0x1F);
 
-    /* Bypass LPF and trigger key-on */
+    /* Bypass LPF and trigger key-on (16-bit PCM: PCMS=0, KYONB=1, KYONEX=1) */
     AICA_CHN_REG(ch, 0x28) = 0x0024;
-    AICA_CHN_REG(ch, 0x00) = 0xC200 | (smp_offset >> 16);
+    AICA_CHN_REG(ch, 0x00) = 0xC000 | (smp_offset >> 16);
+}
+
+void sound_play_cue(int ch, uint32_t spu_addr, uint32_t sample_count, uint16_t pitch_freq, uint8_t vol, uint8_t pan, uint8_t loop) {
+    if (ch < 0 || ch >= 64) return;
+    uint32_t smp_offset = (spu_addr >= AICA_RAM_BASE) ? (spu_addr - AICA_RAM_BASE) : spu_addr;
+
+    /* Key off */
+    AICA_CHN_REG(ch, 0x00) = 0x8000;
+    AICA_CHN_REG(ch, 0x04) = smp_offset & 0xFFFF;
+    AICA_CHN_REG(ch, 0x08) = 0;
+    AICA_CHN_REG(ch, 0x0C) = (sample_count > 65535) ? 65535 : sample_count;
+
+    /* Instant attack (AR=31) */
+    AICA_CHN_REG(ch, 0x10) = 0x001F;
+    /* No release decay (RR=0), KRS=0xF (scaling off) */
+    AICA_CHN_REG(ch, 0x14) = (0x0F << 10);
+
+    /* Frequency pitch: default base 44.1kHz or scaled */
+    uint16_t pitch_reg = 0x0000;
+    if (pitch_freq == 11025) {
+        pitch_reg = 0x7000;
+    } else if (pitch_freq == 22050) {
+        pitch_reg = 0x7800;
+    } else if (pitch_freq == 44100) {
+        pitch_reg = 0x0000;
+    } else if (pitch_freq > 0) {
+        pitch_reg = pitch_freq;
+    }
+    AICA_CHN_REG(ch, 0x18) = pitch_reg;
+
+    /* Direct Send Volume (DISDL): 0xF = Full Volume (0dB), 0 = Mute */
+    uint32_t disdl = (vol >> 4) & 0x0F;
+    uint32_t pan_5bit = pan >> 3;
+    AICA_CHN_REG(ch, 0x24) = (disdl << 8) | (pan_5bit & 0x1F);
+
+    /* Bypass LPF and bypass envelope volume (voff=1, lpoff=1) */
+    AICA_CHN_REG(ch, 0x28) = 0x0060;
+
+    /* 8-bit PCM (PCMS=1 -> bit 7 = 1: 0x0080), Key-On (KYONB=1 bit 14, KYONEX=1 bit 15 -> 0xC000) */
+    uint32_t fmt_key = 0xC080 | (loop ? 0x0200 : 0x0000) | ((smp_offset >> 16) & 0x007F);
+    AICA_CHN_REG(ch, 0x00) = fmt_key;
 }
 
 void sound_stop_channel(int ch) {

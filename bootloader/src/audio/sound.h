@@ -23,6 +23,9 @@ void sound_tick(void);
 /* Play a MIDI note on an AICA channel */
 void sound_play_note(int ch, int midi_note, int volume, int pan, int wavetable_id);
 
+/* Play a raw PCM sample / cue on an AICA channel */
+void sound_play_cue(int ch, uint32_t spu_addr, uint32_t sample_count, uint16_t pitch_freq, uint8_t vol, uint8_t pan, uint8_t loop);
+
 /* Stop / Key-off a specific AICA channel */
 void sound_stop_channel(int ch);
 
