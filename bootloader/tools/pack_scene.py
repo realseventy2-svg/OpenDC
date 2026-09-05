@@ -457,16 +457,17 @@ def pack_scene(transforms, vertices, indices, cues, wavetables) -> bytes:
     ix_bytes = pad_to(ix_bytes, ALIGN)
 
     # Audio cues: 16 bytes each
+    # Layout: uint32(4) + 6×uint8(6) + reserved[6](6) = 16 bytes
     cue_bytes = b''
     for cue in cues:
-        cue_bytes += struct.pack('<IBBBBBB2x',
+        cue_bytes += struct.pack('<IBBBBBB6x',
             cue['frame'],
-            cue['channel']    & 0xFF,
-            cue['wavetable']  & 0xFF,
-            cue['note']       & 0xFF,
-            cue['volume']     & 0xFF,
-            cue['pan']        & 0xFF,
-            cue['adsr_preset']& 0xFF,
+            cue['channel']     & 0xFF,
+            cue['wavetable']   & 0xFF,
+            cue['note']        & 0xFF,
+            cue['volume']      & 0xFF,
+            cue['pan']         & 0xFF,
+            cue['adsr_preset'] & 0xFF,
         )
     cue_bytes = pad_to(cue_bytes, ALIGN)
 

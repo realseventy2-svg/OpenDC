@@ -109,8 +109,9 @@ typedef struct {
     uint8_t  volume;          /* 0..15 (maps to AICA DISDL attenuation)  */
     uint8_t  pan;             /* 0..31 (AICA DIPAN value)                */
     uint8_t  adsr_preset;     /* 0=Bell 1=Strings 2=Bass 3=Shimmer       */
-    uint8_t  reserved[2];     /* Pad to 16 bytes                         */
+    uint8_t  reserved[6];     /* Pad to 16 bytes: 4+6+6 = 16             */
 } __attribute__((packed)) BootSceneAudioCue;
+/* Layout: uint32(4) + 6×uint8(6) + reserved[6](6) = 16 bytes */
 
 typedef char _bsac_size_check[ (sizeof(BootSceneAudioCue) == 16) ? 1 : -1 ];
 
