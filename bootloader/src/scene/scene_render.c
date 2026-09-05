@@ -116,11 +116,20 @@ void boot_scene_tick(uint32_t fb_addr)
     uint16_t ver = rd16(&h->version);
     uint16_t obj_count = rd16(&h->object_count);
 
-    int bb_min_x = 640, bb_min_y = 480, bb_max_x = -1, bb_max_y = -1;
+    static int prev_bb_min_x = 0, prev_bb_min_y = 0, prev_bb_max_x = 1279, prev_bb_max_y = 959;
+    uint16_t bg_col = boot_scene_get_bg_color();
 
     if (ver >= 2 && obj_count > 0) {
+        /* Clear previous frame's SSAA bounding box in fast SDRAM */
+        postprocess_clear_ssaa_box(BOOT_SCENE_SSAA_BASE,
+                                   prev_bb_min_x - 8, prev_bb_min_y - 8,
+                                   prev_bb_max_x + 8, prev_bb_max_y + 8,
+                                   bg_col);
+
+        int bb_min_x = 1280, bb_min_y = 960, bb_max_x = -1, bb_max_y = -1;
+
         /* ==============================================================
-         * Version 2/3: Multi-Object / Camera Matrix Render Path
+         * Version 2/3: Multi-Object / Camera Matrix 2x SSAA Render Path
          * ============================================================== */
         uint16_t stored_frames = rd16(&h->sprite_frame_count);
         uint32_t f_idx = tick >> 1;
@@ -201,9 +210,9 @@ void boot_scene_tick(uint32_t fb_addr)
                 if (z_depth <= 0.05f) {
                     vis_buf[i] = 0;
                 } else {
-                    float inv_z = (float)BOOT_SCENE_FOCAL_LEN / z_depth;
-                    sx_buf[i] = 320 + (int)(cx * inv_z);
-                    sy_buf[i] = 240 - (int)(cy * inv_z);
+                    float inv_z = (float)(BOOT_SCENE_FOCAL_LEN * 2) / z_depth;
+                    sx_buf[i] = 640 + (int)(cx * inv_z);
+                    sy_buf[i] = 480 - (int)(cy * inv_z);
                     vis_buf[i] = 1;
                 }
 
@@ -238,17 +247,25 @@ void boot_scene_tick(uint32_t fb_addr)
                 if (y_min < bb_min_y) bb_min_y = y_min;
                 if (y_max > bb_max_y) bb_max_y = y_max;
 
-                rasterizer_draw_triangle_gouraud(fb_addr,
-                                                 sx_buf[i0], sy_buf[i0], col_buf[i0],
-                                                 sx_buf[i1], sy_buf[i1], col_buf[i1],
-                                                 sx_buf[i2], sy_buf[i2], col_buf[i2]);
+                rasterizer_draw_triangle_gouraud_ssaa(BOOT_SCENE_SSAA_BASE,
+                                                      sx_buf[i0], sy_buf[i0], col_buf[i0],
+                                                      sx_buf[i1], sy_buf[i1], col_buf[i1],
+                                                      sx_buf[i2], sy_buf[i2], col_buf[i2]);
             }
         }
 
-        /* Universal sub-pixel silhouette edge anti-aliasing */
+        /* 2x2 SSAA Downsampling Resolve: 1280x960 (SDRAM) -> 640x480 (VRAM) */
         if (bb_max_x >= bb_min_x && bb_max_y >= bb_min_y) {
-            uint16_t bg_col = boot_scene_get_bg_color();
-            postprocess_smooth_edges(fb_addr, bb_min_x - 1, bb_min_y - 1, bb_max_x + 1, bb_max_y + 1, bg_col);
+            int res_min_x = (bb_min_x - 4) >> 1;
+            int res_min_y = (bb_min_y - 4) >> 1;
+            int res_max_x = (bb_max_x + 4) >> 1;
+            int res_max_y = (bb_max_y + 4) >> 1;
+            postprocess_resolve_2x_ssaa(BOOT_SCENE_SSAA_BASE, fb_addr, res_min_x, res_min_y, res_max_x, res_max_y);
+
+            prev_bb_min_x = bb_min_x;
+            prev_bb_min_y = bb_min_y;
+            prev_bb_max_x = bb_max_x;
+            prev_bb_max_y = bb_max_y;
         }
     }
 

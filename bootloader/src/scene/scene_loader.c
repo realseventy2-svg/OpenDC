@@ -1,4 +1,6 @@
 #include "scene_loader.h"
+#include "scene_types.h"
+#include "postprocess.h"
 #include "video.h"
 #include "sound.h"
 
@@ -40,6 +42,9 @@ int scene_loader_mount(const void *blob, BootSceneState *scene)
     scene->tick          = 0;
     scene->mounted       = 1;
     scene->done          = 0;
+
+    /* Initialize SSAA buffer in SDRAM to background clear color */
+    postprocess_clear_ssaa_box(BOOT_SCENE_SSAA_BASE, 0, 0, 1279, 959, scene->bg_color);
 
     /* Initialize AICA SPU hardware, master volume, and channels */
     sound_init();

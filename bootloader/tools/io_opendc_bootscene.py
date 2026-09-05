@@ -238,18 +238,48 @@ def export_opendc_boot_scene(output_path=DEFAULT_OUTPUT_BIN,
             raw_pixels = bytearray()
             if png_path:
                 img = bpy.data.images.load(png_path)
-                pixels = list(img.pixels)
-                for py in range(h):
-                    for px in range(w):
-                        sx = int(px * img.size[0] / w)
-                        sy = int((h - 1 - py) * img.size[1] / h)
-                        idx = (sy * img.size[0] + sx) * 4
-                        r = int(min(max(pixels[idx], 0.0), 1.0) * 15.0)
-                        g = int(min(max(pixels[idx + 1], 0.0), 1.0) * 15.0)
-                        b = int(min(max(pixels[idx + 2], 0.0), 1.0) * 15.0)
-                        a = int(min(max(pixels[idx + 3], 0.0), 1.0) * 15.0)
-                        raw_pixels.extend(struct.pack('<H', (a << 12) | (r << 8) | (g << 4) | b))
+                src_w, src_h = img.size[0], img.size[1]
+                src_pixels = list(img.pixels)
                 bpy.data.images.remove(img)
+
+                scale_x = src_w / float(w)
+                scale_y = src_h / float(h)
+
+                for dy in range(h - 1, -1, -1):
+                    sy_start = dy * scale_y
+                    sy_end = (dy + 1) * scale_y
+                    iy_start = int(math.floor(sy_start))
+                    iy_end = min(int(math.ceil(sy_end)), src_h)
+
+                    for dx in range(w):
+                        sx_start = dx * scale_x
+                        sx_end = (dx + 1) * scale_x
+                        ix_start = int(math.floor(sx_start))
+                        ix_end = min(int(math.ceil(sx_end)), src_w)
+
+                        tot_weight = 0.0
+                        sum_r = 0.0; sum_g = 0.0; sum_b = 0.0; sum_a = 0.0
+
+                        for iy in range(iy_start, iy_end):
+                            wy = min(sy_end, iy + 1.0) - max(sy_start, float(iy))
+                            if wy <= 0: continue
+                            for ix in range(ix_start, ix_end):
+                                wx = min(sx_end, ix + 1.0) - max(sx_start, float(ix))
+                                if wx <= 0: continue
+                                weight = wx * wy
+                                idx = (iy * src_w + ix) * 4
+                                sum_r += src_pixels[idx + 0] * weight
+                                sum_g += src_pixels[idx + 1] * weight
+                                sum_b += src_pixels[idx + 2] * weight
+                                sum_a += src_pixels[idx + 3] * weight
+                                tot_weight += weight
+
+                        inv_w = 1.0 / tot_weight if tot_weight > 0 else 0.0
+                        r = int(min(max(sum_r * inv_w, 0.0), 1.0) * 15.0 + 0.5)
+                        g = int(min(max(sum_g * inv_w, 0.0), 1.0) * 15.0 + 0.5)
+                        b = int(min(max(sum_b * inv_w, 0.0), 1.0) * 15.0 + 0.5)
+                        a = int(min(max(sum_a * inv_w, 0.0), 1.0) * 15.0 + 0.5)
+                        raw_pixels.extend(struct.pack('<H', (a << 12) | (r << 8) | (g << 4) | b))
             else:
                 for _ in range(w * h):
                     raw_pixels.extend(struct.pack('<H', 0xFFFF))

@@ -18,6 +18,7 @@
 
 /* Dedicated high-speed scratchpad buffer pool in SDRAM (outside of resident STATE area) */
 #define BOOT_SCENE_SCRATCHPAD_BASE 0x8C100000UL
+#define BOOT_SCENE_SSAA_BASE       0x8C200000UL
 
 /* =========================================================================
  * Binary Container On-Disk Layout (64-byte Header)
