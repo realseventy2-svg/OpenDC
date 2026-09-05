@@ -123,9 +123,19 @@ const uint8_t FONT_8X8[95][8] = {
 static int s_current_page = 0;
 static volatile uint16_t *s_draw_fb = (volatile uint16_t *)VRAM_PAGE_0;
 
+void video_set_border_color_565(uint16_t color) {
+    uint32_t r = (color >> 11) & 0x1F;
+    uint32_t g = (color >> 5)  & 0x3F;
+    uint32_t b =  color        & 0x1F;
+    r = (r << 3) | (r >> 2);
+    g = (g << 2) | (g >> 4);
+    b = (b << 3) | (b >> 2);
+    PVR_BORDER_COLOR = (r << 16) | (g << 8) | b;
+}
+
 void video_init(void) {
     PVR_VIDEO_CFG     = 0x00000008;
-    PVR_BORDER_COLOR  = 0x00000000;
+    PVR_BORDER_COLOR  = 0x00D2D5D9; /* Authentic Sega Frosted Grey #D2D5D9 */
 
     PVR_BORDER_X      = 0x007E0345;
     PVR_BORDER_Y      = 0x00240204;

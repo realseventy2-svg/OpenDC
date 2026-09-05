@@ -27,6 +27,7 @@
 #define COLOR_LIGHT_GRAY    RGB565(180, 180, 180)
 
 void video_init(void);
+void video_set_border_color_565(uint16_t color);
 void video_wait_vblank(void);
 void video_wait_seconds(int seconds);
 

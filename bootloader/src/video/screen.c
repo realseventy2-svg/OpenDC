@@ -380,6 +380,7 @@ void screen_animate_splash(int duration_frames) {
      * ======================================================================= */
     if (s_boot_scene_blob && boot_scene_mount(s_boot_scene_blob) == 0) {
         uint16_t bg_color = boot_scene_get_bg_color();
+        video_set_border_color_565(bg_color);
 
         video_set_target_buffer(video_get_back_fb());
 
@@ -424,6 +425,7 @@ void screen_animate_splash(int duration_frames) {
     cfg.num_particles = 32;
     cfg.hide_2d_logo = 0;
 
+    video_set_border_color_565(cfg.bg_color);
     boot_anim_init(&cfg);
 
     if (current_theme->music_enabled) {
