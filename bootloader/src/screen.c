@@ -371,8 +371,49 @@ void screen_draw_cube(int cx, int cy, int size, int ax, int ay, int az, uint16_t
 void screen_animate_splash(int duration_frames) {
     if (duration_frames <= 0) return;
 
-    int has_dcbs = (s_boot_scene_blob && boot_scene_mount(s_boot_scene_blob) == 0);
+    /* =======================================================================
+     * Path 1: Standalone DCBS 3D Container Runtime (Plug-and-Play)
+     * If a valid boot_scene.bin blob is registered and mounts successfully,
+     * the presentation is 100% driven by the container (3D mesh geometry,
+     * per-frame baked camera/model transforms, and custom AICA audio wavetables).
+     * It runs independently without hardcoded 2D text, badges, or legacy sprites.
+     * ======================================================================= */
+    if (s_boot_scene_blob && boot_scene_mount(s_boot_scene_blob) == 0) {
+        uint16_t bg_color = current_theme ? current_theme->bg_color : COLOR_BLACK;
 
+        video_set_target_buffer(video_get_back_fb());
+
+        while (!boot_scene_is_done()) {
+            uint32_t back_fb = video_get_back_fb();
+            video_set_target_buffer(back_fb);
+
+            /* 1. Clean background clear into back buffer */
+            video_clear(bg_color);
+
+            /* 2. Advance 3D projection, rasterize mesh, & fire AICA audio cues */
+            boot_scene_tick(back_fb);
+
+            /* 3. Atomically flip displayed surface on hardware VBlank */
+            video_flip_buffer();
+        }
+
+        boot_scene_unmount();
+
+        /* Clean display handoff */
+        video_wait_vblank();
+        *(volatile uint32_t *)0xA05F8050UL = 0x00000000UL;
+        *(volatile uint32_t *)0xA05F8054UL = 0x00000000UL;
+        video_set_target_buffer(VRAM_PAGE_0);
+        return;
+    }
+
+    /* =======================================================================
+     * Path 2: Default Fallback Dreamcast Boot Animation Engine
+     * Invoked when boot_scene.bin is missing, NULL, or corrupted.
+     * Renders the authentic real-time procedural frosty caustic background,
+     * 3D aqua glass swirl logo, high-res "Open Dreamcast" branding,
+     * SEGA badge, and ambient synthesizer music.
+     * ======================================================================= */
     boot_scene_config_t cfg;
     cfg.title = current_theme->title ? current_theme->title : "Open Dreamcast";
     cfg.subtitle = current_theme->subtitle ? current_theme->subtitle : "SEGA DREAMCAST ARCHITECTURE";
@@ -381,10 +422,9 @@ void screen_animate_splash(int duration_frames) {
     cfg.swirl_glint_color = RGB565(255, 255, 255);
     cfg.bg_color = current_theme->bg_color;
     cfg.num_particles = 32;
-    cfg.hide_2d_logo = has_dcbs;
+    cfg.hide_2d_logo = 0;
 
     boot_anim_init(&cfg);
-
 
     if (current_theme->music_enabled) {
         sound_set_duration(duration_frames);
@@ -401,20 +441,11 @@ void screen_animate_splash(int duration_frames) {
 
         uint32_t back_fb = video_get_back_fb();
 
-        /* 2. Render background / UI elements into back buffer (Store Queue DMA) */
+        /* 2. Render complete frame into inactive back buffer (Store Queue DMA) */
         boot_anim_render_frame(frame, duration_frames, back_fb);
 
-        /* 3. Render 3D Plug-and-Play Scene on top of the clean background */
-        if (has_dcbs && !boot_scene_is_done()) {
-            boot_scene_tick(back_fb);
-        }
-
-        /* 4. Atomically flip displayed surface on hardware VBlank */
+        /* 3. Atomically flip displayed surface on hardware VBlank */
         video_flip_buffer();
-    }
-
-    if (has_dcbs) {
-        boot_scene_unmount();
     }
 
     /* Clean handoff: wait for VBlank, restore display to Page 0 */
@@ -424,4 +455,5 @@ void screen_animate_splash(int duration_frames) {
     video_set_target_buffer(VRAM_PAGE_0);
     boot_anim_shutdown();
 }
+
 

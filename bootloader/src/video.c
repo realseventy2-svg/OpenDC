@@ -253,11 +253,13 @@ void video_clean_handoff(void) {
 }
 
 void video_clear(uint16_t color) {
-    volatile uint16_t *fb = s_draw_fb;
-    for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
-        fb[i] = color;
+    uint32_t col32 = ((uint32_t)color << 16) | (uint32_t)color;
+    volatile uint32_t *fb32 = (volatile uint32_t *)s_draw_fb;
+    for (int i = 0; i < (SCREEN_WIDTH * SCREEN_HEIGHT) / 2; i++) {
+        fb32[i] = col32;
     }
 }
+
 
 void video_fill_rect(int x, int y, int w, int h, uint16_t color) {
     volatile uint16_t *fb = s_draw_fb;
