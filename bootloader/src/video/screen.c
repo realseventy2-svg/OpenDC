@@ -4,7 +4,7 @@
 #include "boot_scene.h"
 
 const boot_theme_t BOOT_THEME_DEFAULT = {
-    .bg_color           = RGB565(248, 250, 254),
+    .bg_color           = RGB565(210, 213, 217), /* Authentic Sega Frosted Grey #D2D5D9 */
     .header_color       = COLOR_WHITE,
     .sub_color          = COLOR_CYAN,
     .status_ok_color    = COLOR_GREEN,
@@ -379,7 +379,7 @@ void screen_animate_splash(int duration_frames) {
      * It runs independently without hardcoded 2D text, badges, or legacy sprites.
      * ======================================================================= */
     if (s_boot_scene_blob && boot_scene_mount(s_boot_scene_blob) == 0) {
-        uint16_t bg_color = current_theme ? current_theme->bg_color : COLOR_BLACK;
+        uint16_t bg_color = boot_scene_get_bg_color();
 
         video_set_target_buffer(video_get_back_fb());
 

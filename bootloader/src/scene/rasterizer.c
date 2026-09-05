@@ -108,13 +108,13 @@ void rasterizer_draw_triangle(uint32_t fb_addr,
     }
 }
 
-/* Authentic Dreamcast BIOS 2-tone palette shader with specular bevel glints */
+/* Authentic Dreamcast Smooth Studio Shading (Preserves pure material hue without yellowing or discoloration) */
 uint16_t rasterizer_calc_lighting(float nx, float ny, float nz, float n2, uint16_t base_color)
 {
     if (n2 <= 0.0001f) return base_color;
 
-    /* Light from top-left front: (-0.355, 0.710, 0.609) */
-    float dot = nx * (-0.355f) + ny * 0.710f + nz * 0.609f;
+    /* Light from front-top-left: (-0.267, 0.535, 0.802) normalized */
+    float dot = nx * (-0.267f) + ny * 0.535f + nz * 0.802f;
     float inv_len = 1.0f / __builtin_sqrtf(n2);
     float ndot = dot * inv_len;
     if (ndot < -1.0f) ndot = -1.0f;
@@ -124,48 +124,14 @@ uint16_t rasterizer_calc_lighting(float nx, float ny, float nz, float n2, uint16
     int g_base = (base_color >> 5)  & 0x3F;
     int b_base =  base_color        & 0x1F;
 
-    int r, g, b;
-    if (ndot < 0.0f) {
-        /* Shadow crevice: Rich deep saturated shade (crimson for orange, deep blue for blue) */
-        int t = 256 + (int)(ndot * 256.0f);
-        if (t < 0) t = 0;
+    /* Soft studio lighting: 80% ambient + 20% directional (factor 205..256 in 8.8 fixed point) */
+    int factor = 220 + (int)(ndot * 36.0f);
+    if (factor < 175) factor = 175;
+    if (factor > 256) factor = 256;
 
-        int r_sh = (r_base * 3) >> 2;
-        int g_sh = (g_base * 1) >> 2;
-        int b_sh = (b_base * 1) >> 2;
-
-        r = r_sh + (((r_base - r_sh) * t) >> 8);
-        g = g_sh + (((g_base - g_sh) * t) >> 8);
-        b = b_sh + (((b_base - b_sh) * t) >> 8);
-    } else if (ndot < 0.65f) {
-        /* Diffuse to Golden Highlight: Radiant warm illumination */
-        int t = (int)(ndot * (256.0f / 0.65f));
-        if (t > 256) t = 256;
-
-        int r_hi = 31;
-        int g_hi = g_base + (((63 - g_base) * 110) >> 8);
-        int b_hi = b_base + 3;
-
-        r = r_base + (((r_hi - r_base) * t) >> 8);
-        g = g_base + (((g_hi - g_base) * t) >> 8);
-        b = b_base + (((b_hi - b_base) * t) >> 8);
-    } else {
-        /* Specular Glint: Lustrous gleaming cream bevel highlight */
-        int t = (int)((ndot - 0.65f) * (256.0f / 0.35f));
-        if (t > 256) t = 256;
-
-        int r_hi = 31;
-        int g_hi = g_base + (((63 - g_base) * 110) >> 8);
-        int b_hi = b_base + 3;
-
-        int r_sp = 31;
-        int g_sp = 58;
-        int b_sp = 18;
-
-        r = r_hi + (((r_sp - r_hi) * t) >> 8);
-        g = g_hi + (((g_sp - g_hi) * t) >> 8);
-        b = b_hi + (((b_sp - b_hi) * t) >> 8);
-    }
+    int r = (r_base * factor) >> 8;
+    int g = (g_base * factor) >> 8;
+    int b = (b_base * factor) >> 8;
 
     if (r > 31) r = 31;
     if (g > 63) g = 63;
