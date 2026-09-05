@@ -20,6 +20,7 @@ static float * const cx_buf     = (float *)(BOOT_SCENE_SCRATCHPAD_BASE + 0x08000
 static float * const cy_buf     = (float *)(BOOT_SCENE_SCRATCHPAD_BASE + 0x0C000);
 static float * const cz_buf     = (float *)(BOOT_SCENE_SCRATCHPAD_BASE + 0x10000);
 static uint8_t * const vis_buf  = (uint8_t *)(BOOT_SCENE_SCRATCHPAD_BASE + 0x14000);
+static uint16_t * const col_buf = (uint16_t *)(BOOT_SCENE_SCRATCHPAD_BASE + 0x18000);
 
 /* Helper: Copy wavetable block to AICA SPU RAM */
 static void upload_wavetable(uint32_t dst_spu_offset, const int16_t *src)
@@ -181,9 +182,12 @@ void boot_scene_tick(uint32_t fb_addr)
             uint32_t nv = rd32(&obj->vert_count);
             if (nv > MAX_VERTS) nv = MAX_VERTS;
 
+            uint16_t base_color = rd16(&obj->color);
+
             for (uint32_t i = 0; i < nv; i++) {
-                const float *v = s_scene.vertices + (sv + i) * 3;
+                const float *v = s_scene.vertices + (sv + i) * 6;
                 float vx = v[0], vy = v[1], vz = v[2];
+                float nx = v[3], ny = v[4], nz = v[5];
 
                 float cx = m0 * vx + m1 * vy + m2 * vz + m3;
                 float cy = m4 * vx + m5 * vy + m6 * vz + m7;
@@ -202,10 +206,17 @@ void boot_scene_tick(uint32_t fb_addr)
                     sy_buf[i] = 240 - (int)(cy * inv_z);
                     vis_buf[i] = 1;
                 }
+
+                /* Rotate smoothed vertex normal by camera 3x3 matrix */
+                float rnx = m0 * nx + m1 * ny + m2 * nz;
+                float rny = m4 * nx + m5 * ny + m6 * nz;
+                float rnz = m8 * nx + m9 * ny + m10 * nz;
+                float rn2 = rnx * rnx + rny * rny + rnz * rnz;
+
+                col_buf[i] = rasterizer_calc_lighting(rnx, rny, rnz, rn2, base_color);
             }
 
             uint32_t st = rd32(&obj->start_tri);
-            uint16_t base_color = rd16(&obj->color);
 
             for (uint32_t t = 0; t < visible_tris; t++) {
                 uint32_t base_idx = (st + t) * 3;
@@ -227,23 +238,10 @@ void boot_scene_tick(uint32_t fb_addr)
                 if (y_min < bb_min_y) bb_min_y = y_min;
                 if (y_max > bb_max_y) bb_max_y = y_max;
 
-                /* 3D Normal Lighting & Specular Bevel Glints */
-                float e1x = cx_buf[i1] - cx_buf[i0];
-                float e1y = cy_buf[i1] - cy_buf[i0];
-                float e1z = cz_buf[i1] - cz_buf[i0];
-
-                float e2x = cx_buf[i2] - cx_buf[i0];
-                float e2y = cy_buf[i2] - cy_buf[i0];
-                float e2z = cz_buf[i2] - cz_buf[i0];
-
-                float nx = e1y * e2z - e1z * e2y;
-                float ny = e1z * e2x - e1x * e2z;
-                float nz = e1x * e2y - e1y * e2x;
-
-                float n2 = nx * nx + ny * ny + nz * nz;
-                uint16_t tri_color = rasterizer_calc_lighting(nx, ny, nz, n2, base_color);
-
-                rasterizer_draw_triangle(fb_addr, sx_buf[i0], sy_buf[i0], sx_buf[i1], sy_buf[i1], sx_buf[i2], sy_buf[i2], tri_color);
+                rasterizer_draw_triangle_gouraud(fb_addr,
+                                                 sx_buf[i0], sy_buf[i0], col_buf[i0],
+                                                 sx_buf[i1], sy_buf[i1], col_buf[i1],
+                                                 sx_buf[i2], sy_buf[i2], col_buf[i2]);
             }
         }
 

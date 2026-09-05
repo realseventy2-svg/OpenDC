@@ -30,9 +30,10 @@ def linear_to_srgb(c):
     return 1.055 * math.pow(c, 1.0 / 2.4) - 0.055
 
 def color_to_rgb565(col):
-    r_srgb = linear_to_srgb(col[0])
-    g_srgb = linear_to_srgb(col[1])
-    b_srgb = linear_to_srgb(col[2])
+    # Apply standard studio/filmic exposure mapping to match Blender rendered viewport tone
+    r_srgb = linear_to_srgb(col[0]) * 0.85
+    g_srgb = linear_to_srgb(col[1]) * 0.83
+    b_srgb = linear_to_srgb(col[2]) * 0.90
     r = int(min(max(r_srgb, 0.0), 1.0) * 31.0)
     g = int(min(max(g_srgb, 0.0), 1.0) * 63.0)
     b = int(min(max(b_srgb, 0.0), 1.0) * 31.0)
@@ -189,7 +190,7 @@ def export_opendc_boot_scene(output_path=DEFAULT_OUTPUT_BIN,
             for v in f.verts:
                 if v not in vert_map:
                     vert_map[v] = len(mesh_verts)
-                    mesh_verts.append((v.co.x, v.co.y, v.co.z))
+                    mesh_verts.append((v.co.x, v.co.y, v.co.z, v.normal.x, v.normal.y, v.normal.z))
                 tri_idx.append(vert_map[v])
             mesh_indices.extend(tri_idx)
 
@@ -339,8 +340,8 @@ def export_opendc_boot_scene(output_path=DEFAULT_OUTPUT_BIN,
     print(f"[OpenDC] Audio payload: {len(audio_pcm_bytes):,} bytes")
 
     vert_bytes = bytearray()
-    for vx, vy, vz in all_verts:
-        vert_bytes.extend(struct.pack('<3f', vx, vy, vz))
+    for vx, vy, vz, nx, ny, nz in all_verts:
+        vert_bytes.extend(struct.pack('<6f', vx, vy, vz, nx, ny, nz))
 
     idx_bytes = bytearray()
     for idx in all_indices:
