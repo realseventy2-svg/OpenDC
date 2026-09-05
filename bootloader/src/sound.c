@@ -1,5 +1,8 @@
 #include "sound.h"
+#include "math_fx.h"
 #include <stdint.h>
+
+/* NOTE: sin_fx, clamp16, udiv32, sdiv32 provided by math_fx.h (static inline) */
 
 /* =========================================================================
  * SERENE SEGA DREAMCAST STARTUP SOUND ENGINE (7.5-SECOND RESOLUTION)
@@ -32,70 +35,6 @@ static const uint16_t MIDI_PITCH_TABLE[88] = {
     /* 99..104 (D#7..G#7)*/ 0x1B39, 0x1BA7, 0x200E, 0x204C, 0x208D, 0x20D2,
     /* 105..108 (A7..C8) */ 0x211C, 0x216A, 0x21BC, 0x2213
 };
-
-static const int16_t sin_quarter_table[65] = {
-      0,   6,  12,  18,  25,  31,  37,  43,
-     49,  56,  62,  68,  74,  80,  86,  92,
-     97, 103, 109, 115, 120, 126, 131, 136,
-    142, 147, 152, 157, 162, 167, 171, 176,
-    181, 185, 189, 193, 197, 201, 205, 208,
-    212, 215, 219, 222, 225, 228, 231, 233,
-    236, 238, 240, 242, 244, 246, 247, 249,
-    250, 251, 252, 253, 254, 254, 255, 255,
-    256
-};
-
-static int32_t sin_fx(int angle) {
-    angle &= 0xFF;
-    if (angle <= 64)  return sin_quarter_table[angle];
-    if (angle <= 128) return sin_quarter_table[128 - angle];
-    if (angle <= 192) return -sin_quarter_table[angle - 128];
-    return -sin_quarter_table[256 - angle];
-}
-
-static int32_t clamp16(int32_t value) {
-    if (value > 32767)  return 32767;
-    if (value < -32768) return -32768;
-    return value;
-}
-
-static uint32_t udiv32_snd(uint32_t num, uint32_t den) {
-    if (den == 0) return 0;
-    uint32_t quot = 0, qbit = 1;
-    while ((int32_t)den >= 0 && den < num) {
-        den <<= 1;
-        qbit <<= 1;
-    }
-    while (qbit) {
-        if (num >= den) {
-            num -= den;
-            quot |= qbit;
-        }
-        den >>= 1;
-        qbit >>= 1;
-    }
-    return quot;
-}
-
-static int32_t sdiv32_snd(int32_t num, int32_t den) {
-    if (den == 0) return 0;
-    int sign = 1;
-    uint32_t unum, uden;
-    if (num < 0) {
-        sign = -sign;
-        unum = (uint32_t)-num;
-    } else {
-        unum = (uint32_t)num;
-    }
-    if (den < 0) {
-        sign = -sign;
-        uden = (uint32_t)-den;
-    } else {
-        uden = (uint32_t)den;
-    }
-    uint32_t quot = udiv32_snd(unum, uden);
-    return (sign < 0) ? -(int32_t)quot : (int32_t)quot;
-}
 
 static int16_t make_velvet_celesta_bell(int i) {
     int32_t s1 = sin_fx(i);

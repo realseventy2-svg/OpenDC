@@ -18,7 +18,7 @@ LDFLAGS = -m4-single-only -ml -nostdlib \
           -Wl,-T,linker.ld \
           -Wl,--gc-sections
 
-OBJS = crt0.o video.o boot_anim.o screen.o sound.o payload.o ata.o gdrom.o iso9660.o gdi_loader.o homebrew_cdi.o selfboot_cdi.o scramble.o syscalls.o wince.o boot.o
+OBJS = crt0.o video.o boot_anim.o boot_scene.o screen.o sound.o payload.o ata.o gdrom.o iso9660.o gdi_loader.o homebrew_cdi.o selfboot_cdi.o scramble.o syscalls.o wince.o boot.o
 
 .PHONY: all clean rom
 
@@ -31,13 +31,16 @@ crt0.o: src/crt0.s
 video.o: src/video.c src/video.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-boot_anim.o: src/boot_anim.c src/boot_anim.h src/video.h
+boot_anim.o: src/boot_anim.c src/boot_anim.h src/video.h src/math_fx.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+boot_scene.o: src/boot_scene.c src/boot_scene.h src/math_fx.h src/sound.h src/video.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 screen.o: src/screen.c src/screen.h src/video.h src/sound.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-sound.o: src/sound.c src/sound.h
+sound.o: src/sound.c src/sound.h src/math_fx.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 payload.o: src/payload.c src/video.h src/screen.h src/sound.h

@@ -3,71 +3,15 @@
 #include "logo_data.h"
 #include "modern_assets.h"
 #include "frost_map.h"
+#include "math_fx.h"
 #include <stdint.h>
 
 #define SCREEN_W 640
 #define SCREEN_H 480
 
-/* 8.8 Fixed-Point Sine Quarter-Wave Table (0..64 maps to 0..90 deg) */
-static const int16_t sin_quarter_tab[65] = {
-      0,   6,  12,  18,  25,  31,  37,  43,
-     49,  56,  62,  68,  74,  80,  86,  92,
-     97, 103, 109, 115, 120, 126, 131, 136,
-    142, 147, 152, 157, 162, 167, 171, 176,
-    181, 185, 189, 193, 197, 201, 205, 208,
-    212, 215, 219, 222, 225, 228, 231, 233,
-    236, 238, 240, 242, 244, 246, 247, 249,
-    250, 251, 252, 253, 254, 254, 255, 255,
-    256
-};
-
-static int32_t sin_fx(int angle) {
-    angle &= 0xFF;
-    if (angle <= 64)  return sin_quarter_tab[angle];
-    if (angle <= 128) return sin_quarter_tab[128 - angle];
-    if (angle <= 192) return -sin_quarter_tab[angle - 128];
-    return -sin_quarter_tab[256 - angle];
-}
-
-static uint32_t udiv32_anim(uint32_t num, uint32_t den) {
-    if (den == 0) return 0;
-    uint32_t quot = 0, qbit = 1;
-    while ((int32_t)den >= 0 && den < num) {
-        den <<= 1;
-        qbit <<= 1;
-    }
-    while (qbit) {
-        if (num >= den) {
-            num -= den;
-            quot |= qbit;
-        }
-        den >>= 1;
-        qbit >>= 1;
-    }
-    return quot;
-}
-
-static int32_t sdiv32_anim(int32_t num, int32_t den) {
-    if (den == 0) return 0;
-    int sign = 1;
-    uint32_t unum, uden;
-    if (num < 0) {
-        sign = -sign;
-        unum = (uint32_t)-num;
-    } else {
-        unum = (uint32_t)num;
-    }
-    if (den < 0) {
-        sign = -sign;
-        uden = (uint32_t)-den;
-    } else {
-        uden = (uint32_t)den;
-    }
-    uint32_t quot = udiv32_anim(unum, uden);
-    return (sign < 0) ? -(int32_t)quot : (int32_t)quot;
-}
 
 static boot_scene_config_t s_config;
+
 
 /* -------------------------------------------------------------------------
  * Ultra-Fast Color Blending & Shading Helpers (No VRAM readback needed)
@@ -371,13 +315,13 @@ void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
     /* 2. Render Big 3D Aqua Glass Swirl Logo with Subtle Bob & Specular Caustics */
     int logo_alpha = 0;
     if (frame >= 3) {
-        logo_alpha = sdiv32_anim((frame - 3) * 256, 30);
+        logo_alpha = sdiv32((frame - 3) * 256, 30);
         if (logo_alpha > 256) logo_alpha = 256;
     }
     int fade_start = total_frames - 90;
     if (fade_start < 0) fade_start = 0;
     if (frame > fade_start && total_frames > fade_start) {
-        int fade_out = sdiv32_anim((total_frames - frame) * 256, total_frames - fade_start);
+        int fade_out = sdiv32((total_frames - frame) * 256, total_frames - fade_start);
         if (fade_out < 0) fade_out = 0;
         logo_alpha = (logo_alpha * fade_out) >> 8;
     }
@@ -390,11 +334,11 @@ void boot_anim_render_frame(int frame, int total_frames, uint32_t fb_addr) {
     /* 3. High-Definition Anti-Aliased Modern Typography & Branding */
     int text_alpha = 0;
     if (frame > 20) {
-        text_alpha = sdiv32_anim((frame - 20) * 256, 30);
+        text_alpha = sdiv32((frame - 20) * 256, 30);
         if (text_alpha > 256) text_alpha = 256;
     }
     if (frame > fade_start && total_frames > fade_start) {
-        int fade_out = sdiv32_anim((total_frames - frame) * 256, total_frames - fade_start);
+        int fade_out = sdiv32((total_frames - frame) * 256, total_frames - fade_start);
         if (fade_out < 0) fade_out = 0;
         text_alpha = (text_alpha * fade_out) >> 8;
     }
