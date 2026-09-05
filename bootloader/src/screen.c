@@ -371,40 +371,8 @@ void screen_draw_cube(int cx, int cy, int size, int ax, int ay, int az, uint16_t
 void screen_animate_splash(int duration_frames) {
     if (duration_frames <= 0) return;
 
-    /* -----------------------------------------------------------------------
-     * DCBS Path: if a boot_scene.bin blob has been registered, run the 3D
-     * container animation instead of the legacy boot_anim pipeline.
-     * Falls back to boot_anim on mount failure (bad magic etc.).
-     * --------------------------------------------------------------------- */
-    if (s_boot_scene_blob && boot_scene_mount(s_boot_scene_blob) == 0) {
-        if (current_theme->music_enabled) {
-            sound_set_duration(duration_frames);
-        }
+    int has_dcbs = (s_boot_scene_blob && boot_scene_mount(s_boot_scene_blob) == 0);
 
-        video_set_target_buffer(video_get_back_fb());
-
-        while (!boot_scene_is_done()) {
-            if (current_theme->music_enabled) {
-                sound_tick();
-            }
-            uint32_t back_fb = video_get_back_fb();
-            boot_scene_tick(back_fb);
-            video_flip_buffer();
-        }
-
-        boot_scene_unmount();
-        sound_stop();
-
-        video_wait_vblank();
-        *(volatile uint32_t *)0xA05F8050UL = 0x00000000UL;
-        *(volatile uint32_t *)0xA05F8054UL = 0x00000000UL;
-        video_set_target_buffer(VRAM_PAGE_0);
-        return;
-    }
-
-    /* -----------------------------------------------------------------------
-     * Legacy boot_anim Path (procedural frosty caustic + glass logo)
-     * --------------------------------------------------------------------- */
     boot_scene_config_t cfg;
     cfg.title = current_theme->title ? current_theme->title : "Open Dreamcast";
     cfg.subtitle = current_theme->subtitle ? current_theme->subtitle : "SEGA DREAMCAST ARCHITECTURE";
@@ -424,17 +392,27 @@ void screen_animate_splash(int duration_frames) {
     video_set_target_buffer(video_get_back_fb());
 
     for (int frame = 0; frame < duration_frames; frame++) {
-        /* 1. Advance SPU Sound */
+        /* 1. Advance SPU Sound / MIDI Sequencer */
         if (current_theme->music_enabled) {
             sound_tick();
         }
 
-        /* 2. Render complete frame exclusively into the inactive back buffer */
         uint32_t back_fb = video_get_back_fb();
+
+        /* 2. Render background / UI elements into back buffer (Store Queue DMA) */
         boot_anim_render_frame(frame, duration_frames, back_fb);
 
-        /* 3. Atomically flip displayed surface on hardware VBlank */
+        /* 3. Render 3D Plug-and-Play Scene on top of the clean background */
+        if (has_dcbs && !boot_scene_is_done()) {
+            boot_scene_tick(back_fb);
+        }
+
+        /* 4. Atomically flip displayed surface on hardware VBlank */
         video_flip_buffer();
+    }
+
+    if (has_dcbs) {
+        boot_scene_unmount();
     }
 
     /* Clean handoff: wait for VBlank, restore display to Page 0 */
@@ -444,3 +422,4 @@ void screen_animate_splash(int duration_frames) {
     video_set_target_buffer(VRAM_PAGE_0);
     boot_anim_shutdown();
 }
+

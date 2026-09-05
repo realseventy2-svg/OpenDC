@@ -341,20 +341,22 @@ def load_transforms(path: str):
 
 def generate_default_transforms(total_frames: int = 480):
     """
-    Generate a default transform sequence: model rotates on Y axis,
-    camera fixed at (0, 0, 8) looking at origin.
+    Generate a default transform sequence: 3D model with smooth tumble spin,
+    camera fixed at (0, 0, 7.5) looking at origin.
     """
     frames = []
     for f in range(total_frames):
-        angle = (f * 360.0) / total_frames
+        angle_y = (f * 360.0) / total_frames
+        angle_x = 20.0 * math.sin((f * 2.0 * math.pi) / total_frames)
         row = [
-            0.0, 0.0, 0.0,              # model pos
-            0.0, angle, 0.0,            # model rot (Y spin)
-            0.0, 0.0, 8.0,              # camera pos (Z=8, looking at origin)
+            0.0, 0.45, 0.0,             # model pos (centered above branding)
+            angle_x, angle_y, 0.0,      # model rot (smooth 3D tumble)
+            0.0, 0.0, 7.5,              # camera pos
             0.0, 0.0, 0.0,              # camera rot
         ]
         frames.append(row)
     return frames
+
 
 
 # ---------------------------------------------------------------------------

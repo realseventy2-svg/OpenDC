@@ -170,29 +170,26 @@ static void transform_vertex(const int32_t pos[3],
 /* =========================================================================
  * Internal: Perspective Project  →  screen-space pixel coords
  *
- * v_cam[3] — camera-space vertex in 16.16
+ * v_cam[3] — camera-space vertex in 16.16 fixed point
  * sx, sy   — output screen X/Y (integer pixels, 0-origin)
- * Returns 0 if behind camera (Z_cam < 0), 1 if visible.
+ * Returns 0 if behind camera (Z_cam >= 0 in right-handed camera space), 1 if visible.
  * ========================================================================= */
 static int project_vertex(const int32_t v_cam[3], int *sx, int *sy)
 {
-    /* Camera looks along -Z; negate Z_cam for depth test */
-    int32_t z = -(v_cam[2] >> 16);   /* integer depth in world units */
-    if (z <= 0) return 0;             /* behind or on camera plane    */
+    /* Camera looks along -Z; depth in front of camera is -v_cam[2] (16.16) */
+    int32_t z_fx = -v_cam[2];
+    if (z_fx <= 655) return 0;   /* near plane clip: closer than ~0.01 units or behind */
 
     /*
-     * sx = cx + focal * x_cam / z_cam
-     * We have x_cam and y_cam in 16.16; divide by z to get aspect-correct
-     * screen x/y in fraction of "world unit per focal length".
+     * Full 16.16 fixed-point perspective division without precision loss.
+     * sx = cx + (x_cam * focal_length) / z_cam
+     * Both v_cam[0] and z_fx are scaled by 65536, so the scale factor cancels out.
      */
-    int32_t x_cam = v_cam[0] >> 16;  /* integer world units */
-    int32_t y_cam = v_cam[1] >> 16;
+    int32_t proj_x = (int32_t)(((int64_t)v_cam[0] * BOOT_SCENE_FOCAL_LEN) / z_fx);
+    int32_t proj_y = (int32_t)(((int64_t)v_cam[1] * BOOT_SCENE_FOCAL_LEN) / z_fx);
 
-    if (z == 0) z = 1;
-
-    /* Use sdiv32 from math_fx.h (no hardware divider assumption) */
-    int screen_x = 320 + sdiv32(x_cam * BOOT_SCENE_FOCAL_LEN, z);
-    int screen_y = 240 - sdiv32(y_cam * BOOT_SCENE_FOCAL_LEN, z); /* flip Y */
+    int screen_x = 320 + proj_x;
+    int screen_y = 240 - proj_y; /* flip Y for screen coordinates (Y-down) */
 
     *sx = screen_x;
     *sy = screen_y;
@@ -216,15 +213,17 @@ static void draw_triangle_fb(int x0, int y0, int x1, int y1,
 /* =========================================================================
  * Internal: Back-face cull via 2D cross product sign
  *
- * Returns 1 (visible, CCW in screen-space) or 0 (back-face, CW).
+ * In screen coordinates with Y pointing DOWN, CCW front-facing triangles
+ * produce a NEGATIVE 2D cross product ((x1-x0)*(y2-y0) - (y1-y0)*(x2-x0) < 0).
  * ========================================================================= */
 static int is_front_face(int x0, int y0, int x1, int y1, int x2, int y2)
 {
-    /* 2D cross product: (v1-v0) × (v2-v0) */
+    /* 2D cross product: (v1-v0) × (v2-v0) in screen space */
     int32_t cross = (int32_t)(x1 - x0) * (int32_t)(y2 - y0)
                   - (int32_t)(y1 - y0) * (int32_t)(x2 - x0);
-    return cross > 0;
+    return cross < 0;
 }
+
 
 /* =========================================================================
  * Internal: Copy a single wavetable block to AICA SPU RAM
