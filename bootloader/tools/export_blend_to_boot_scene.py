@@ -24,13 +24,12 @@ def linear_to_srgb(c):
     return 1.055 * math.pow(c, 1.0 / 2.4) - 0.055
 
 def color_to_rgb565(col):
-    # Apply standard studio/filmic exposure mapping to match Blender rendered viewport tone
-    r_srgb = linear_to_srgb(col[0]) * 0.85
-    g_srgb = linear_to_srgb(col[1]) * 0.83
-    b_srgb = linear_to_srgb(col[2]) * 0.90
-    r = int(min(max(r_srgb, 0.0), 1.0) * 31.0)
-    g = int(min(max(g_srgb, 0.0), 1.0) * 63.0)
-    b = int(min(max(b_srgb, 0.0), 1.0) * 31.0)
+    r_srgb = linear_to_srgb(col[0])
+    g_srgb = linear_to_srgb(col[1])
+    b_srgb = linear_to_srgb(col[2])
+    r = int(min(max(r_srgb, 0.0), 1.0) * 31.0 + 0.5)
+    g = int(min(max(g_srgb, 0.0), 1.0) * 63.0 + 0.5)
+    b = int(min(max(b_srgb, 0.0), 1.0) * 31.0 + 0.5)
     return (r << 11) | (g << 5) | b
 
 def get_object_color(obj, fallback=(0.973, 0.109, 0.053)):
@@ -271,7 +270,7 @@ def export_boot_scene():
     for idx in sphere_indices:
         idx_bytes.extend(struct.pack('<H', idx))
 
-    swirl_col_raw = (0.797451, 0.141914, 0.011529) # Calibrated Sega Burnt Orange #BF5216
+    swirl_col_raw = get_object_color(swirl, fallback=(0.797451, 0.141914, 0.011529))
     sphere_col_raw = swirl_col_raw
 
     swirl_color = color_to_rgb565(swirl_col_raw)
