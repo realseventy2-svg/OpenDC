@@ -1,6 +1,7 @@
 #include "screen.h"
 #include "sound.h"
 #include "boot_anim.h"
+#include "boot_scene.h"
 
 const boot_theme_t BOOT_THEME_DEFAULT = {
     .bg_color           = RGB565(248, 250, 254),
@@ -233,6 +234,14 @@ void screen_set_boot_duration_frames(int frames) {
     s_custom_duration_frames = frames;
 }
 
+/* Optional: plug in a boot_scene.bin blob for the DCBS 3D animation path.
+ * Pass NULL to fall back to the default boot_anim pipeline. */
+static const void *s_boot_scene_blob = (const void *)0;
+
+void screen_set_boot_scene(const void *blob) {
+    s_boot_scene_blob = blob;
+}
+
 int screen_get_boot_duration_frames(void) {
     if (s_custom_duration_frames >= 0) {
         return s_custom_duration_frames;
@@ -362,6 +371,40 @@ void screen_draw_cube(int cx, int cy, int size, int ax, int ay, int az, uint16_t
 void screen_animate_splash(int duration_frames) {
     if (duration_frames <= 0) return;
 
+    /* -----------------------------------------------------------------------
+     * DCBS Path: if a boot_scene.bin blob has been registered, run the 3D
+     * container animation instead of the legacy boot_anim pipeline.
+     * Falls back to boot_anim on mount failure (bad magic etc.).
+     * --------------------------------------------------------------------- */
+    if (s_boot_scene_blob && boot_scene_mount(s_boot_scene_blob) == 0) {
+        if (current_theme->music_enabled) {
+            sound_set_duration(duration_frames);
+        }
+
+        video_set_target_buffer(video_get_back_fb());
+
+        while (!boot_scene_is_done()) {
+            if (current_theme->music_enabled) {
+                sound_tick();
+            }
+            uint32_t back_fb = video_get_back_fb();
+            boot_scene_tick(back_fb);
+            video_flip_buffer();
+        }
+
+        boot_scene_unmount();
+        sound_stop();
+
+        video_wait_vblank();
+        *(volatile uint32_t *)0xA05F8050UL = 0x00000000UL;
+        *(volatile uint32_t *)0xA05F8054UL = 0x00000000UL;
+        video_set_target_buffer(VRAM_PAGE_0);
+        return;
+    }
+
+    /* -----------------------------------------------------------------------
+     * Legacy boot_anim Path (procedural frosty caustic + glass logo)
+     * --------------------------------------------------------------------- */
     boot_scene_config_t cfg;
     cfg.title = current_theme->title ? current_theme->title : "Open Dreamcast";
     cfg.subtitle = current_theme->subtitle ? current_theme->subtitle : "SEGA DREAMCAST ARCHITECTURE";

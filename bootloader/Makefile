@@ -37,7 +37,7 @@ boot_anim.o: src/boot_anim.c src/boot_anim.h src/video.h src/math_fx.h
 boot_scene.o: src/boot_scene.c src/boot_scene.h src/math_fx.h src/sound.h src/video.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-screen.o: src/screen.c src/screen.h src/video.h src/sound.h
+screen.o: src/screen.c src/screen.h src/video.h src/sound.h src/boot_anim.h src/boot_scene.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 sound.o: src/sound.c src/sound.h src/math_fx.h
