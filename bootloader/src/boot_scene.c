@@ -212,24 +212,36 @@ static inline void draw_span_fb(uint32_t fb_addr, int y, int x0, int x1, uint16_
     if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
     if (x0 < 0) x0 = 0;
     if (x1 >= 640) x1 = 639;
-    if (x0 > x1) return;
-
-    volatile uint16_t *dst = (volatile uint16_t *)fb_addr + (y * 640) + x0;
     int count = x1 - x0 + 1;
+    if (count <= 0) return;
 
-    /* 32-bit aligned burst writes */
+    uint16_t *dst = (uint16_t *)fb_addr + (y * 640) + x0;
     uint32_t c32 = (uint32_t)color | ((uint32_t)color << 16);
-    if (((uint32_t)dst & 2) && count > 0) {
+
+    /* Align destination to 4 bytes */
+    if (((uintptr_t)dst & 2) && count > 0) {
         *dst++ = color;
         count--;
     }
-    volatile uint32_t *dst32 = (volatile uint32_t *)dst;
-    while (count >= 2) {
-        *dst32++ = c32;
-        count -= 2;
+
+    uint32_t *dst32 = (uint32_t *)dst;
+    int count32 = count >> 1;
+
+    /* Fast 32-bit unrolled burst writes */
+    while (count32 >= 4) {
+        dst32[0] = c32;
+        dst32[1] = c32;
+        dst32[2] = c32;
+        dst32[3] = c32;
+        dst32 += 4;
+        count32 -= 4;
     }
-    if (count > 0) {
-        *(volatile uint16_t *)dst32 = color;
+    while (count32 > 0) {
+        *dst32++ = c32;
+        count32--;
+    }
+    if (count & 1) {
+        *(uint16_t *)dst32 = color;
     }
 }
 
@@ -397,6 +409,7 @@ int boot_scene_mount(const void *blob)
     s_scene.sprite_frames = (rd32(&h->off_sprite_frames) != 0) ? (const BootSceneSpriteFrame *)(base + rd32(&h->off_sprite_frames)) : (const BootSceneSpriteFrame *)0;
     s_scene.blob_base     = base;
     s_scene.tick          = 0;
+    s_scene.subtick       = 0;
     s_scene.mounted       = 1;
 
     /* Upload 4 wavetables to AICA SPU RAM at 0xA0800000 */
@@ -465,10 +478,9 @@ void boot_scene_tick(uint32_t fb_addr)
             const BootSceneObject *obj = &s_scene.objects[o];
             const float *tf_obj = tf_frame + o * BOOT_SCENE_TRANSFORM_FLOATS;
 
-            int32_t m16[12];
-            for (int k = 0; k < 12; k++) {
-                m16[k] = (int32_t)(tf_obj[k] * FX16);
-            }
+            float m0 = tf_obj[0], m1 = tf_obj[1], m2 = tf_obj[2], m3 = tf_obj[3];
+            float m4 = tf_obj[4], m5 = tf_obj[5], m6 = tf_obj[6], m7 = tf_obj[7];
+            float m8 = tf_obj[8], m9 = tf_obj[9], m10 = tf_obj[10], m11 = tf_obj[11];
 
             uint32_t sv = rd32(&obj->start_vert);
             uint32_t nv = rd32(&obj->vert_count);
@@ -476,19 +488,21 @@ void boot_scene_tick(uint32_t fb_addr)
 
             for (uint32_t i = 0; i < nv; i++) {
                 const float *v = s_scene.vertices + (sv + i) * 3;
-                int32_t vert16[3];
-                vert16[0] = (int32_t)(v[0] * FX16);
-                vert16[1] = (int32_t)(v[1] * FX16);
-                vert16[2] = (int32_t)(v[2] * FX16);
+                float vx = v[0], vy = v[1], vz = v[2];
 
-                int32_t cam[3];
-#define MUL16(a, b) ((int32_t)(((int64_t)(a) * (b)) >> 16))
-                cam[0] = MUL16(m16[0], vert16[0]) + MUL16(m16[1], vert16[1]) + MUL16(m16[2], vert16[2]) + m16[3];
-                cam[1] = MUL16(m16[4], vert16[0]) + MUL16(m16[5], vert16[1]) + MUL16(m16[6], vert16[2]) + m16[7];
-                cam[2] = MUL16(m16[8], vert16[0]) + MUL16(m16[9], vert16[1]) + MUL16(m16[10], vert16[2]) + m16[11];
-#undef MUL16
+                float cx = m0 * vx + m1 * vy + m2 * vz + m3;
+                float cy = m4 * vx + m5 * vy + m6 * vz + m7;
+                float cz = m8 * vx + m9 * vy + m10 * vz + m11;
 
-                vis_buf[i] = (uint8_t)project_vertex(cam, &sx_buf[i], &sy_buf[i]);
+                float z_depth = -cz;
+                if (z_depth <= 0.05f) {
+                    vis_buf[i] = 0;
+                } else {
+                    float inv_z = (float)BOOT_SCENE_FOCAL_LEN / z_depth;
+                    sx_buf[i] = 320 + (int)(cx * inv_z);
+                    sy_buf[i] = 240 - (int)(cy * inv_z);
+                    vis_buf[i] = 1;
+                }
             }
 
             uint32_t st = rd32(&obj->start_tri);
@@ -629,9 +643,13 @@ void boot_scene_tick(uint32_t fb_addr)
     }
 
     /* ------------------------------------------------------------------
-     * 6. Advance tick
+     * 6. Advance tick (2 VBlanks per keyframe = 100% 1:1 speed matching Blender 60 Hz)
      * ------------------------------------------------------------------ */
-    s_scene.tick++;
+    s_scene.subtick++;
+    if (s_scene.subtick >= 2) {
+        s_scene.subtick = 0;
+        s_scene.tick++;
+    }
 }
 
 /* =========================================================================
@@ -650,6 +668,7 @@ void boot_scene_unmount(void)
     s_scene.sprite_frames = (const BootSceneSpriteFrame *)0;
     s_scene.blob_base     = (const uint8_t *)0;
     s_scene.tick          = 0;
+    s_scene.subtick       = 0;
     s_scene.mounted       = 0;
 }
 

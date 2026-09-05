@@ -143,7 +143,8 @@ typedef struct {
     const uint8_t               *blob_base;    /* Blob base pointer         */
 
     /* Playback state */
-    uint32_t tick;           /* Current VBlank frame index               */
+    uint32_t tick;           /* Current keyframe index                   */
+    uint32_t subtick;        /* Sub-frame counter (2 VBlanks per tick)   */
     int      mounted;        /* Non-zero if a scene is currently mounted */
 } BootSceneState;
 
