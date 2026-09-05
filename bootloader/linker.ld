@@ -42,8 +42,12 @@ SECTIONS
     {
         . = ALIGN(64);
         _boot_scene_bin_start = .;
-        *(.boot_scene*)
+        __boot_scene_bin_start = .;
+        boot_scene_bin_start = .;
+        KEEP(*(.boot_scene*))
         _boot_scene_bin_end = .;
+        __boot_scene_bin_end = .;
+        boot_scene_bin_end = .;
     } > ROM
 
     /* Stage 3: Initialized data (Stored in ROM, Relocated to Low SDRAM) */

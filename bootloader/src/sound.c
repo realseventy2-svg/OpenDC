@@ -256,7 +256,7 @@ void sound_tick(void) {
              1,  1,  1,  1,  1,  0,  0,  0,  0,  0, 0
         };
         int offset = (int)tick - fade_start;
-        int idx = (fade_len > 0) ? sdiv32_snd(offset * 90, fade_len) : 90;
+        int idx = (fade_len > 0) ? sdiv32(offset * 90, fade_len) : 90;
         if (idx < 0) idx = 0;
         if (idx > 90) idx = 90;
         *(volatile uint16_t *)0xA0702800UL = s_fade_curve[idx];
