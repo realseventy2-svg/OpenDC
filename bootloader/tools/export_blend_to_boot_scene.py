@@ -1,6 +1,6 @@
 ﻿"""
 Export Dreamcast Boot Scene (boot_scene.bin)
-Version 3: High-Performance Solid Mesh + Progressive Spiral Swirl + ARGB4444 2D Sprites
+Version 3: High-Performance Solid Mesh + Progressive Spiral Swirl + ARGB4444 2D Sprites + 11kHz AICA Boot Audio
 """
 
 import bpy
@@ -9,9 +9,12 @@ import bpy_extras
 import struct
 import math
 import os
+import subprocess
 
 OUTPUT_BIN = r"d:\Github\Personal\KallistiOS\projects\OpenDC\bootloader\boot_scene.bin"
 LETTERS_DIR = os.path.expanduser(r"~\Desktop\bleemcast_letters")
+AUDIO_MP3 = r"d:\Github\Personal\KallistiOS\projects\OpenDC\bootloader\res\boot.mp3"
+AUDIO_PCM = r"d:\Github\Personal\KallistiOS\projects\OpenDC\bootloader\res\boot_11k.pcm"
 FRAME_STEP = 2   # 30 fps keyframe stepping (1/2 rate of 60 Hz timeline)
 
 def linear_to_srgb(c):
@@ -196,11 +199,14 @@ def export_boot_scene():
         (start_v_sphere, v_count_sphere, start_t_sphere, t_count_sphere, orange_color, 0),
     ]
 
-    # 6. Extract Animation Keyframes
+    # 6. Extract Animation Keyframes (Ensure exact Frame 374 is the final hold keyframe)
     start_f = scene.frame_start
     end_f = scene.frame_end
     last_motion_frame = min(end_f, 374)
-    anim_frames = list(range(start_f, last_motion_frame + 1, FRAME_STEP))
+    anim_frames = list(range(start_f, last_motion_frame, FRAME_STEP))
+    if not anim_frames or anim_frames[-1] != last_motion_frame:
+        anim_frames.append(last_motion_frame)
+
     stored_frames = len(anim_frames)
     total_playback_ticks = (end_f - start_f + 1) // FRAME_STEP
     print(f"Exporting {stored_frames} keyframes (duration: {total_playback_ticks} ticks = {total_playback_ticks/30:.1f}s)...")
@@ -281,9 +287,28 @@ def export_boot_scene():
             alpha = 255 if p2d.z > 0 else 0
             spr_frame_bytes.extend(struct.pack('<hhBBH', dest_x, dest_y, alpha, 100, 0))
 
-    # 7. Assemble binary container
+    # 7. Load or Convert Audio Sample (11,025 Hz 8-bit Signed PCM)
+    audio_pcm_bytes = bytearray()
+    if os.path.exists(AUDIO_PCM):
+        with open(AUDIO_PCM, 'rb') as af:
+            audio_pcm_bytes = bytearray(af.read())
+    elif os.path.exists(AUDIO_MP3):
+        # Auto-convert with ffmpeg
+        ffmpeg_bin = r"C:\ffmpeg\bin\ffmpeg.exe"
+        if os.path.exists(ffmpeg_bin):
+            subprocess.run([ffmpeg_bin, "-y", "-i", AUDIO_MP3, "-ac", "1", "-ar", "11025", "-f", "s8", AUDIO_PCM], check=True)
+            with open(AUDIO_PCM, 'rb') as af:
+                audio_pcm_bytes = bytearray(af.read())
+
+    # Pad audio PCM to multiple of 4 bytes
+    while len(audio_pcm_bytes) % 4 != 0:
+        audio_pcm_bytes.append(0)
+
+    print(f"Embedded Boot Audio: {len(audio_pcm_bytes):,} bytes (11,025 Hz 8-bit signed PCM)")
+
+    # 8. Assemble binary container
     cue_bytes = bytearray()
-    wav_bytes = bytearray(2048)
+    wav_bytes = audio_pcm_bytes
 
     HEADER_SIZE = 64
     off_tf = HEADER_SIZE
@@ -325,13 +350,13 @@ def export_boot_scene():
         off_v,               # off_vertices
         off_idx,             # off_indices
         off_cues,            # off_audio_cues
-        off_wav,             # off_wavetables
+        off_wav,             # off_wavetables (PCM audio data)
         off_objs,            # off_objects
         off_sprites,         # off_sprites
         len(sprite_objs),    # sprite_count
-        stored_frames,       # stored_frames (187)
+        stored_frames,       # stored_frames (188)
         off_spr_frames,      # off_sprite_frames
-        0                    # pad
+        len(audio_pcm_bytes) # audio_sample_bytes
     )
 
     full_blob = (

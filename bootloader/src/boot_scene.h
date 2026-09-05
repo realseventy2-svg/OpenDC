@@ -93,7 +93,7 @@ typedef struct {
     uint16_t sprite_count;    /* Number of 2D sprites                    */
     uint16_t stored_frames;   /* Number of unique animated keyframes     */
     uint32_t off_sprite_frames;/* Byte offset → sprite frames table      */
-    uint32_t reserved;        /* Pad to exactly 64 bytes                 */
+    uint32_t audio_sample_bytes;/* Byte size of 8-bit PCM audio sample (0 if none) */
 } __attribute__((packed)) BootSceneHeader;
 
 /* Compile-time layout guard */
@@ -143,9 +143,12 @@ typedef struct {
     const uint8_t               *blob_base;    /* Blob base pointer         */
 
     /* Playback state */
-    uint32_t tick;           /* Current keyframe index                   */
-    uint32_t subtick;        /* Sub-frame counter (2 VBlanks per tick)   */
-    int      mounted;        /* Non-zero if a scene is currently mounted */
+    uint32_t tick;             /* Current keyframe index                   */
+    uint32_t subtick;          /* Sub-frame counter (2 VBlanks per tick)   */
+    int      mounted;          /* Non-zero if a scene is currently mounted */
+    uint32_t audio_bytes;      /* Total PCM audio bytes                    */
+    uint32_t audio_split_tick; /* Tick at which second channel triggers    */
+    uint8_t  audio_ch1_fired;  /* 1 if channel 1 has been triggered        */
 } BootSceneState;
 
 /* =========================================================================

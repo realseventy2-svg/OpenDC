@@ -299,7 +299,7 @@ static void draw_filled_triangle_fb(uint32_t fb_addr,
  * Internal: Silhouette Edge Anti-Aliasing Filter (5-tap Sub-pixel Smoothing)
  * Runs in 0.3ms on SH-4 after solid rasterization to smooth silhouette curves.
  * ========================================================================= */
-static void smooth_mesh_edges_fb(uint32_t fb_addr, int min_x, int min_y, int max_x, int max_y)
+static void smooth_mesh_edges_fb(uint32_t fb_addr, int min_x, int min_y, int max_x, int max_y, uint16_t orange_col)
 {
     if (min_x < 2) min_x = 2;
     if (min_y < 2) min_y = 2;
@@ -309,31 +309,55 @@ static void smooth_mesh_edges_fb(uint32_t fb_addr, int min_x, int min_y, int max
 
     volatile uint16_t *fb = (volatile uint16_t *)fb_addr;
 
+    int r_o = (orange_col >> 11) & 0x1F, g_o = (orange_col >> 5) & 0x3F, b_o = orange_col & 0x1F;
+
+    /* Previous scanline buffer to prevent write-after-read cascading */
+    static uint16_t prev_row[640];
+    for (int x = min_x - 1; x <= max_x + 1; x++) {
+        prev_row[x] = fb[(min_y - 1) * 640 + x];
+    }
+
     for (int y = min_y; y <= max_y; y++) {
-        volatile uint16_t *row_prev = fb + ((y - 1) * 640);
         volatile uint16_t *row_curr = fb + (y * 640);
         volatile uint16_t *row_next = fb + ((y + 1) * 640);
 
+        uint16_t left_orig = row_curr[min_x - 1];
+
         for (int x = min_x; x <= max_x; x++) {
-            uint16_t c = row_curr[x];
-            uint16_t c_up = row_prev[x];
-            uint16_t c_dn = row_next[x];
-            uint16_t c_lf = row_curr[x - 1];
-            uint16_t c_rt = row_curr[x + 1];
+            uint16_t c_orig = row_curr[x];
+            uint16_t c_up   = prev_row[x];
+            uint16_t c_dn   = row_next[x];
+            uint16_t c_lf   = left_orig;
+            uint16_t c_rt   = row_curr[x + 1];
 
-            if (c == c_up && c == c_dn && c == c_lf && c == c_rt) continue;
+            left_orig = c_orig;
+            prev_row[x] = c_orig;
 
-            int r_c = (c >> 11) & 0x1F, g_c = (c >> 5) & 0x3F, b_c = c & 0x1F;
-            int r_u = (c_up >> 11) & 0x1F, g_u = (c_up >> 5) & 0x3F, b_u = c_up & 0x1F;
-            int r_d = (c_dn >> 11) & 0x1F, g_d = (c_dn >> 5) & 0x3F, b_d = c_dn & 0x1F;
-            int r_l = (c_lf >> 11) & 0x1F, g_l = (c_lf >> 5) & 0x3F, b_l = c_lf & 0x1F;
-            int r_r = (c_rt >> 11) & 0x1F, g_r = (c_rt >> 5) & 0x3F, b_r = c_rt & 0x1F;
+            if (c_orig == orange_col) {
+                int non_orange = (c_up != orange_col) + (c_dn != orange_col) + (c_lf != orange_col) + (c_rt != orange_col);
+                if (non_orange > 0) {
+                    /* Take average of the non-orange background neighbor(s) */
+                    int r_bg = 0, g_bg = 0, b_bg = 0;
+                    if (c_up != orange_col) { r_bg += (c_up >> 11) & 0x1F; g_bg += (c_up >> 5) & 0x3F; b_bg += c_up & 0x1F; }
+                    if (c_dn != orange_col) { r_bg += (c_dn >> 11) & 0x1F; g_bg += (c_dn >> 5) & 0x3F; b_bg += c_dn & 0x1F; }
+                    if (c_lf != orange_col) { r_bg += (c_lf >> 11) & 0x1F; g_bg += (c_lf >> 5) & 0x3F; b_bg += c_lf & 0x1F; }
+                    if (c_rt != orange_col) { r_bg += (c_rt >> 11) & 0x1F; g_bg += (c_rt >> 5) & 0x3F; b_bg += c_rt & 0x1F; }
+                    
+                    if (non_orange == 2) {
+                        r_bg >>= 1; g_bg >>= 1; b_bg >>= 1;
+                    } else if (non_orange == 3) {
+                        r_bg = (r_bg * 85) >> 8; g_bg = (g_bg * 85) >> 8; b_bg = (b_bg * 85) >> 8;
+                    } else if (non_orange == 4) {
+                        r_bg >>= 2; g_bg >>= 2; b_bg >>= 2;
+                    }
 
-            int r = (r_c * 4 + r_u + r_d + r_l + r_r) >> 3;
-            int g = (g_c * 4 + g_u + g_d + g_l + g_r) >> 3;
-            int b = (b_c * 4 + b_u + b_d + b_l + b_r) >> 3;
-
-            row_curr[x] = (uint16_t)((r << 11) | (g << 5) | b);
+                    int alpha_bg = non_orange * 52; /* blend 20%..81% background */
+                    int r = r_o + (((r_bg - r_o) * alpha_bg) >> 8);
+                    int g = g_o + (((g_bg - g_o) * alpha_bg) >> 8);
+                    int b = b_o + (((b_bg - b_o) * alpha_bg) >> 8);
+                    row_curr[x] = (uint16_t)((r << 11) | (g << 5) | b);
+                }
+            }
         }
     }
 }
@@ -455,11 +479,59 @@ int boot_scene_mount(const void *blob)
     s_scene.subtick       = 0;
     s_scene.mounted       = 1;
 
-    /* Upload 4 wavetables to AICA SPU RAM at 0xA0800000 */
-    const int16_t *wav_block = (const int16_t *)(base + rd32(&h->off_wavetables));
-    for (int wt = 0; wt < BOOT_SCENE_WAVETABLE_COUNT; wt++) {
-        upload_wavetable((uint32_t)(wt * BOOT_SCENE_WAVETABLE_BYTES),
-                         wav_block + wt * BOOT_SCENE_WAVETABLE_SAMPLES);
+    /* Audio Initialization: Check if raw PCM audio is present */
+    uint32_t audio_bytes = rd32(&h->audio_sample_bytes);
+    s_scene.audio_bytes = audio_bytes;
+    s_scene.audio_split_tick = 0;
+    s_scene.audio_ch1_fired = 0;
+
+    if (audio_bytes > 0) {
+        /* 1. Hold ARM7 sound CPU in reset */
+        *(volatile uint32_t *)0xA0702C00UL |= 1;
+
+        /* 2. Configure master dry volume output to maximum (MVOL = 15 = 0x0F) */
+        *(volatile uint16_t *)0xA0702800UL = 0x000F;
+
+        /* 3. Stop and mute all 64 AICA hardware channels */
+        for (int ch = 0; ch < 64; ch++) {
+            AICA_CHN_REG(ch, 0x00) = 0x8000;
+            AICA_CHN_REG(ch, 0x24) = 0x0000; /* DISDL = 0 (silence) */
+        }
+
+        /* 4. Copy PCM audio sample to AICA SPU RAM (32-bit burst writes) */
+        const uint32_t *src32 = (const uint32_t *)(base + rd32(&h->off_wavetables));
+        volatile uint32_t *dst32 = (volatile uint32_t *)BOOT_SCENE_AICA_RAM_BASE;
+        uint32_t words = (audio_bytes + 3) >> 2;
+        for (uint32_t i = 0; i < words; i++) {
+            dst32[i] = src32[i];
+        }
+
+        /* 5. Setup Channel 0 */
+        uint32_t len0 = audio_bytes;
+        if (len0 > 44100) {
+            len0 = 44100;                   /* 4.0s @ 11025 Hz */
+            s_scene.audio_split_tick = 120; /* 4.0s @ 30 keyframes/sec */
+        }
+
+        AICA_CHN_REG(0, 0x00) = 0x8000;
+        AICA_CHN_REG(0, 0x04) = 0x0000;         /* SA_low = 0 */
+        AICA_CHN_REG(0, 0x08) = 0x0000;         /* LSA = 0 */
+        AICA_CHN_REG(0, 0x0C) = (uint16_t)len0; /* LEA */
+        AICA_CHN_REG(0, 0x10) = 0x001F;         /* AR = 31 (instant attack) */
+        AICA_CHN_REG(0, 0x14) = 0x3C1F;         /* KRS = 15, DL = 0, RR = 31 */
+        AICA_CHN_REG(0, 0x18) = 0x7000;         /* Pitch = 11,025 Hz (OCT=-2, FNS=0) */
+        AICA_CHN_REG(0, 0x24) = 0x0F00;         /* DISDL = 15 (0dB max volume), center pan */
+        AICA_CHN_REG(0, 0x28) = 0x0060;         /* VOFF = 1, LPOFF = 1 (bypass envelope & LPF) */
+
+        /* Trigger Key-On Channel 0 (PCMS = 1 for 8-bit signed PCM) */
+        AICA_CHN_REG(0, 0x00) = 0xC080;
+    } else {
+        /* Fallback: Upload 4 wavetables to AICA SPU RAM at 0xA0800000 */
+        const int16_t *wav_block = (const int16_t *)(base + rd32(&h->off_wavetables));
+        for (int wt = 0; wt < BOOT_SCENE_WAVETABLE_COUNT; wt++) {
+            upload_wavetable((uint32_t)(wt * BOOT_SCENE_WAVETABLE_BYTES),
+                             wav_block + wt * BOOT_SCENE_WAVETABLE_SAMPLES);
+        }
     }
 
     return 0;
@@ -622,7 +694,8 @@ void boot_scene_tick(uint32_t fb_addr)
         }
 
         if (bb_max_x >= bb_min_x && bb_max_y >= bb_min_y) {
-            smooth_mesh_edges_fb(fb_addr, bb_min_x - 1, bb_min_y - 1, bb_max_x + 1, bb_max_y + 1);
+            uint16_t orange_col = (s_scene.objects) ? rd16(&s_scene.objects[0].color) : RGB565(255, 110, 20);
+            smooth_mesh_edges_fb(fb_addr, bb_min_x - 1, bb_min_y - 1, bb_max_x + 1, bb_max_y + 1, orange_col);
         }
     } else {
         /* ==============================================================
@@ -737,6 +810,26 @@ void boot_scene_tick(uint32_t fb_addr)
     /* ------------------------------------------------------------------
      * 5. Fire audio cues matching this tick
      * ------------------------------------------------------------------ */
+    if (s_scene.audio_split_tick > 0 && !s_scene.audio_ch1_fired && tick >= s_scene.audio_split_tick) {
+        s_scene.audio_ch1_fired = 1;
+        uint32_t sa1 = 44100;
+        uint32_t len1 = (s_scene.audio_bytes > 44100) ? (s_scene.audio_bytes - 44100) : 0;
+        if (len1 > 65535) len1 = 65535;
+
+        if (len1 > 0) {
+            AICA_CHN_REG(1, 0x00) = 0x8000;
+            AICA_CHN_REG(1, 0x04) = (uint16_t)(sa1 & 0xFFFF);
+            AICA_CHN_REG(1, 0x08) = 0x0000;
+            AICA_CHN_REG(1, 0x0C) = (uint16_t)len1;
+            AICA_CHN_REG(1, 0x10) = 0x001F;
+            AICA_CHN_REG(1, 0x14) = 0x3C1F;
+            AICA_CHN_REG(1, 0x18) = 0x7000;
+            AICA_CHN_REG(1, 0x24) = 0x0F00;
+            AICA_CHN_REG(1, 0x28) = 0x0060;
+            AICA_CHN_REG(1, 0x00) = 0xC080 | ((sa1 >> 16) & 0x7F);
+        }
+    }
+
     for (uint32_t c = 0; c < cue_count; c++) {
         const BootSceneAudioCue *cue = &s_scene.cues[c];
         uint32_t trig = rd32(&cue->trigger_frame);
@@ -764,6 +857,12 @@ void boot_scene_tick(uint32_t fb_addr)
  * ========================================================================= */
 void boot_scene_unmount(void)
 {
+    /* Stop and silence audio playback channels */
+    AICA_CHN_REG(0, 0x00) = 0x8000;
+    AICA_CHN_REG(0, 0x24) = 0x0000;
+    AICA_CHN_REG(1, 0x00) = 0x8000;
+    AICA_CHN_REG(1, 0x24) = 0x0000;
+
     s_scene.hdr           = (const BootSceneHeader *)0;
     s_scene.transforms    = (const float *)0;
     s_scene.vertices      = (const float *)0;
@@ -777,6 +876,9 @@ void boot_scene_unmount(void)
     s_scene.tick          = 0;
     s_scene.subtick       = 0;
     s_scene.mounted       = 0;
+    s_scene.audio_bytes   = 0;
+    s_scene.audio_split_tick = 0;
+    s_scene.audio_ch1_fired  = 0;
 }
 
 /* =========================================================================
