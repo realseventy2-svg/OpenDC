@@ -1,0 +1,1 @@
+The following BIOS files are used for testing purposes only and are not fully integrated into the project.
