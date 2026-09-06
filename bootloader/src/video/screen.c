@@ -113,7 +113,7 @@ const boot_theme_t BOOT_THEME_DIAGNOSTIC = {
     .subtitle           = "VERBOSE POST DIAGNOSTICS",
     .version_text       = "POST / BIOS v1.0",
 
-    .splash_delay_seconds = 4,
+    .splash_delay_seconds = 8,
     .splash_delay_frames  = 0,
     .show_diagnostics     = 1,
     .show_progress_bar    = 1,

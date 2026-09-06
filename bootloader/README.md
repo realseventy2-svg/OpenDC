@@ -44,7 +44,10 @@ bootloader/
 │   └── fallback_anim/
 │       └── boot_anim.c / .h         # Procedural fallback 2D animation (if DCBS is missing)
 ├── tools/
-│   └── export_blend_to_boot_scene.py # Blender Python exporter script
+│   ├── dcbs-tool/                   # Universal Boot Scene Exporter suite
+│   │   ├── export_dcbs.py           # Blender Python exporter script
+│   │   └── res/                     # Audio, letters, and scene assets
+│   └── build_scene.ps1              # 1-Click compiler for Blender -> Bootloader -> BIOS
 ├── linker.ld                        # Section placement rules for ROM and RAM
 └── Makefile                         # Stage 1 build rules
 ```
@@ -53,7 +56,7 @@ bootloader/
 
 ## 3D Boot Scene Engine (`DCBS` Container)
 
-The boot intro uses a custom binary container format called `DCBS` (Dreamcast Boot Scene, version 3). The scene is constructed in Blender and exported using `tools/export_blend_to_boot_scene.py`.
+The boot intro uses a custom binary container format called `DCBS` (Dreamcast Boot Scene, version 3). The scene is constructed in Blender and exported using `tools/dcbs-tool/export_dcbs.py` (or automatically with `kos-buildscene`).
 
 ### Container Structure (64-byte Header)
 ```text
@@ -119,10 +122,13 @@ The video driver programs the PowerVR2 display registers directly for 640x480 60
 - Python 3.
 
 ### 1. Export 3D Scene from Blender
-Because the exporter uses Blender's internal `bpy` module, run it through `blender.exe`:
-
+You can build the scene and full BIOS with 1 command:
 ```powershell
-& "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe" "d:\path\to\scene.blend" -b -P tools\export_blend_to_boot_scene.py
+kos-buildscene
+```
+Or manually run the exporter through `blender.exe`:
+```powershell
+& "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe" "d:\path\to\scene.blend" -b -P tools\dcbs-tool\export_dcbs.py
 ```
 
 ### 2. Compile Bootloader Binary

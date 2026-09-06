@@ -78,7 +78,7 @@ bootloader/src/
 ## 3D Boot Scene & Graphics Pipeline
 
 ### 1. `DCBS` Container Format (v3)
-The 3D boot scene is packaged into a compact binary blob generated from Blender (`tools/export_blend_to_boot_scene.py`):
+The 3D boot scene is packaged into a compact binary blob generated from Blender (`tools/dcbs-tool/export_dcbs.py` or via `kos-buildscene`):
 - **64-byte Header**: Defines magic (`0x53424344`), version (3), object count, vertex count, triangle index count, audio size, and file offsets.
 - **Mesh Data**: Shared vertex positions (1,136 triangles for swirl mesh), normals, and index tables.
 - **Transform Curves**: Pre-baked 60 FPS translation, rotation (quaternion), and scale matrices for the camera and animated objects.
@@ -138,7 +138,9 @@ wsl cp /mnt/d/Github/Personal/KallistiOS/projects/OpenDC/bootloader/dc_boot.bin 
 
 ### Export Blender Scene
 ```powershell
-& "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe" "d:\path\to\scene.blend" -b -P bootloader\tools\export_blend_to_boot_scene.py
+kos-buildscene
+# Or manually:
+& "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe" "d:\path\to\scene.blend" -b -P bootloader\tools\dcbs-tool\export_dcbs.py
 ```
 
 ### Launch in Flycast

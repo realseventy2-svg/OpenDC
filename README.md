@@ -48,7 +48,9 @@ wsl cp /mnt/d/Github/Personal/KallistiOS/projects/OpenDC/bootloader/dc_boot.bin 
 
 ### 2. Export Blender Scene (Optional)
 ```powershell
-& "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe" "d:\path\to\scene.blend" -b -P bootloader\tools\export_blend_to_boot_scene.py
+kos-buildscene
+# Or manually:
+& "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe" "d:\path\to\scene.blend" -b -P bootloader\tools\dcbs-tool\export_dcbs.py
 ```
 
 ### 3. Run in Flycast
