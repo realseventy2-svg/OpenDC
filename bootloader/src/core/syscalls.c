@@ -439,7 +439,8 @@ static int kos_biofont_dispatch(uint32_t arg0, uint32_t arg1,
     (void)arg0; (void)arg1; (void)arg2; (void)function;
     register uint32_t cmd __asm__("r1");
     if(cmd == 0) {
-        return (int)0xA000B000UL;
+        /* bfont address */
+        return (int)0xA0100020UL;
     }
     return 0;
 }

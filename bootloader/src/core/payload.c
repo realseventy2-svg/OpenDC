@@ -4,6 +4,7 @@
 #include "screen.h"
 #include "sound.h"
 #include "boot.h"
+#include "boot_scene.h"
 
 /* Provided by crt0.s: exception and interrupt vector stubs */
 extern const uint8_t vector_stub_template[];
@@ -86,7 +87,7 @@ void main(void) {
     /* 1. Initialize hardware video output */
     video_init();
 
-    /* 2. Initialize modular boot theme and render splash screen */
+    /* 2. Initialize modular boot theme and check for 3D boot scene */
     screen_init(&BOOT_THEME_DEFAULT);
     const boot_theme_t *theme = screen_get_theme();
     if (theme) {
@@ -95,7 +96,21 @@ void main(void) {
             sound_init();
         }
     }
-    screen_draw_splash();
+
+    /* Check if a valid 3D boot scene container is attached in ROM */
+    int has_3d_scene = (_boot_scene_bin_start && boot_scene_mount(_boot_scene_bin_start) == 0);
+    if (has_3d_scene) {
+        uint16_t bg = boot_scene_get_bg_color();
+        video_set_border_color_565(bg);
+        video_set_target_buffer(VRAM_PAGE_0);
+        video_clear(bg);
+        video_set_target_buffer(VRAM_PAGE_1);
+        video_clear(bg);
+        video_set_target_buffer(VRAM_PAGE_0);
+        boot_scene_unmount();
+    } else {
+        screen_draw_splash();
+    }
 
     /* 3. Bring up the GD-ROM drive and probe disc */
     (void)gdrom_init();
@@ -104,8 +119,10 @@ void main(void) {
     uint8_t iso_head[8];
     int iso_result = gdrom_probe_iso(&iso_fad, iso_head);
 
-    /* 4. Update modular UI with disc status and diagnostics */
-    screen_draw_disc_status(toc_result == GDROM_OK, iso_result == GDROM_OK, iso_fad, iso_head);
+    /* 4. Update modular UI with disc status ONLY in fallback 2D mode */
+    if (!has_3d_scene) {
+        screen_draw_disc_status(toc_result == GDROM_OK, iso_result == GDROM_OK, iso_fad, iso_head);
+    }
 
     /* 5. 60 FPS DCBS 3D Scene Animation with Ambient MIDI Music.
      *    Register the ROM blob first — screen_animate_splash() will mount
