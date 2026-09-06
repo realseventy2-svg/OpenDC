@@ -240,14 +240,32 @@ def export_dcbs():
     print(f"=======================================================")
 
     # 1. Discover 3D Objects & 2D Sprites
-    all_meshes = [o for o in scene.objects if o.type == 'MESH' and not o.name.startswith('Plane') and not o.name.startswith('Cube')]
-    
-    sprite_objs = [o for o in scene.objects if o.name.startswith('Sprite_')]
-    sprite_objs.sort(key=lambda o: o.name)
-    if not sprite_objs:
-        font_objs = [o for o in scene.objects if o.type == 'FONT']
-        if font_objs:
-            sprite_objs = sorted(font_objs, key=lambda o: o.name)
+    # Check for dedicated 2D sprite/letter collections first
+    sprite_col = (
+        bpy.data.collections.get('Letters_2D_Planes') or
+        bpy.data.collections.get('Letters') or
+        bpy.data.collections.get('Sprites') or
+        bpy.data.collections.get('2D_Planes') or
+        bpy.data.collections.get('2D_Sprites') or
+        bpy.data.collections.get('Typography')
+    )
+    if sprite_col:
+        sprite_objs = [o for o in sprite_col.objects if not o.hide_viewport]
+        sprite_objs.sort(key=lambda o: o.name)
+    else:
+        sprite_objs = [
+            o for o in scene.objects
+            if (o.name.startswith('Sprite_') or o.name.startswith('Letter_') or o.name.startswith('Glyph_') or o.name.startswith('Char_'))
+            and not o.hide_viewport
+        ]
+        sprite_objs.sort(key=lambda o: o.name)
+        if not sprite_objs:
+            font_objs = [o for o in scene.objects if o.type == 'FONT' and not o.hide_viewport]
+            if font_objs:
+                sprite_objs = sorted(font_objs, key=lambda o: o.name)
+
+    all_meshes = [o for o in scene.objects if o.type == 'MESH' and not o.name.startswith('Plane') and not o.name.startswith('Cube') and not o.hide_viewport]
+    sprite_names = set(o.name for o in sprite_objs)
 
     geom_objs = []
     geom_col = bpy.data.collections.get('3D_Objects') or bpy.data.collections.get('Geometry') or bpy.data.collections.get('Boot_Objects')
