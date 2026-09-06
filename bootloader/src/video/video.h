@@ -50,7 +50,7 @@ void video_draw_string_centered(int center_x, int y, const char *str, uint16_t c
 void video_draw_hex32(int x, int y, uint32_t value, uint16_t color, int scale);
 void video_draw_hex8(int x, int y, const uint8_t *data, uint16_t color, int scale);
 
-/* Authentic BIOS ROM Font (12x24) APIs */
+/* BFont (12x24) APIs */
 #define BFONT_ROM_ADDR      0xA0100020UL
 #define BFONT_WIDTH         12
 #define BFONT_HEIGHT        24

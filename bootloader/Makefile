@@ -10,7 +10,6 @@ INCLUDES = -Isrc/core \
            -Isrc/video \
            -Isrc/audio \
            -Isrc/scene \
-           -Isrc/fallback_anim \
            -Isrc
 
 CFLAGS = -m4-single-only -ml -mno-ieee \
@@ -33,9 +32,8 @@ STORAGE_OBJS  = ata.o gdrom.o iso9660.o gdi_loader.o selfboot_cdi.o homebrew_cdi
 VIDEO_OBJS    = video.o screen.o
 AUDIO_OBJS    = sound.o
 SCENE_OBJS    = scene_loader.o rasterizer.o postprocess.o sprite.o scene_render.o boot_scene_blob.o
-FALLBACK_OBJS = boot_anim.o
 
-OBJS = $(CORE_OBJS) $(STORAGE_OBJS) $(VIDEO_OBJS) $(AUDIO_OBJS) $(SCENE_OBJS) $(FALLBACK_OBJS)
+OBJS = $(CORE_OBJS) $(STORAGE_OBJS) $(VIDEO_OBJS) $(AUDIO_OBJS) $(SCENE_OBJS)
 
 .PHONY: all clean rom
 
@@ -105,10 +103,6 @@ sprite.o: src/scene/sprite.c src/scene/sprite.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 scene_render.o: src/scene/scene_render.c src/scene/boot_scene.h src/scene/scene_types.h src/scene/scene_math.h
-	$(CC) $(CFLAGS) -c $< -o $@
-
-# 6. Fallback 2D Splash Engine
-boot_anim.o: src/fallback_anim/boot_anim.c src/fallback_anim/boot_anim.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Wrap boot_scene.bin as a linkable ELF object with a .boot_scene section.

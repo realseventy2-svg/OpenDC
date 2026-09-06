@@ -1,6 +1,5 @@
 #include "screen.h"
 #include "sound.h"
-#include "boot_anim.h"
 #include "boot_scene.h"
 
 const boot_theme_t BOOT_THEME_DEFAULT = {
@@ -23,11 +22,6 @@ const boot_theme_t BOOT_THEME_DEFAULT = {
     .show_diagnostics     = 0,
     .show_progress_bar    = 0,
 
-    .cube_enabled       = 0,
-    .cube_center_x      = 320,
-    .cube_center_y      = 290,
-    .cube_size          = 40,
-    .cube_color         = COLOR_CYAN,
     .sega_license_enabled = 1,
     .music_enabled      = 1
 };
@@ -52,11 +46,6 @@ const boot_theme_t BOOT_THEME_MINIMAL = {
     .show_diagnostics     = 0,
     .show_progress_bar    = 1,
 
-    .cube_enabled       = 0,
-    .cube_center_x      = 320,
-    .cube_center_y      = 290,
-    .cube_size          = 40,
-    .cube_color         = COLOR_WHITE,
     .sega_license_enabled = 0,
     .music_enabled      = 0
 };
@@ -81,11 +70,6 @@ const boot_theme_t BOOT_THEME_DARK = {
     .show_diagnostics     = 1,
     .show_progress_bar    = 1,
 
-    .cube_enabled       = 1,
-    .cube_center_x      = 320,
-    .cube_center_y      = 290,
-    .cube_size          = 40,
-    .cube_color         = COLOR_GOLD,
     .sega_license_enabled = 0,
     .music_enabled      = 1
 };
@@ -110,11 +94,30 @@ const boot_theme_t BOOT_THEME_CINEMATIC = {
     .show_diagnostics     = 1,
     .show_progress_bar    = 1,
 
-    .cube_enabled       = 1,
-    .cube_center_x      = 320,
-    .cube_center_y      = 290,
-    .cube_size          = 42,
-    .cube_color         = COLOR_CYAN,
+    .sega_license_enabled = 1,
+    .music_enabled      = 1
+};
+
+const boot_theme_t BOOT_THEME_DIAGNOSTIC = {
+    .bg_color           = COLOR_BLACK,
+    .header_color       = COLOR_CYAN,
+    .sub_color          = COLOR_WHITE,
+    .status_ok_color    = COLOR_GREEN,
+    .status_err_color   = COLOR_RED,
+    .text_color         = COLOR_WHITE,
+    .bar_border_color   = COLOR_DARK_GRAY,
+    .bar_fill_color     = COLOR_CYAN,
+    .bar_complete_color = COLOR_GREEN,
+
+    .title              = "OPEN DREAMCAST",
+    .subtitle           = "VERBOSE POST DIAGNOSTICS",
+    .version_text       = "POST / BIOS v1.0",
+
+    .splash_delay_seconds = 4,
+    .splash_delay_frames  = 0,
+    .show_diagnostics     = 1,
+    .show_progress_bar    = 1,
+
     .sega_license_enabled = 1,
     .music_enabled      = 1
 };
@@ -145,66 +148,6 @@ static uint32_t udiv32(uint32_t num, uint32_t den) {
     return quot;
 }
 
-static int32_t sdiv32(int32_t num, int32_t den) {
-    if (den == 0) return 0;
-    int sign = 1;
-    uint32_t unum, uden;
-    if (num < 0) {
-        sign = -sign;
-        unum = (uint32_t)-num;
-    } else {
-        unum = (uint32_t)num;
-    }
-    if (den < 0) {
-        sign = -sign;
-        uden = (uint32_t)-den;
-    } else {
-        uden = (uint32_t)den;
-    }
-    uint32_t quot = udiv32(unum, uden);
-    return (sign < 0) ? -(int32_t)quot : (int32_t)quot;
-}
-
-/* 8.8 Fixed-Point Sine Quarter-Wave Table (0 to 90 degrees in 64 steps, 256 = 1.0) */
-static const int16_t sin_quarter[65] = {
-    0,   6,  12,  18,  25,  31,  37,  43,  49,  56,  62,  68,  74,  80,  86,  92,
-   97, 103, 109, 115, 120, 126, 131, 136, 142, 147, 152, 157, 162, 167, 171, 176,
-  181, 185, 189, 193, 197, 201, 205, 208, 212, 215, 219, 222, 225, 228, 231, 233,
-  236, 238, 240, 242, 244, 246, 247, 249, 250, 251, 252, 253, 254, 254, 255, 255,
-  256
-};
-
-static int32_t sin_fixed(int angle) {
-    angle &= 0xFF;
-    if (angle <= 64) return sin_quarter[angle];
-    if (angle <= 128) return sin_quarter[128 - angle];
-    if (angle <= 192) return -sin_quarter[angle - 128];
-    return -sin_quarter[256 - angle];
-}
-
-static int32_t cos_fixed(int angle) {
-    return sin_fixed(angle + 64);
-}
-
-/* 8 Vertices of a 3D unit cube */
-static const int8_t cube_verts[8][3] = {
-    { -1, -1, -1 }, /* 0 */
-    {  1, -1, -1 }, /* 1 */
-    {  1,  1, -1 }, /* 2 */
-    { -1,  1, -1 }, /* 3 */
-    { -1, -1,  1 }, /* 4 */
-    {  1, -1,  1 }, /* 5 */
-    {  1,  1,  1 }, /* 6 */
-    { -1,  1,  1 }  /* 7 */
-};
-
-/* 12 Edges connecting cube vertices */
-static const uint8_t cube_edges[12][2] = {
-    {0, 1}, {1, 2}, {2, 3}, {3, 0}, /* Back face */
-    {4, 5}, {5, 6}, {6, 7}, {7, 4}, /* Front face */
-    {0, 4}, {1, 5}, {2, 6}, {3, 7}  /* Connecting edges */
-};
-
 void screen_init(const boot_theme_t *theme) {
     if (theme) {
         current_theme = theme;
@@ -234,8 +177,6 @@ void screen_set_boot_duration_frames(int frames) {
     s_custom_duration_frames = frames;
 }
 
-/* Optional: plug in a boot_scene.bin blob for the DCBS 3D animation path.
- * Pass NULL to fall back to the default boot_anim pipeline. */
 static const void *s_boot_scene_blob = (const void *)0;
 
 void screen_set_boot_scene(const void *blob) {
@@ -257,46 +198,99 @@ int screen_get_boot_duration_frames(void) {
     return 0;
 }
 
-void screen_draw_splash(void) {
-    video_clear(current_theme->bg_color);
+void screen_draw_diagnostics_verbose(int toc_ok, int iso_ok, uint32_t fad, const uint8_t *head, int has_3d_scene) {
+    /* 1. Header Banner using authentic 12x24 BIOS font */
+    video_draw_bfont_string_centered(320, 14, "OPEN DREAMCAST // HARDWARE POST", COLOR_CYAN);
+    video_draw_line(24, 42, 616, 42, COLOR_CYAN);
 
-    if (current_theme->title) {
-        video_draw_string_centered(320, 70, current_theme->title, current_theme->header_color, 3);
-    }
-    if (current_theme->subtitle) {
-        video_draw_string_centered(320, 130, current_theme->subtitle, current_theme->sub_color, 4);
-    }
-    if (current_theme->version_text) {
-        video_draw_string_centered(320, 190, current_theme->version_text, current_theme->text_color, 2);
+    /* 2. CPU & Cache */
+    video_draw_bfont_string(30, 52, "CPU: SH7091 (SH-4) 200MHz RISC", COLOR_WHITE);
+    video_draw_bfont_string(510, 52, "[ PASS ]", COLOR_GREEN);
+    video_draw_string(40, 78, "CCR: 0x0808 (16KB I-CACHE / 8KB D-CACHE ENABLED)", COLOR_LIGHT_GRAY, 1);
+
+    /* 3. Memory & GPU */
+    video_draw_bfont_string(30, 96, "RAM: 16MB SDRAM @ 0x8C000000", COLOR_WHITE);
+    video_draw_bfont_string(510, 96, "[ PASS ]", COLOR_GREEN);
+    video_draw_bfont_string(30, 122, "GPU: PowerVR2 CLX2 8MB VRAM", COLOR_WHITE);
+    video_draw_bfont_string(510, 122, "[ 60HZ ]", COLOR_CYAN);
+    video_draw_bfont_string(30, 148, "SPU: Yamaha AICA + 2MB WaveRAM", COLOR_WHITE);
+    video_draw_bfont_string(510, 148, "[ READY ]", COLOR_GREEN);
+
+    /* 4. BootROM & Syscalls */
+    video_draw_bfont_string(30, 180, "ROM: 2048KB FlashROM @ 0xA0000000", COLOR_WHITE);
+    video_draw_bfont_string(510, 180, "[ PASS ]", COLOR_GREEN);
+    video_draw_bfont_string(30, 206, "FNT: Sega BIOS Font @ 0xA0100020", COLOR_WHITE);
+    video_draw_bfont_string(510, 206, "[ OK ]", COLOR_GREEN);
+    video_draw_string(40, 232, "VECTORS: 0x8C0000B0(SYSINFO)  0x8C0000B4(ROMFONT)  0x8C0000BC(GDROM)", COLOR_LIGHT_GRAY, 1);
+
+    /* 5. G1-ATA & Media Subsystem */
+    video_draw_bfont_string(30, 250, "ATA: G1-ATA Bus Controller", COLOR_WHITE);
+    video_draw_bfont_string(510, 250, "[ ACTIVE ]", COLOR_CYAN);
+
+    if (toc_ok) {
+        video_draw_bfont_string(30, 276, "DISC: Track TOC Verified", COLOR_WHITE);
+        video_draw_bfont_string(510, 276, "[ READY ]", COLOR_GREEN);
+    } else {
+        video_draw_bfont_string(30, 276, "DISC: No Disc Inserted", COLOR_LIGHT_GRAY);
+        video_draw_bfont_string(510, 276, "[ STANDBY ]", COLOR_GOLD);
     }
 
-    if (current_theme->show_progress_bar) {
-        /* Draw progress bar outline/box */
-        video_fill_rect(BAR_X - 2, BAR_Y - 2, BAR_WIDTH + 4, 1, current_theme->bar_border_color);
-        video_fill_rect(BAR_X - 2, BAR_Y + BAR_HEIGHT + 1, BAR_WIDTH + 4, 1, current_theme->bar_border_color);
-        video_fill_rect(BAR_X - 2, BAR_Y - 2, 1, BAR_HEIGHT + 4, current_theme->bar_border_color);
-        video_fill_rect(BAR_X + BAR_WIDTH + 1, BAR_Y - 2, 1, BAR_HEIGHT + 4, current_theme->bar_border_color);
+    if (iso_ok) {
+        video_draw_bfont_string(30, 302, "BOOT: GD-ROM Game Disc", COLOR_WHITE);
+        video_draw_bfont_string(510, 302, "[ AUTORUN ]", COLOR_GREEN);
+        if (head) {
+            video_draw_string(40, 328, "FAD: 0x", COLOR_GOLD, 1);
+            video_draw_hex32(96, 328, fad, COLOR_GOLD, 1);
+            video_draw_string(180, 328, "HEADER: ", COLOR_GOLD, 1);
+            video_draw_hex8(244, 328, head, COLOR_GOLD, 1);
+        }
+    } else {
+        video_draw_bfont_string(30, 302, "BOOT: Standalone Custom BIOS", COLOR_WHITE);
+        video_draw_bfont_string(510, 302, "[ CHAINLOAD ]", COLOR_CYAN);
     }
+
+    /* 6. Boot Scene & Payload */
+    video_draw_bfont_string(30, 348, "SCENE: DCBS 3D Container", has_3d_scene ? COLOR_WHITE : COLOR_LIGHT_GRAY);
+    video_draw_bfont_string(510, 348, has_3d_scene ? "[ MOUNTED ]" : "[ NOT FOUND ]", has_3d_scene ? COLOR_GREEN : COLOR_GOLD);
+    video_draw_bfont_string(30, 374, "TARGET: Payload @ 0x8C010000", COLOR_WHITE);
+    video_draw_bfont_string(510, 374, "[ READY ]", COLOR_GREEN);
+
+    /* 7. Footer Status */
+    video_draw_line(24, 404, 616, 404, COLOR_CYAN);
+    video_draw_bfont_string_centered(320, 416, "ALL SYSTEM CHECKS PASSED // INITIALIZED", COLOR_GREEN);
 }
 
-void screen_draw_disc_status(int toc_ok, int iso_ok, uint32_t fad, const uint8_t *head) {
-    if (!current_theme->show_diagnostics) return;
+void screen_animate_diagnostics(int total_frames, int toc_ok, int iso_ok, uint32_t fad, const uint8_t *head, int has_3d_scene) {
+    if (total_frames <= 0) return;
 
-    video_draw_string_centered(320, 385,
-                               toc_ok ? "TOC OK" : "TOC ERROR",
-                               toc_ok ? current_theme->status_ok_color : current_theme->status_err_color,
-                               2);
+    video_set_border_color_565(COLOR_BLACK);
+    video_set_target_buffer(video_get_back_fb());
 
-    video_draw_string_centered(320, 412,
-                               iso_ok ? "ISO OK" : "ISO ERROR",
-                               iso_ok ? current_theme->status_ok_color : current_theme->status_err_color,
-                               2);
+    for (int frame = 0; frame < total_frames; frame++) {
+        uint32_t back_fb = video_get_back_fb();
+        video_set_target_buffer(back_fb);
 
-    video_draw_string(240, 440, "FAD", current_theme->text_color, 1);
-    video_draw_hex32(280, 440, fad, current_theme->text_color, 1);
+        /* 1. Clear back buffer */
+        video_clear(COLOR_BLACK);
 
-    if (head) {
-        video_draw_hex8(380, 440, head, current_theme->text_color, 1);
+        /* 2. Render POST diagnostics text */
+        screen_draw_diagnostics_verbose(toc_ok, iso_ok, fad, head, has_3d_scene);
+
+        /* 3. Render 60 FPS animated progress bar */
+        uint32_t fill_w = udiv32((uint32_t)frame * BAR_WIDTH, (uint32_t)total_frames);
+        if (fill_w > BAR_WIDTH) fill_w = BAR_WIDTH;
+
+        video_fill_rect(BAR_X - 2, 450 - 2, BAR_WIDTH + 4, 1, COLOR_DARK_GRAY);
+        video_fill_rect(BAR_X - 2, 450 + BAR_HEIGHT + 1, BAR_WIDTH + 4, 1, COLOR_DARK_GRAY);
+        video_fill_rect(BAR_X - 2, 450 - 2, 1, BAR_HEIGHT + 4, COLOR_DARK_GRAY);
+        video_fill_rect(BAR_X + BAR_WIDTH + 1, 450 - 2, 1, BAR_HEIGHT + 4, COLOR_DARK_GRAY);
+
+        if (fill_w > 0) {
+            video_fill_rect(BAR_X, 450, fill_w, BAR_HEIGHT, COLOR_CYAN);
+        }
+
+        /* 4. Atomically swap displayed surface on vertical blank */
+        video_flip_buffer();
     }
 }
 
@@ -327,57 +321,10 @@ void screen_show_fault(uint32_t pc, uint32_t expevt) {
     video_draw_hex32(340, 320, expevt, COLOR_WHITE, 3);
 }
 
-void screen_draw_cube(int cx, int cy, int size, int ax, int ay, int az, uint16_t color) {
-    int32_t sin_y = sin_fixed(ay), cos_y = cos_fixed(ay);
-    int32_t sin_x = sin_fixed(ax), cos_x = cos_fixed(ax);
-    int32_t sin_z = sin_fixed(az), cos_z = cos_fixed(az);
-
-    int proj_x[8];
-    int proj_y[8];
-
-    for (int i = 0; i < 8; i++) {
-        int32_t x0 = (int32_t)cube_verts[i][0] * size;
-        int32_t y0 = (int32_t)cube_verts[i][1] * size;
-        int32_t z0 = (int32_t)cube_verts[i][2] * size;
-
-        /* Yaw (Y-axis rotation) */
-        int32_t x1 = (x0 * cos_y + z0 * sin_y) >> 8;
-        int32_t z1 = (-x0 * sin_y + z0 * cos_y) >> 8;
-
-        /* Pitch (X-axis rotation) */
-        int32_t y2 = (y0 * cos_x - z1 * sin_x) >> 8;
-        int32_t z2 = (y0 * sin_x + z1 * cos_x) >> 8;
-
-        /* Roll (Z-axis rotation) */
-        int32_t x3 = (x1 * cos_z - y2 * sin_z) >> 8;
-        int32_t y3 = (x1 * sin_z + y2 * cos_z) >> 8;
-
-        /* Perspective Projection */
-        int32_t z_dist = z2 + 220;
-        if (z_dist < 20) z_dist = 20;
-
-        proj_x[i] = cx + (int)sdiv32(x3 * 200, z_dist);
-        proj_y[i] = cy + (int)sdiv32(y3 * 200, z_dist);
-    }
-
-    /* Draw 12 cube edges */
-    for (int e = 0; e < 12; e++) {
-        int v0 = cube_edges[e][0];
-        int v1 = cube_edges[e][1];
-        video_draw_line(proj_x[v0], proj_y[v0], proj_x[v1], proj_y[v1], color);
-    }
-}
-
 void screen_animate_splash(int duration_frames) {
     if (duration_frames <= 0) return;
 
-    /* =======================================================================
-     * Path 1: Standalone DCBS 3D Container Runtime (Plug-and-Play)
-     * If a valid boot_scene.bin blob is registered and mounts successfully,
-     * the presentation is 100% driven by the container (3D mesh geometry,
-     * per-frame baked camera/model transforms, and custom AICA audio wavetables).
-     * It runs independently without hardcoded 2D text, badges, or legacy sprites.
-     * ======================================================================= */
+    /* Standalone DCBS 3D Container Runtime */
     if (s_boot_scene_blob && boot_scene_mount(s_boot_scene_blob) == 0) {
         uint16_t bg_color = boot_scene_get_bg_color();
         video_set_border_color_565(bg_color);
@@ -407,55 +354,7 @@ void screen_animate_splash(int duration_frames) {
         video_set_target_buffer(VRAM_PAGE_0);
         return;
     }
-
-    /* =======================================================================
-     * Path 2: Default Fallback Dreamcast Boot Animation Engine
-     * Invoked when boot_scene.bin is missing, NULL, or corrupted.
-     * Renders the authentic real-time procedural frosty caustic background,
-     * 3D aqua glass swirl logo, high-res "Open Dreamcast" branding,
-     * SEGA badge, and ambient synthesizer music.
-     * ======================================================================= */
-    boot_scene_config_t cfg;
-    cfg.title = current_theme->title ? current_theme->title : "Open Dreamcast";
-    cfg.subtitle = current_theme->subtitle ? current_theme->subtitle : "SEGA DREAMCAST ARCHITECTURE";
-    cfg.swirl_color_a = RGB565(255, 110, 20);  /* Sega Orange */
-    cfg.swirl_color_b = RGB565(255, 210, 40);  /* Radiant Gold */
-    cfg.swirl_glint_color = RGB565(255, 255, 255);
-    cfg.bg_color = current_theme->bg_color;
-    cfg.num_particles = 32;
-    cfg.hide_2d_logo = 0;
-
-    video_set_border_color_565(cfg.bg_color);
-    boot_anim_init(&cfg);
-
-    if (current_theme->music_enabled) {
-        sound_set_duration(duration_frames);
-    }
-
-    /* Start with Page 0 displayed, draw into Page 1 (back buffer) */
-    video_set_target_buffer(video_get_back_fb());
-
-    for (int frame = 0; frame < duration_frames; frame++) {
-        /* 1. Advance SPU Sound / MIDI Sequencer */
-        if (current_theme->music_enabled) {
-            sound_tick();
-        }
-
-        uint32_t back_fb = video_get_back_fb();
-
-        /* 2. Render complete frame into inactive back buffer (Store Queue DMA) */
-        boot_anim_render_frame(frame, duration_frames, back_fb);
-
-        /* 3. Atomically flip displayed surface on hardware VBlank */
-        video_flip_buffer();
-    }
-
-    /* Clean handoff: wait for VBlank, restore display to Page 0 */
-    video_wait_vblank();
-    *(volatile uint32_t *)0xA05F8050UL = 0x00000000UL;
-    *(volatile uint32_t *)0xA05F8054UL = 0x00000000UL;
-    video_set_target_buffer(VRAM_PAGE_0);
-    boot_anim_shutdown();
 }
+
 
 

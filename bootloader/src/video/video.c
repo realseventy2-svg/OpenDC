@@ -377,3 +377,74 @@ void video_draw_hex8(int x, int y, const uint8_t *data, uint16_t color, int scal
         cx += 24 * scale;
     }
 }
+
+void video_draw_bfont_char(int x, int y, char c, uint16_t color) {
+    uint8_t uc = (uint8_t)c;
+    if (uc <= 32 || uc > 126) {
+        return; /* Space and control characters are blank */
+    }
+    uint32_t index = uc - 32;
+    const uint8_t *glyph = (const uint8_t *)(BFONT_ROM_ADDR + index * 36);
+
+    for (int r = 0; r < 12; r++) {
+        uint8_t b0 = glyph[r * 3 + 0];
+        uint8_t b1 = glyph[r * 3 + 1];
+        uint8_t b2 = glyph[r * 3 + 2];
+        uint32_t val = ((uint32_t)b0 << 16) | ((uint32_t)b1 << 8) | (uint32_t)b2;
+        uint16_t row0 = (val >> 12) & 0x0FFF;
+        uint16_t row1 = val & 0x0FFF;
+
+        int py0 = y + r * 2;
+        int py1 = y + r * 2 + 1;
+
+        for (int col = 0; col < 12; col++) {
+            if (row0 & (0x800 >> col)) {
+                video_draw_pixel(x + col, py0, color);
+            }
+            if (row1 & (0x800 >> col)) {
+                video_draw_pixel(x + col, py1, color);
+            }
+        }
+    }
+}
+
+void video_draw_bfont_string(int x, int y, const char *str, uint16_t color) {
+    if (!str) return;
+    int cx = x;
+    int cy = y;
+    while (*str) {
+        if (*str == '\n') {
+            cy += 24 + 4;
+            cx = x;
+            str++;
+            continue;
+        }
+        video_draw_bfont_char(cx, cy, *str++, color);
+        cx += 12;
+    }
+}
+
+void video_draw_bfont_string_centered(int center_x, int y, const char *str, uint16_t color) {
+    if (!str) return;
+    int len = 0;
+    const char *p = str;
+    while (*p++) len++;
+    int total_w = len * 12;
+    int start_x = center_x - (total_w / 2);
+
+    int cx = start_x;
+    while (*str) {
+        video_draw_bfont_char(cx, y, *str++, color);
+        cx += 12;
+    }
+}
+
+void video_draw_bfont_hex32(int x, int y, uint32_t value, uint16_t color) {
+    char text[9];
+    for (int i = 0; i < 8; ++i) {
+        text[i] = hex_digit((uint8_t)(value >> (28 - i * 4)) & 0x0F);
+    }
+    text[8] = 0;
+    video_draw_bfont_string(x, y, text, color);
+}
+

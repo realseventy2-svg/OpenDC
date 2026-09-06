@@ -108,8 +108,6 @@ void main(void) {
         video_clear(bg);
         video_set_target_buffer(VRAM_PAGE_0);
         boot_scene_unmount();
-    } else {
-        screen_draw_splash();
     }
 
     /* 3. Bring up the GD-ROM drive and probe disc */
@@ -119,18 +117,29 @@ void main(void) {
     uint8_t iso_head[8];
     int iso_result = gdrom_probe_iso(&iso_fad, iso_head);
 
-    /* 4. Update modular UI with disc status ONLY in fallback 2D mode */
-    if (!has_3d_scene) {
-        screen_draw_disc_status(toc_result == GDROM_OK, iso_result == GDROM_OK, iso_fad, iso_head);
+    /* 4. Display 2D BIOS font verbose POST diagnostics if 3D scene is missing/corrupted OR if theme requests it */
+    if (!has_3d_scene || (theme && theme->show_diagnostics)) {
+        int diag_frames = (theme && theme->splash_delay_frames > 0) ? theme->splash_delay_frames : 180;
+        screen_animate_diagnostics(diag_frames, toc_result == GDROM_OK, iso_result == GDROM_OK, iso_fad, iso_head, has_3d_scene);
+        if (has_3d_scene && _boot_scene_bin_start && boot_scene_mount(_boot_scene_bin_start) == 0) {
+            uint16_t bg = boot_scene_get_bg_color();
+            video_set_border_color_565(bg);
+            video_set_target_buffer(VRAM_PAGE_0);
+            video_clear(bg);
+            video_set_target_buffer(VRAM_PAGE_1);
+            video_clear(bg);
+            video_set_target_buffer(VRAM_PAGE_0);
+            boot_scene_unmount();
+        }
     }
 
-    /* 5. 60 FPS DCBS 3D Scene Animation with Ambient MIDI Music.
-     *    Register the ROM blob first — screen_animate_splash() will mount
-     *    and run it, then fall back to the legacy boot_anim if mount fails. */
-    int frames = screen_get_boot_duration_frames();
-    if (frames > 0) {
-        screen_set_boot_scene(_boot_scene_bin_start);
-        screen_animate_splash(frames);
+    /* 5. 60 FPS DCBS 3D Scene Animation (if valid scene is present) */
+    if (has_3d_scene) {
+        int frames = screen_get_boot_duration_frames();
+        if (frames > 0) {
+            screen_set_boot_scene(_boot_scene_bin_start);
+            screen_animate_splash(frames);
+        }
     }
 
     /* 6. If a bootable disc is detected, stop sound and start the game */
