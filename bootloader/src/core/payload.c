@@ -56,7 +56,7 @@ void chainload_custom_bios(void) {
     /* 2. Copy payload from ROM offset 64KB (0xA0010000) into SDRAM */
     volatile uint32_t *src = (volatile uint32_t *)(0xA0010000UL);
     volatile uint32_t *dst = (volatile uint32_t *)(0x8C010000UL);
-    uint32_t size_words = 0x1E0000 / 4;
+    uint32_t size_words = 0x90000 / 4; /* 576 KB (from 0xA0010000 to 0xA00A0000) */
 
     for (uint32_t i = 0; i < size_words; i++) {
         dst[i] = src[i];

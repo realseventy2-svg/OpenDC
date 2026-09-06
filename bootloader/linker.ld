@@ -57,12 +57,12 @@ SECTIONS
     } > STATE
 
     /*
-     * DCBS plug-and-play container — placed at 0xA0080000 (ROM + 512 KB).
-     * Placed after custom_bios.bin (0xA0010000..0xA007FFFF, 448 KB) to prevent
-     * payload collision and ensure clean chainloading into the KOS dashboard.
+     * DCBS plug-and-play container — placed at 0xA00A0000 (ROM + 640 KB).
+     * Placed after dreamdash / custom_bios payload (0xA0010000..0xA009FFFF, 576 KB)
+     * to prevent payload collision and ensure clean chainloading into DreamDash / KOS.
      * The linker symbol _boot_scene_bin_start exposes the direct ROM pointer.
      */
-    .boot_scene 0xA0080000 :
+    .boot_scene 0xA00A0000 :
     {
         . = ALIGN(64);
         _boot_scene_bin_start = .;
