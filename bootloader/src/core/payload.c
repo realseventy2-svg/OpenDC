@@ -119,7 +119,8 @@ void main(void) {
 
     /* 4. Display 2D BIOS font verbose POST diagnostics if 3D scene is missing/corrupted OR if theme requests it */
     if (!has_3d_scene || (theme && theme->show_diagnostics)) {
-        int diag_frames = (theme && theme->splash_delay_frames > 0) ? theme->splash_delay_frames : 180;
+        int diag_frames = screen_get_boot_duration_frames();
+        if (diag_frames <= 0) diag_frames = 180; /* Default 3.0s (180 frames @ 60 FPS) */
         screen_animate_diagnostics(diag_frames, toc_result == GDROM_OK, iso_result == GDROM_OK, iso_fad, iso_head, has_3d_scene);
         if (has_3d_scene && _boot_scene_bin_start && boot_scene_mount(_boot_scene_bin_start) == 0) {
             uint16_t bg = boot_scene_get_bg_color();
