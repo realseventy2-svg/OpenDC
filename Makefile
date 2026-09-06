@@ -44,6 +44,7 @@ endif
 
 $(OUTPUT): bios
 	cp -f "$(BIOS_DIR)/custom_dc_bios.bin" "$@"
+	cp -f "$@" "$(BOOT_DIR)/dc_boot.bin"
 	@test "$$(wc -c < "$@")" -eq 2097152
 	@echo "Built $@: 2097152 bytes"
 
@@ -51,6 +52,7 @@ check: $(OUTPUT)
 	@test "$$(wc -c < "$(BOOT_DIR)/dc_boot.bin")" -eq 2097152
 	@test "$$(wc -c < "$(BIOS_DIR)/custom_dc_bios.bin")" -eq 2097152
 	@echo "Firmware image checks passed"
+
 
 clean:
 	$(MAKE) -C "$(BOOT_DIR)" clean

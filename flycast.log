@@ -84,3 +84,8 @@
 00:00:246 hw/mem/addrspace.cpp:457 N[VMEM]: BASE 0x7648808b0000 RAM(16 MB) 0x76488c8b0000 VRAM64(8 MB) 0x7648848b0000 ARAM(2 MB) 0x7648a08b0000
 00:00:262 emulator.cpp:65 N[BOOT]: Game ID is [MK-51014]
 00:00:265 emulator.cpp:65 N[BOOT]: Game ID is [MK-51014]
+00:00:000 sdl/sdl.cpp:902 N[RENDERER]: Monitor refresh rate: 0 Hz (1366 x 768)
+00:00:172 ui/gui.cpp:245 N[RENDERER]: Screen DPI is 96, size 800 x 592. Scaling by 1.00
+00:00:179 rend/gles/gles.cpp:732 N[RENDERER]: OpenGL version 4.6
+00:00:179 rend/gles/gles.cpp:733 N[RENDERER]: Vendor 'Microsoft Corporation' Renderer 'D3D12 (NVIDIA GeForce RTX 4060)' Version '4.6 (Core Profile) Mesa 26.1.7 - kisak-mesa PPA'
+00:00:219 rend/gles/gles.cpp:744 N[RENDERER]: glBlitFramebuffer test successful

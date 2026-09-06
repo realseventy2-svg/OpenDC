@@ -1,27 +1,29 @@
 #include "screen.h"
 #include "sound.h"
+#include "boot_anim.h"
+#include "boot_scene.h"
 
 const boot_theme_t BOOT_THEME_DEFAULT = {
-    .bg_color           = COLOR_BLACK,
-    .header_color       = COLOR_GREEN,
-    .sub_color          = COLOR_WHITE,
+    .bg_color           = RGB565(210, 213, 217), /* Authentic Sega Frosted Grey #D2D5D9 */
+    .header_color       = COLOR_WHITE,
+    .sub_color          = COLOR_CYAN,
     .status_ok_color    = COLOR_GREEN,
     .status_err_color   = COLOR_GOLD,
     .text_color         = COLOR_WHITE,
     .bar_border_color   = COLOR_DARK_GRAY,
-    .bar_fill_color     = COLOR_GREEN,
-    .bar_complete_color = COLOR_CYAN,
+    .bar_fill_color     = RGB565(30, 140, 230),
+    .bar_complete_color = RGB565(90, 210, 255),
 
-    .title              = "SEGA DREAMCAST",
-    .subtitle           = "CUSTOM BOOT ROM",
-    .version_text       = "OpenDC v1.0",
+    .title              = "Open Dreamcast",
+    .subtitle           = "",
+    .version_text       = "",
 
-    .splash_delay_seconds = BOOT_DURATION_CINEMATIC, /* 4 seconds */
+    .splash_delay_seconds = 8,
     .splash_delay_frames  = 0,
-    .show_diagnostics     = 1,
-    .show_progress_bar    = 1,
+    .show_diagnostics     = 0,
+    .show_progress_bar    = 0,
 
-    .cube_enabled       = 1,
+    .cube_enabled       = 0,
     .cube_center_x      = 320,
     .cube_center_y      = 290,
     .cube_size          = 40,
@@ -232,16 +234,24 @@ void screen_set_boot_duration_frames(int frames) {
     s_custom_duration_frames = frames;
 }
 
+/* Optional: plug in a boot_scene.bin blob for the DCBS 3D animation path.
+ * Pass NULL to fall back to the default boot_anim pipeline. */
+static const void *s_boot_scene_blob = (const void *)0;
+
+void screen_set_boot_scene(const void *blob) {
+    s_boot_scene_blob = blob;
+}
+
 int screen_get_boot_duration_frames(void) {
     if (s_custom_duration_frames >= 0) {
         return s_custom_duration_frames;
     }
     if (current_theme) {
-        if (current_theme->splash_delay_frames > 0) {
-            return current_theme->splash_delay_frames;
-        }
         if (current_theme->splash_delay_seconds > 0) {
             return current_theme->splash_delay_seconds * 60;
+        }
+        if (current_theme->splash_delay_frames > 0) {
+            return current_theme->splash_delay_frames;
         }
     }
     return 0;
@@ -359,57 +369,93 @@ void screen_draw_cube(int cx, int cy, int size, int ax, int ay, int az, uint16_t
 }
 
 void screen_animate_splash(int duration_frames) {
-    if (!current_theme->cube_enabled || duration_frames <= 0) {
-        if (duration_frames > 0) {
-            for (int f = 0; f < duration_frames; f++) {
-                video_wait_vblank();
-                if (current_theme->music_enabled) {
-                    sound_tick();
-                }
-            }
+    if (duration_frames <= 0) return;
+
+    /* =======================================================================
+     * Path 1: Standalone DCBS 3D Container Runtime (Plug-and-Play)
+     * If a valid boot_scene.bin blob is registered and mounts successfully,
+     * the presentation is 100% driven by the container (3D mesh geometry,
+     * per-frame baked camera/model transforms, and custom AICA audio wavetables).
+     * It runs independently without hardcoded 2D text, badges, or legacy sprites.
+     * ======================================================================= */
+    if (s_boot_scene_blob && boot_scene_mount(s_boot_scene_blob) == 0) {
+        uint16_t bg_color = boot_scene_get_bg_color();
+        video_set_border_color_565(bg_color);
+
+        video_set_target_buffer(video_get_back_fb());
+
+        while (!boot_scene_is_done()) {
+            uint32_t back_fb = video_get_back_fb();
+            video_set_target_buffer(back_fb);
+
+            /* 1. Clean background clear into back buffer */
+            video_clear(bg_color);
+
+            /* 2. Advance 3D projection, rasterize mesh, & fire AICA audio cues */
+            boot_scene_tick(back_fb);
+
+            /* 3. Atomically flip displayed surface on hardware VBlank */
+            video_flip_buffer();
         }
+
+        boot_scene_unmount();
+
+        /* Clean display handoff */
+        video_wait_vblank();
+        *(volatile uint32_t *)0xA05F8050UL = 0x00000000UL;
+        *(volatile uint32_t *)0xA05F8054UL = 0x00000000UL;
+        video_set_target_buffer(VRAM_PAGE_0);
         return;
     }
 
-    int cx = current_theme->cube_center_x;
-    int cy = current_theme->cube_center_y;
-    int size = current_theme->cube_size;
-    uint16_t color = current_theme->cube_color;
-    uint16_t bg = current_theme->bg_color;
+    /* =======================================================================
+     * Path 2: Default Fallback Dreamcast Boot Animation Engine
+     * Invoked when boot_scene.bin is missing, NULL, or corrupted.
+     * Renders the authentic real-time procedural frosty caustic background,
+     * 3D aqua glass swirl logo, high-res "Open Dreamcast" branding,
+     * SEGA badge, and ambient synthesizer music.
+     * ======================================================================= */
+    boot_scene_config_t cfg;
+    cfg.title = current_theme->title ? current_theme->title : "Open Dreamcast";
+    cfg.subtitle = current_theme->subtitle ? current_theme->subtitle : "SEGA DREAMCAST ARCHITECTURE";
+    cfg.swirl_color_a = RGB565(255, 110, 20);  /* Sega Orange */
+    cfg.swirl_color_b = RGB565(255, 210, 40);  /* Radiant Gold */
+    cfg.swirl_glint_color = RGB565(255, 255, 255);
+    cfg.bg_color = current_theme->bg_color;
+    cfg.num_particles = 32;
+    cfg.hide_2d_logo = 0;
 
-    /* Cube Bounding Box for Clearing */
-    int clear_w = 200;
-    int clear_h = 160;
-    int clear_x = cx - (clear_w / 2);
-    int clear_y = cy - (clear_h / 2);
+    video_set_border_color_565(cfg.bg_color);
+    boot_anim_init(&cfg);
 
-    /* Clone static background, diagnostics, and text to back buffer */
-    video_sync_buffers();
+    if (current_theme->music_enabled) {
+        sound_set_duration(duration_frames);
+    }
+
+    /* Start with Page 0 displayed, draw into Page 1 (back buffer) */
     video_set_target_buffer(video_get_back_fb());
 
     for (int frame = 0; frame < duration_frames; frame++) {
-        /* Advance ambient MIDI music sequencer */
+        /* 1. Advance SPU Sound / MIDI Sequencer */
         if (current_theme->music_enabled) {
             sound_tick();
         }
 
-        /* Clear previous cube position on back buffer (invisible to user) */
-        video_fill_rect(clear_x, clear_y, clear_w, clear_h, bg);
+        uint32_t back_fb = video_get_back_fb();
 
-        /* Smooth 3-axis rotation */
-        int ax = (frame * 2) & 0xFF;
-        int ay = (frame * 3) & 0xFF;
-        int az = (frame * 1) & 0xFF;
+        /* 2. Render complete frame into inactive back buffer (Store Queue DMA) */
+        boot_anim_render_frame(frame, duration_frames, back_fb);
 
-        /* Draw new cube into back buffer */
-        screen_draw_cube(cx, cy, size, ax, ay, az, color);
-
-        /* Hardware Page-Flip on VBlank with zero flicker */
+        /* 3. Atomically flip displayed surface on hardware VBlank */
         video_flip_buffer();
     }
 
-    /* Synchronize final frame to both buffers and set Page 0 active for game boot */
-    video_sync_buffers();
-    video_set_target_buffer(VRAM_PAGE_0);
+    /* Clean handoff: wait for VBlank, restore display to Page 0 */
+    video_wait_vblank();
     *(volatile uint32_t *)0xA05F8050UL = 0x00000000UL;
+    *(volatile uint32_t *)0xA05F8054UL = 0x00000000UL;
+    video_set_target_buffer(VRAM_PAGE_0);
+    boot_anim_shutdown();
 }
+
+

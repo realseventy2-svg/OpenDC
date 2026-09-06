@@ -27,6 +27,7 @@
 #define COLOR_LIGHT_GRAY    RGB565(180, 180, 180)
 
 void video_init(void);
+void video_set_border_color_565(uint16_t color);
 void video_wait_vblank(void);
 void video_wait_seconds(int seconds);
 
@@ -37,6 +38,7 @@ uint32_t video_get_back_fb(void);
 void video_flip_buffer(void);
 void video_sync_buffers(void);
 void video_clean_handoff(void);
+void video_purge_all_vram(uint32_t clear_val);
 
 void video_clear(uint16_t color);
 void video_fill_rect(int x, int y, int w, int h, uint16_t color);
@@ -47,5 +49,7 @@ void video_draw_string(int x, int y, const char *str, uint16_t color, int scale)
 void video_draw_string_centered(int center_x, int y, const char *str, uint16_t color, int scale);
 void video_draw_hex32(int x, int y, uint32_t value, uint16_t color, int scale);
 void video_draw_hex8(int x, int y, const uint8_t *data, uint16_t color, int scale);
+
+extern const uint8_t FONT_8X8[95][8];
 
 #endif /* OPENDC_BOOTLOADER_VIDEO_H */

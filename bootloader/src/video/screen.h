@@ -55,7 +55,12 @@ const boot_theme_t *screen_get_theme(void);
 /* Runtime duration customization APIs */
 void screen_set_boot_duration(int seconds);
 void screen_set_boot_duration_frames(int frames);
-int screen_get_boot_duration_frames(void);
+int  screen_get_boot_duration_frames(void);
+
+/* DCBS plug-and-play scene: call before screen_animate_splash().
+ * blob — pointer to a boot_scene.bin blob in ROM or RAM.
+ * Pass NULL to disable and use the legacy boot_anim pipeline. */
+void screen_set_boot_scene(const void *blob);
 
 void screen_draw_splash(void);
 void screen_draw_disc_status(int toc_ok, int iso_ok, uint32_t fad, const uint8_t *head);

@@ -22,7 +22,7 @@ typedef volatile uint32_t vuint32_t;
 #define PVR_SYNC_STATUS     (*(vuint32_t*)(PVR_BASE + 0x010C))
 
 /* Standard 8x8 font glyphs (ASCII 32 ' ' to 126 '~') */
-static const uint8_t FONT_8X8[95][8] = {
+const uint8_t FONT_8X8[95][8] = {
     /* 32 ' ' */ { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
     /* 33 '!' */ { 0x18, 0x18, 0x18, 0x18, 0x18, 0x00, 0x18, 0x00 },
     /* 34 '"' */ { 0x66, 0x66, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00 },
@@ -123,9 +123,19 @@ static const uint8_t FONT_8X8[95][8] = {
 static int s_current_page = 0;
 static volatile uint16_t *s_draw_fb = (volatile uint16_t *)VRAM_PAGE_0;
 
+void video_set_border_color_565(uint16_t color) {
+    uint32_t r = (color >> 11) & 0x1F;
+    uint32_t g = (color >> 5)  & 0x3F;
+    uint32_t b =  color        & 0x1F;
+    r = (r << 3) | (r >> 2);
+    g = (g << 2) | (g >> 4);
+    b = (b << 3) | (b >> 2);
+    PVR_BORDER_COLOR = (r << 16) | (g << 8) | b;
+}
+
 void video_init(void) {
     PVR_VIDEO_CFG     = 0x00000008;
-    PVR_BORDER_COLOR  = 0x00000000;
+    PVR_BORDER_COLOR  = 0x00D2D5D9; /* Authentic Sega Frosted Grey #D2D5D9 */
 
     PVR_BORDER_X      = 0x007E0345;
     PVR_BORDER_Y      = 0x00240204;
@@ -149,10 +159,11 @@ void video_init(void) {
 }
 
 void video_wait_vblank(void) {
-    volatile uint32_t timeout = 1000000;
-    while (!(PVR_SYNC_STATUS & 0x01FF) && --timeout != 0) { }
-    timeout = 1000000;
-    while ((PVR_SYNC_STATUS & 0x01FF) && --timeout != 0) { }
+    /* 1. If currently in VBlank (scanline >= 480), wait until active scanout begins */
+    while ((PVR_SYNC_STATUS & 0x03FF) >= 480) { }
+
+    /* 2. Wait until active scanout completes and next VBlank begins */
+    while ((PVR_SYNC_STATUS & 0x03FF) < 480) { }
 }
 
 void video_wait_seconds(int seconds) {
@@ -175,9 +186,16 @@ uint32_t video_get_back_fb(void) {
 }
 
 void video_flip_buffer(void) {
+    /* 1. Wait for cathode ray / rasterizer to enter vertical blanking */
     video_wait_vblank();
+
+    /* 2. Atomic swap of displayed surface */
     s_current_page ^= 1;
-    PVR_FB_ADDR = (s_current_page == 0) ? 0x00000000UL : 0x00100000UL;
+    uint32_t fb_offset = (s_current_page == 0) ? 0x00000000UL : 0x00100000UL;
+    PVR_FB_ADDR    = fb_offset;
+    PVR_FB_IL_ADDR = fb_offset;
+
+    /* 3. Update drawing pointer to point to the inactive back buffer */
     s_draw_fb = (s_current_page == 0) ? (volatile uint16_t *)VRAM_PAGE_1 : (volatile uint16_t *)VRAM_PAGE_0;
 }
 
@@ -189,7 +207,31 @@ void video_sync_buffers(void) {
     }
 }
 
+void video_purge_all_vram(uint32_t clear_val) {
+    /* Fast 32-byte burst Store Queue purge of entire 8MB (8,388,608 bytes) VRAM */
+    volatile uint32_t *sq = (volatile uint32_t *)0xE0000000UL;
+
+    /* Set Store Queue Destination to VRAM (0xA5000000) */
+    *(volatile uint32_t *)0xFF000038UL = (((0xA5000000UL) >> 26) << 2) & 0x1C;
+    *(volatile uint32_t *)0xFF00003CUL = (((0xA5000000UL) >> 26) << 2) & 0x1C;
+
+    /* Fill BOTH SQ0 (words 0..7) and SQ1 (words 8..15) completely with clear_val */
+    for (int i = 0; i < 16; i++) {
+        sq[i] = clear_val;
+    }
+
+    uint32_t dest = 0xE0000000UL;
+    /* 8MB = 8,388,608 bytes / 32 bytes per burst = 262,144 bursts */
+    for (uint32_t i = 0; i < (8 * 1024 * 1024) / 32; i++) {
+        __asm__ volatile("pref @%0" : : "r"(dest));
+        dest += 32;
+    }
+}
+
 void video_clean_handoff(void) {
+    /* 0. Wait for vertical blanking to eliminate tearing */
+    video_wait_vblank();
+
     /* 1. Reset PowerVR Tile Accelerator (TA) and Core graphics pipelines */
     *(volatile uint32_t *)(PVR_BASE + 0x0008) = 0x00000003;
     for (volatile int i = 0; i < 0x2000; i++) {
@@ -209,11 +251,8 @@ void video_clean_handoff(void) {
     *(volatile uint32_t *)(PVR_BASE + 0x00CC) = 0x00000000; /* SPG_VBLANK_INT */
     *(volatile uint32_t *)(PVR_BASE + 0x011C) = 0x00000000; /* PT_ALPHA_REF (Punch-Through Alpha Ref) */
 
-    /* 3. Zero-fill entire 8 MB VRAM to eradicate all residual bootloader textures and text */
-    volatile uint32_t *vram = (volatile uint32_t *)VRAM_BASE;
-    for (size_t i = 0; i < (8 * 1024 * 1024) / 4; i++) {
-        vram[i] = 0x00000000;
-    }
+    /* 3. Completely purge entire 8MB VRAM to total zero/black so no visual leftover exists */
+    video_purge_all_vram(0x00000000UL);
 
     /* 4. Reset primary video display registers to clean Katana baseline */
     PVR_FB_ADDR       = 0x00000000;
@@ -224,11 +263,13 @@ void video_clean_handoff(void) {
 }
 
 void video_clear(uint16_t color) {
-    volatile uint16_t *fb = s_draw_fb;
-    for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
-        fb[i] = color;
+    uint32_t col32 = ((uint32_t)color << 16) | (uint32_t)color;
+    volatile uint32_t *fb32 = (volatile uint32_t *)s_draw_fb;
+    for (int i = 0; i < (SCREEN_WIDTH * SCREEN_HEIGHT) / 2; i++) {
+        fb32[i] = col32;
     }
 }
+
 
 void video_fill_rect(int x, int y, int w, int h, uint16_t color) {
     volatile uint16_t *fb = s_draw_fb;
