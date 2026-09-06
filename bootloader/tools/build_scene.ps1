@@ -26,10 +26,9 @@ $dcbsToolDir = "$bootloaderDir\tools\dcbs-tool"
 $dcbsScenesDir = "$dcbsToolDir\res\scenes"
 $blenderSceneDir = "$bootloaderDir\res\blender_scene"
 $exportScript = "$dcbsToolDir\export_dcbs.py"
-$dreamDashDir = "$workspaceRoot\projects\DreamDash"
 
 Write-Host "=======================================================" -ForegroundColor Cyan
-Write-Host "  Dreamcast 3D Boot Scene & BIOS Compiler" -ForegroundColor Yellow
+Write-Host "  OpenDC 3D Boot Scene & Custom BIOS Compiler" -ForegroundColor Yellow
 Write-Host "=======================================================" -ForegroundColor Cyan
 
 # 1. Locate Blender executable
@@ -123,11 +122,11 @@ if (-not (Test-Path -LiteralPath $bootSceneBin)) {
 $sceneSize = (Get-Item $bootSceneBin).Length
 Write-Host "      boot_scene.bin generated successfully ($("{0:N0}" -f $sceneSize) bytes)." -ForegroundColor Green
 
-# 4. Compile Bootloader & Custom BIOS
-Write-Host "[3/4] Compiling Dreamcast Bootloader (dc_boot.bin)..." -ForegroundColor Cyan
+# 4. Compile OpenDC Bootloader (dc_boot.bin)
+Write-Host "[3/3] Compiling OpenDC Bootloader (dc_boot.bin)..." -ForegroundColor Cyan
 wsl -d Ubuntu-26.04 -e /mnt/d/Github/Personal/KallistiOS/scripts/kos-exec.sh "/mnt/d/Github/Personal/KallistiOS/projects/OpenDC/bootloader" make
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Bootloader build failed with exit code $LASTEXITCODE"
+    Write-Error "OpenDC bootloader build failed with exit code $LASTEXITCODE"
     exit $LASTEXITCODE
 }
 
@@ -136,29 +135,36 @@ if (Test-Path -LiteralPath $dcBootBin) {
     $bootSize = (Get-Item $dcBootBin).Length
     Write-Host "      dc_boot.bin built ($("{0:N0}" -f $bootSize) bytes)." -ForegroundColor Green
 
-    # Deploy payload
-    Copy-Item -LiteralPath $dcBootBin -Destination "$dreamDashDir\res\boot_loader_custom.bios" -Force
-    Copy-Item -LiteralPath $dcBootBin -Destination "$workspaceRoot\projects\OpenDC\boot_loader_custom.bios" -Force
-    wsl -d Ubuntu-26.04 bash -c "cp -f /mnt/d/Github/Personal/KallistiOS/projects/OpenDC/bootloader/dc_boot.bin /mnt/d/Github/Personal/KallistiOS/projects/DreamDash/res/boot_loader_custom.bios"
-    Write-Host "      Deployed dc_boot.bin payload to DreamDash and OpenDC." -ForegroundColor Gray
+    # Deploy OpenDC Custom BIOS
+    $customBiosDest = "$workspaceRoot\bios\boot_loader_custom.bios"
+    $openDcBiosDest = "$workspaceRoot\projects\OpenDC\boot_loader_custom.bios"
+    Copy-Item -LiteralPath $dcBootBin -Destination $customBiosDest -Force
+    Copy-Item -LiteralPath $dcBootBin -Destination $openDcBiosDest -Force
+    
+    # Sync into Flycast directories
+    $flycastData = "$workspaceRoot\tools\flycast\data"
+    $appDataFlycast = "$env:APPDATA\Flycast"
+    $appDataFlycastData = "$appDataFlycast\data"
+    @(
+        "$flycastData\dc_boot.bin", "$flycastData\bios.bin",
+        "$workspaceRoot\tools\flycast\dc_boot.bin",
+        "$appDataFlycast\dc_boot.bin", "$appDataFlycastData\dc_boot.bin"
+    ) | ForEach-Object {
+        if (Test-Path (Split-Path $_ -Parent)) {
+            Copy-Item -LiteralPath $dcBootBin -Destination $_ -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Write-Host "      Deployed OpenDC BIOS (dc_boot.bin) to bios/ and Flycast." -ForegroundColor Gray
 }
 
-if (-not $SkipBiosBuild) {
-    Write-Host "[4/4] Rebuilding DreamDash BIOS (dreamdash.bios)..." -ForegroundColor Cyan
-    wsl -d Ubuntu-26.04 -e /mnt/d/Github/Personal/KallistiOS/scripts/kos-exec.sh "/mnt/d/Github/Personal/KallistiOS/projects/DreamDash" make bios
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "DreamDash BIOS build failed with exit code $LASTEXITCODE"
-        exit $LASTEXITCODE
-    }
-
-    $biosBin = "$dreamDashDir\release\dreamdash.bios"
-    if (Test-Path -LiteralPath $biosBin) {
-        $biosSize = (Get-Item $biosBin).Length
-        Write-Host "      dreamdash.bios built successfully ($("{0:N0}" -f $biosSize) bytes)." -ForegroundColor Green
-    }
+# 5. Analyze Flash ROM memory budget and remaining headroom
+$romCheckScript = "$dcbsToolDir\check_rom_size.py"
+if (Test-Path -LiteralPath $romCheckScript) {
+    Write-Host ""
+    python "$romCheckScript"
 }
 
 Write-Host "=======================================================" -ForegroundColor Cyan
-Write-Host "  Boot Scene & BIOS Build Complete!" -ForegroundColor Green
-Write-Host "  Test with: kos-bootcustom  or  kos-bootdash" -ForegroundColor Yellow
+Write-Host "  OpenDC Boot Scene & Custom BIOS Build Complete!" -ForegroundColor Green
+Write-Host "  Test with: kos-bootcustom" -ForegroundColor Yellow
 Write-Host "=======================================================" -ForegroundColor Cyan
