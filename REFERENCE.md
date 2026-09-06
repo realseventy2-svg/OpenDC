@@ -1,20 +1,19 @@
-# External references
+# External References & Credits
 
-The raw GD-ROM work uses these public projects as references. They are not
-vendored into this repository:
+OpenDC references and builds upon research, specifications, and code patterns from several open-source projects in the Dreamcast community:
 
-- [iceGDROM](https://github.com/zeldin/iceGDROM) — FPGA implementation of the
-  Dreamcast IDE and Sega Packet Interface.
-- [Libronin](https://github.com/sega-dreamcast/libronin) — legacy Dreamcast
-  library containing GD-ROM syscall wrappers and filesystem code.
+- **[KallistiOS](https://github.com/KallistiOS/KallistiOS)** — The standard open-source Dreamcast SDK and runtime environment. Used for register mappings, build tools, video clock tables, and the Stage 2 BIOS environment.
+- **[iceGDROM](https://github.com/zeldin/iceGDROM)** — FPGA implementation and documentation of the Dreamcast G1 IDE bus and Sega Packet Interface (SPI).
+- **[Libronin](https://github.com/sega-dreamcast/libronin)** — Low-level Dreamcast library by Marcus Comstedt and Peter Borsodi, providing reference implementations for ATA PIO timing, GD-ROM packet transport, and font routines.
+- **[DreamShell](https://github.com/DC-SWAT/DreamShell)** — Modular Dreamcast operating system by DC-SWAT, pioneering G1-ATA filesystem handling and dynamic disc syscall hooking (`isoldr`).
+- **[DreamBoot](https://github.com/Cpasjuste/dreamboot)** & **[DreamDash](https://github.com/darcagn/dreamdash)** — Open-source BIOS chainloaders by Cpasjuste and darcagn, establishing storage auto-detection patterns and BIOS ROM replacement structure.
+- **[Flycast](https://github.com/flyinghead/flycast)** — Multi-platform Sega Dreamcast emulator by flyinghead and contributors. Essential for execution verification, register state testing, and live GDB debugging.
+- **Marcus Comstedt's Hardware Documentation** — Foundation reverse engineering notes on the SH-4 bus state controller, cable sensing, and boot ROM execution.
 
-Each project has its own license. Read and preserve the applicable license
-before copying source code into this project.
+---
 
-## Licensing boundary
+## Licensing Boundaries
 
-OpenDC's original source and documentation are released under the MIT License
-in [`LICENSE`](LICENSE). External projects listed below are references only;
-their licenses continue to apply to their code and assets. Do not copy or
-redistribute external code, firmware, or BIOS images without complying with
-the applicable license and distribution terms.
+- Original OpenDC source code and documentation are released under the [MIT License](LICENSE).
+- External reference projects retain their respective original licenses (BSD, GPL, LGPL, or MIT).
+- No proprietary Sega BIOS binaries, Katana SDK objects, or copyrighted retail game assets are distributed as part of the OpenDC source repository.

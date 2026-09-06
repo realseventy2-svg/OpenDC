@@ -5,7 +5,7 @@
 static uint16_t * const row_prev = (uint16_t *)(BOOT_SCENE_SCRATCHPAD_BASE + 0x1C000);
 static uint16_t * const row_curr = (uint16_t *)(BOOT_SCENE_SCRATCHPAD_BASE + 0x1C800);
 
-/* High-Performance Dreamcast Sub-pixel Silhouette Reconstruction & Edge Anti-Aliasing Filter */
+/* Sub-pixel Silhouette & Edge Anti-Aliasing Filter */
 void postprocess_smooth_edges(uint32_t fb_addr, int min_x, int min_y, int max_x, int max_y, uint16_t bg_color)
 {
     if (min_x < 2) min_x = 2;

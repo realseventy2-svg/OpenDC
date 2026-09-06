@@ -14,7 +14,7 @@ static boot_scene_config_t s_config;
 
 
 /* -------------------------------------------------------------------------
- * Ultra-Fast Color Blending & Shading Helpers (No VRAM readback needed)
+ * Color Blending & Shading Helpers
  * ------------------------------------------------------------------------- */
 static inline uint16_t blend_rgb565(uint16_t c1, uint16_t c2, int t256) {
     if (t256 <= 0)   return c1;
