@@ -177,7 +177,6 @@ def get_object_color(obj, fallback=(0.10, 0.75, 0.20)):
     return fallback
 
 def find_audio_pcm(blend_dir):
-    """Detect or convert audio file (.wav / .mp3 / .pcm) into 11,025 Hz 8-bit signed PCM."""
     candidates = [
         os.path.join(blend_dir, "boot.pcm"),
         os.path.join(blend_dir, "audio.pcm"),
@@ -217,6 +216,98 @@ def find_audio_pcm(blend_dir):
                     pass
 
     return bytearray()
+
+def find_guide_sphere(scene, target_obj=None):
+    """
+    Dynamically locate any guide or rolling object in the scene.
+    Supports custom properties ('is_guide', 'guide_for'), naming conventions, or secondary sphere objects.
+    """
+    # 1. Direct custom property match
+    for o in scene.objects:
+        if o.get('is_guide', False):
+            return o
+        if target_obj and o.get('guide_for') == target_obj.name:
+            return o
+
+    # 2. Known common guide object names
+    candidates = ['Sphere.002', 'Sphere_Guide', 'Guide_Sphere', 'Sphere.001', 'Ball_Guide', 'Roller', 'Guide']
+    for name in candidates:
+        obj = bpy.data.objects.get(name)
+        if obj and not obj.hide_viewport:
+            return obj
+
+    # 3. Fuzzy search for meshes/empties with 'guide', 'roller', or 'sphere' in name
+    for o in scene.objects:
+        if o.type in ('MESH', 'EMPTY') and not o.hide_viewport:
+            if target_obj and o == target_obj:
+                continue
+            name_lower = o.name.lower()
+            if 'guide' in name_lower or 'roller' in name_lower:
+                return o
+
+    # 4. Fallback: Any sphere-like mesh that is not the target object
+    for o in scene.objects:
+        if o.type == 'MESH' and not o.hide_viewport:
+            if target_obj and o == target_obj:
+                continue
+            if 'sphere' in o.name.lower() or 'ball' in o.name.lower():
+                return o
+
+    return None
+
+def detect_guide_motion_range(scene, guide_obj, target_obj):
+    """
+    Dynamically determine the active reveal motion timeframe [start_frame, end_frame]
+    by analyzing the guide object's relative velocity trajectory.
+    """
+    # 1. Custom properties override if explicitly defined by the artist
+    if target_obj:
+        if 'reveal_start' in target_obj and 'reveal_end' in target_obj:
+            return int(target_obj['reveal_start']), int(target_obj['reveal_end'])
+    if guide_obj:
+        if 'reveal_start' in guide_obj and 'reveal_end' in guide_obj:
+            return int(guide_obj['reveal_start']), int(guide_obj['reveal_end'])
+
+    start_f = scene.frame_start
+    end_f = scene.frame_end
+    if not guide_obj or not target_obj:
+        return start_f, end_f
+
+    obj_mat_inv = target_obj.matrix_world.inverted()
+    pos_list = []
+    for f in range(start_f, end_f + 1):
+        scene.frame_set(f)
+        dg = bpy.context.evaluated_depsgraph_get()
+        p = obj_mat_inv @ guide_obj.evaluated_get(dg).matrix_world.translation
+        pos_list.append((f, p))
+
+    # Find when motion ends (last frame where speed > threshold)
+    last_move_idx = None
+    for i in range(len(pos_list) - 1, 0, -1):
+        f, p = pos_list[i]
+        _, p_prev = pos_list[i - 1]
+        if (p - p_prev).length > 0.01:
+            last_move_idx = i
+            break
+
+    if last_move_idx is None:
+        return start_f, end_f
+
+    motion_end_frame = pos_list[last_move_idx][0]
+
+    # Trace backwards to find when this rolling motion phase began
+    motion_start_frame = motion_end_frame
+    for i in range(last_move_idx - 1, 0, -1):
+        f, p = pos_list[i]
+        _, p_prev = pos_list[i - 1]
+        speed = (p - p_prev).length
+        # If speed drops to near zero before this phase and at least 20 frames traversed
+        if speed < 0.2 and (motion_end_frame - f) >= 20:
+            motion_start_frame = f
+            break
+        motion_start_frame = f
+
+    return motion_start_frame, motion_end_frame
 
 def export_dcbs():
     fix_system_fonts()
@@ -264,18 +355,31 @@ def export_dcbs():
             if font_objs:
                 sprite_objs = sorted(font_objs, key=lambda o: o.name)
 
-    all_meshes = [o for o in scene.objects if o.type == 'MESH' and not o.name.startswith('Plane') and not o.name.startswith('Cube') and not o.hide_viewport]
+    # Check for dedicated Mask / Occluder collection
+    mask_col = (
+        bpy.data.collections.get('Mask') or
+        bpy.data.collections.get('Masks') or
+        bpy.data.collections.get('Masked') or
+        bpy.data.collections.get('Occluders') or
+        bpy.data.collections.get('Reveal_Masks') or
+        bpy.data.collections.get('Reveal_Cubes')
+    )
+    mask_objs = [o for o in mask_col.objects if o.type == 'MESH'] if mask_col else [
+        o for o in scene.objects if (o.name.startswith('Mask_') or o.name.startswith('Cube') or o.get('is_mask', False)) and o.type == 'MESH'
+    ]
+    mask_names = set(o.name for o in mask_objs)
+
+    all_meshes = [o for o in scene.objects if o.type == 'MESH' and o.name not in mask_names and not o.name.startswith('Plane') and not o.hide_viewport]
     sprite_names = set(o.name for o in sprite_objs)
 
     geom_objs = []
     geom_col = bpy.data.collections.get('3D_Objects') or bpy.data.collections.get('Geometry') or bpy.data.collections.get('Boot_Objects')
     if geom_col:
-        geom_objs = [o for o in geom_col.objects if o.type == 'MESH']
+        geom_objs = [o for o in geom_col.objects if o.type == 'MESH' and o.name not in mask_names]
     else:
-        sprite_names = set(o.name for o in sprite_objs)
         has_sphere2 = any(o.name == 'Sphere.002' for o in all_meshes)
         for o in all_meshes:
-            if o.name in sprite_names: continue
+            if o.name in sprite_names or o.name in mask_names: continue
             if has_sphere2 and o.name == 'Sphere.001': continue
             geom_objs.append(o)
         
@@ -290,6 +394,8 @@ def export_dcbs():
         geom_objs = all_meshes
 
     print(f"[1/4] 3D Objects ({len(geom_objs)}): {[o.name for o in geom_objs]}")
+    if mask_objs:
+        print(f"      Mask Collection: {len(mask_objs)} occluders detected (auto-baking reveal timings)")
     print(f"[2/4] 2D Sprites ({len(sprite_objs)}): {[o.name for o in sprite_objs]}")
 
     # 2. Extract 3D Geometry
@@ -317,32 +423,47 @@ def export_dcbs():
         bm.from_mesh(me)
         bmesh.ops.triangulate(bm, faces=bm.faces, quad_method='BEAUTY', ngon_method='BEAUTY')
 
-        is_progressive = (o_idx == 0 and ('Swirl' in obj.name or obj.get('progressive_reveal', False)))
+        # Check for progressive reveal driven by Mask collection
+        is_progressive = (bool(mask_objs) and (o_idx == 0 or 'Swirl' in obj.name or obj.get('progressive_reveal', False)))
         faces_sorted = []
 
         if is_progressive:
-            sphere_guide = bpy.data.objects.get('Sphere.002') or bpy.data.objects.get('Sphere.001')
-            if sphere_guide:
-                obj_mat_inv = obj.matrix_world.inverted()
-                ball_pts = []
-                for f in range(316, 375):
+            obj_mat_inv = obj.matrix_world.inverted()
+            mask_info = []
+            sample_frame = max(scene.frame_start, min(scene.frame_end, 300))
+            
+            for m_obj in mask_objs:
+                # Starting position of mask cube relative to swirl
+                scene.frame_set(sample_frame)
+                dg = bpy.context.evaluated_depsgraph_get()
+                p_init = obj_mat_inv @ m_obj.evaluated_get(dg).matrix_world.translation
+                
+                # Detect when this mask moves away or drops
+                drop_frame = scene.frame_end
+                for f in range(sample_frame, scene.frame_end + 1):
                     scene.frame_set(f)
-                    p_local = obj_mat_inv @ sphere_guide.matrix_world.translation
-                    ball_pts.append((f, p_local.x, p_local.y))
+                    dg = bpy.context.evaluated_depsgraph_get()
+                    p = obj_mat_inv @ m_obj.evaluated_get(dg).matrix_world.translation
+                    if (p - p_init).length > 0.4 or p.z < -0.8:
+                        drop_frame = f
+                        break
+                mask_info.append((p_init.x, p_init.y, drop_frame))
 
-                for f in bm.faces:
-                    c = f.calc_center_median()
-                    best_dist = 1e9
-                    best_frame = 316
-                    for frame, bx, by in ball_pts:
-                        d = (c.x - bx)**2 + (c.y - by)**2
-                        if d < best_dist:
-                            best_dist = d
-                            best_frame = frame
-                    faces_sorted.append((best_frame, f))
-                faces_sorted.sort(key=lambda item: item[0])
-            else:
-                faces_sorted = [(0, f) for f in bm.faces]
+            for f in bm.faces:
+                c = f.calc_center_median()
+                best_dist = 1e9
+                best_frame = scene.frame_end
+                for mx, my, d_frame in mask_info:
+                    d = (c.x - mx)**2 + (c.y - my)**2
+                    if d < best_dist:
+                        best_dist = d
+                        best_frame = d_frame
+                faces_sorted.append((best_frame, f))
+
+            faces_sorted.sort(key=lambda item: item[0])
+            min_drop = min(item[0] for item in faces_sorted) if faces_sorted else 0
+            max_drop = max(item[0] for item in faces_sorted) if faces_sorted else 0
+            print(f"      Mask-Driven Reveal: {len(mask_info)} occluders -> [{min_drop}..{max_drop}] ({len(faces_sorted)} faces)")
             progressive_faces_map[o_idx] = faces_sorted
         else:
             faces_sorted = [(0, f) for f in bm.faces]
@@ -606,11 +727,12 @@ def export_dcbs():
         dg = bpy.context.evaluated_depsgraph_get()
 
         for o_idx, obj in enumerate(geom_objs):
-            if obj.hide_viewport or (f < 42 and 'Sphere' in obj.name):
+            if obj.hide_viewport:
                 tf_bytes.extend(struct.pack('<16h', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
                 continue
 
-            m = cam_mat_inv @ obj.matrix_world
+            eval_obj = obj.evaluated_get(dg)
+            m = cam_mat_inv @ eval_obj.matrix_world
             r00 = int(round(m[0][0] * 8192.0))
             r01 = int(round(m[0][1] * 8192.0))
             r02 = int(round(m[0][2] * 8192.0))
@@ -628,13 +750,7 @@ def export_dcbs():
 
             if o_idx in progressive_faces_map:
                 p_faces = progressive_faces_map[o_idx]
-                t_count = len(p_faces)
-                if f < 316:
-                    visible_tris = 0
-                elif f >= 374:
-                    visible_tris = t_count
-                else:
-                    visible_tris = sum(1 for rev_frame, _ in p_faces if rev_frame <= f)
+                visible_tris = sum(1 for drop_frame, _ in p_faces if drop_frame <= f)
             else:
                 visible_tris = total_tri_count
 
