@@ -280,10 +280,18 @@ void boot_scene_tick(uint32_t fb_addr)
                 int y_min = sy_buf[i0]; if (sy_buf[i1] < y_min) y_min = sy_buf[i1]; if (sy_buf[i2] < y_min) y_min = sy_buf[i2];
                 int y_max = sy_buf[i0]; if (sy_buf[i1] > y_max) y_max = sy_buf[i1]; if (sy_buf[i2] > y_max) y_max = sy_buf[i2];
 
-                if (x_min < bb_min_x) bb_min_x = x_min;
-                if (x_max > bb_max_x) bb_max_x = x_max;
-                if (y_min < bb_min_y) bb_min_y = y_min;
-                if (y_max > bb_max_y) bb_max_y = y_max;
+                /* Reject completely off-screen triangles */
+                if (x_max < 0 || x_min >= 1280 || y_max < 0 || y_min >= 960) continue;
+
+                int cl_min_x = (x_min < 0) ? 0 : x_min;
+                int cl_max_x = (x_max > 1280) ? 1280 : x_max;
+                int cl_min_y = (y_min < 0) ? 0 : y_min;
+                int cl_max_y = (y_max > 960) ? 960 : y_max;
+
+                if (cl_min_x < bb_min_x) bb_min_x = cl_min_x;
+                if (cl_max_x > bb_max_x) bb_max_x = cl_max_x;
+                if (cl_min_y < bb_min_y) bb_min_y = cl_min_y;
+                if (cl_max_y > bb_max_y) bb_max_y = cl_max_y;
 
                 rasterizer_draw_triangle_gouraud_ssaa(BOOT_SCENE_SSAA_BASE,
                                                       sx_buf[i0], sy_buf[i0], col_buf[i0],
