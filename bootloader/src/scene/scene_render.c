@@ -133,21 +133,27 @@ void boot_scene_tick(uint32_t fb_addr)
         /* ==============================================================
          * Version 2/3: Multi-Object / Camera Matrix 2x SSAA Render Path
          * ============================================================== */
+        uint32_t total_frames = rd32(&h->total_frames);
         uint16_t stored_frames = rd16(&h->sprite_frame_count);
-        uint32_t f_idx = tick >> 1;
-        if (stored_frames > 0) {
+        uint32_t f_idx = tick;
+        if (stored_frames > 0 && total_frames > 0) {
+            if (stored_frames >= total_frames) {
+                f_idx = tick;
+            } else {
+                f_idx = (uint32_t)sdiv32((int32_t)(tick * stored_frames), (int32_t)total_frames);
+            }
             if (f_idx >= stored_frames) f_idx = stored_frames - 1;
         }
 
-        const int16_t *tf_frame_i16 = (const int16_t *)s_scene.transforms + f_idx * (obj_count * 12);
-        const float   *tf_frame_f   = s_scene.transforms + f_idx * (obj_count * 12);
+        const int16_t *tf_frame_i16 = (const int16_t *)s_scene.transforms + f_idx * (obj_count * 16);
+        const float   *tf_frame_f   = s_scene.transforms + f_idx * (obj_count * 16);
 
         for (uint16_t o = 0; o < obj_count; o++) {
             const BootSceneObject *obj = &s_scene.objects[o];
             uint32_t total_obj_tris = rd32(&obj->tri_count);
             uint16_t flags = rd16(&obj->flags);
 
-            const int16_t *tf = (ver == 3) ? (tf_frame_i16 + o * 12) : (const int16_t *)0;
+            const int16_t *tf = (ver == 3) ? (tf_frame_i16 + o * 16) : (const int16_t *)0;
 
             /* Check if object is hidden (all zero transform) */
             if (ver == 3 && tf[0] == 0 && tf[1] == 0 && tf[3] == 0 && tf[4] == 0) {
@@ -160,17 +166,9 @@ void boot_scene_tick(uint32_t fb_addr)
             float m8, m9, m10, m11;
 
             if (ver == 3) {
-                if (flags & 1) {
-                    /* Progressive reveal: tf[2] contains baked progressive visible triangle count */
-                    visible_tris = (uint16_t)tf[2];
-                    if (visible_tris > total_obj_tris) visible_tris = total_obj_tris;
-                    m2 = 0.0f;
-                } else {
-                    m2 = (float)tf[2] * (1.0f / 8192.0f);
-                }
-
                 m0 = (float)tf[0] * (1.0f / 8192.0f);
                 m1 = (float)tf[1] * (1.0f / 8192.0f);
+                m2 = (float)tf[2] * (1.0f / 8192.0f);
                 m3 = (float)tf[3] * (1.0f / 128.0f);
                 m4 = (float)tf[4] * (1.0f / 8192.0f);
                 m5 = (float)tf[5] * (1.0f / 8192.0f);
@@ -180,6 +178,12 @@ void boot_scene_tick(uint32_t fb_addr)
                 m9 = (float)tf[9] * (1.0f / 8192.0f);
                 m10 = (float)tf[10] * (1.0f / 8192.0f);
                 m11 = (float)tf[11] * (1.0f / 128.0f);
+
+                if (flags & 1) {
+                    /* Progressive reveal: tf[12] contains baked progressive visible triangle count */
+                    visible_tris = (uint16_t)tf[12];
+                    if (visible_tris > total_obj_tris) visible_tris = total_obj_tris;
+                }
             } else {
                 const float *tff = tf_frame_f + o * 12;
                 m0 = tff[0]; m1 = tff[1]; m2 = tff[2]; m3 = tff[3];

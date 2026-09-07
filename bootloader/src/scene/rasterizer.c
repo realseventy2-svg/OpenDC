@@ -715,7 +715,7 @@ void rasterizer_draw_triangle_gouraud_ssaa(uint32_t fb_addr,
     }
 }
 
-/* Fast lighting calculation using pre-computed dot product */
+/* High-contrast 3D studio shading with rich depth shadows and specular glint */
 uint16_t rasterizer_calc_lighting_fast(float dot, uint16_t base_color)
 {
     if (dot < -1.0f) dot = -1.0f;
@@ -725,22 +725,31 @@ uint16_t rasterizer_calc_lighting_fast(float dot, uint16_t base_color)
     int g_base = (base_color >> 5)  & 0x3F;
     int b_base =  base_color        & 0x1F;
 
-    int factor = 220 + (int)(dot * 36.0f);
-    if (factor < 175) factor = 175;
+    /* 40% Ambient + 60% Diffuse (factor 80..256 in 8.8 fixed point for deep 3D volume shadows) */
+    int factor = 160 + (int)(dot * 96.0f);
+    if (factor < 80) factor = 80;
     if (factor > 256) factor = 256;
 
     int r = (r_base * factor) >> 8;
     int g = (g_base * factor) >> 8;
     int b = (b_base * factor) >> 8;
 
+    /* Specular rim highlight on curved 3D edges facing the light source */
+    if (dot > 0.60f) {
+        float s = (dot - 0.60f) * 2.5f; /* 0.0 .. 1.0 */
+        int spec = (int)(s * s * 10.0f);
+        r += spec; if (r > 31) r = 31;
+        g += spec * 2; if (g > 63) g = 63;
+        b += spec; if (b > 31) b = 31;
+    }
+
     return (uint16_t)((r << 11) | (g << 5) | b);
 }
 
-/* Authentic Dreamcast Smooth Studio Shading (Preserves pure material hue without yellowing or discoloration) */
+/* Authentic Dreamcast Smooth Studio Shading */
 uint16_t rasterizer_calc_lighting(float nx, float ny, float nz, float n2, uint16_t base_color)
 {
     (void)n2;
-    /* Soft studio lighting: 80% ambient + 20% directional (factor 175..256 in 8.8 fixed point) */
     float dot = nx * (-0.267f) + ny * 0.535f + nz * 0.802f;
     return rasterizer_calc_lighting_fast(dot, base_color);
 }

@@ -457,10 +457,10 @@ class OPENDC_PG_SceneSettings(bpy.types.PropertyGroup):
     )
     frame_step: bpy.props.IntProperty(
         name="Keyframe Step",
-        default=2,
+        default=1,
         min=1,
         max=10,
-        description="Step between baked keyframes (2 = 30 fps @ 60 Hz)"
+        description="Step between baked keyframes (1 = true 60 fps, 2 = 30 fps @ 60 Hz)"
     )
     auto_build_bios: bpy.props.BoolProperty(
         name="Auto-Build BIOS ROM",

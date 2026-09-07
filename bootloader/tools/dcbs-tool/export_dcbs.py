@@ -1,6 +1,6 @@
 """
 DCBS Tool - Universal Dreamcast Boot Scene Exporter (boot_scene.bin)
-Version 3.0 (Dynamic 3D Geometry + 2D ARGB4444 Sprites + 11kHz AICA PCM Audio)
+Version 3.0
 
 Directory Structure:
   tools/dcbs-tool/
@@ -128,7 +128,7 @@ def get_paths():
     return tool_dir, res_dir, bootloader_dir, output_bin
 
 TOOL_DIR, TOOL_RES_DIR, BOOTLOADER_DIR, OUTPUT_BIN = get_paths()
-FRAME_STEP = 2  # 30 fps keyframe stepping (1/2 rate of 60 Hz timeline)
+FRAME_STEP = 1  # 60 fps full-rate keyframe stepping (1:1 with 60 Hz timeline)
 
 def fix_system_fonts():
     """Remap relative Windows font paths to C:\\Windows\\Fonts so CLI background mode renders identical to GUI."""
@@ -607,12 +607,13 @@ def export_dcbs():
 
         for o_idx, obj in enumerate(geom_objs):
             if obj.hide_viewport or (f < 42 and 'Sphere' in obj.name):
-                tf_bytes.extend(struct.pack('<12h', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+                tf_bytes.extend(struct.pack('<16h', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
                 continue
 
             m = cam_mat_inv @ obj.matrix_world
             r00 = int(round(m[0][0] * 8192.0))
             r01 = int(round(m[0][1] * 8192.0))
+            r02 = int(round(m[0][2] * 8192.0))
             t0  = int(round(m[0][3] * 128.0))
 
             r10 = int(round(m[1][0] * 8192.0))
@@ -634,14 +635,14 @@ def export_dcbs():
                     visible_tris = t_count
                 else:
                     visible_tris = sum(1 for rev_frame, _ in p_faces if rev_frame <= f)
-                r02 = visible_tris
             else:
-                r02 = int(round(m[0][2] * 8192.0))
+                visible_tris = total_tri_count
 
-            tf_bytes.extend(struct.pack('<12h',
+            tf_bytes.extend(struct.pack('<16h',
                 r00, r01, r02, t0,
                 r10, r11, r12, t1,
-                r20, r21, r22, t2
+                r20, r21, r22, t2,
+                visible_tris, 0, 0, 0
             ))
 
         for i, s_obj in enumerate(sprite_objs):
