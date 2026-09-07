@@ -287,8 +287,16 @@ void boot_scene_tick(uint32_t fb_addr)
     uint16_t stored_frames = rd16(&h->sprite_frame_count);
     if (spr_count > 0 && stored_frames > 0 && s_scene.sprites && s_scene.sprite_frames) {
         const uint8_t *base = (const uint8_t *)h;
-        uint32_t f_idx = tick >> 1;
-        if (f_idx >= stored_frames) f_idx = stored_frames - 1;
+        uint32_t total_frames = rd32(&h->total_frames);
+        uint32_t f_idx = tick;
+        if (stored_frames > 0 && total_frames > 0) {
+            if (stored_frames >= total_frames) {
+                f_idx = tick;
+            } else {
+                f_idx = (uint32_t)sdiv32((int32_t)(tick * stored_frames), (int32_t)total_frames);
+            }
+            if (f_idx >= stored_frames) f_idx = stored_frames - 1;
+        }
 
         for (uint16_t s = 0; s < spr_count; s++) {
             const BootSceneSprite *spr = &s_scene.sprites[s];
