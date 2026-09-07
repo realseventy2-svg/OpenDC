@@ -179,6 +179,9 @@ void boot_scene_tick(uint32_t fb_addr)
                 m10 = (float)tf[10] * (1.0f / 8192.0f);
                 m11 = (float)tf[11] * (1.0f / 128.0f);
 
+                int16_t alpha = tf[13];
+                if (alpha <= 0) continue;
+
                 if (flags & 1) {
                     /* Progressive reveal: tf[12] contains baked progressive visible triangle count */
                     visible_tris = (uint16_t)tf[12];
@@ -198,6 +201,7 @@ void boot_scene_tick(uint32_t fb_addr)
             if (nv > MAX_VERTS) nv = MAX_VERTS;
 
             uint16_t base_color = rd16(&obj->color);
+            int16_t obj_alpha = (ver == 3) ? tf[13] : 255;
 
             /* Pre-transform camera light direction into object space (saves 9 float ops per vertex) */
             float lx = -0.267f, ly = 0.535f, lz = 0.802f;
@@ -235,7 +239,28 @@ void boot_scene_tick(uint32_t fb_addr)
                 }
 
                 float dot = nx * l_obj_x + ny * l_obj_y + nz * l_obj_z;
-                col_buf[i] = rasterizer_calc_lighting_fast(dot, base_color);
+                uint16_t c_lit = rasterizer_calc_lighting_fast(dot, base_color);
+
+                if (obj_alpha < 255 && obj_alpha > 0) {
+                    uint32_t r_lit = (c_lit >> 11) & 0x1F;
+                    uint32_t g_lit = (c_lit >> 5)  & 0x3F;
+                    uint32_t b_lit =  c_lit        & 0x1F;
+
+                    uint32_t r_bg = (bg_col >> 11) & 0x1F;
+                    uint32_t g_bg = (bg_col >> 5)  & 0x3F;
+                    uint32_t b_bg =  bg_col        & 0x1F;
+
+                    uint32_t a = (uint32_t)obj_alpha;
+                    uint32_t inv_a = 255 - a;
+
+                    uint32_t r = (r_lit * a + r_bg * inv_a + 128) >> 8;
+                    uint32_t g = (g_lit * a + g_bg * inv_a + 128) >> 8;
+                    uint32_t b = (b_lit * a + b_bg * inv_a + 128) >> 8;
+
+                    col_buf[i] = (uint16_t)((r << 11) | (g << 5) | b);
+                } else {
+                    col_buf[i] = c_lit;
+                }
             }
 
             uint32_t st = rd32(&obj->start_tri);

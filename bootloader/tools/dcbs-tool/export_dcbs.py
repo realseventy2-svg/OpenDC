@@ -217,28 +217,25 @@ def find_audio_pcm(blend_dir):
 
     return bytearray()
 
-def find_guide_sphere(scene, target_obj=None):
+def find_guide_object(scene, target_obj):
     """
-    Dynamically locate any guide or rolling object in the scene.
-    Supports custom properties ('is_guide', 'guide_for'), naming conventions, or secondary sphere objects.
+    Locate the roller/guide object that dictates progressive swirl revelation.
     """
-    # 1. Direct custom property match
-    for o in scene.objects:
-        if o.get('is_guide', False):
-            return o
-        if target_obj and o.get('guide_for') == target_obj.name:
-            return o
+    # 1. Check custom properties on target_obj
+    if target_obj and 'guide_object' in target_obj:
+        name = target_obj['guide_object']
+        if name in bpy.data.objects:
+            return bpy.data.objects[name]
 
-    # 2. Known common guide object names
-    candidates = ['Sphere.002', 'Sphere_Guide', 'Guide_Sphere', 'Sphere.001', 'Ball_Guide', 'Roller', 'Guide']
-    for name in candidates:
+    # 2. Check scene custom properties or named objects
+    for name in ('Guide', 'Roller', 'GuideBall', 'SwirlGuide', 'Sphere.002', 'Ball'):
         obj = bpy.data.objects.get(name)
-        if obj and not obj.hide_viewport:
+        if obj:
             return obj
 
     # 3. Fuzzy search for meshes/empties with 'guide', 'roller', or 'sphere' in name
     for o in scene.objects:
-        if o.type in ('MESH', 'EMPTY') and not o.hide_viewport:
+        if o.type in ('MESH', 'EMPTY'):
             if target_obj and o == target_obj:
                 continue
             name_lower = o.name.lower()
@@ -247,13 +244,45 @@ def find_guide_sphere(scene, target_obj=None):
 
     # 4. Fallback: Any sphere-like mesh that is not the target object
     for o in scene.objects:
-        if o.type == 'MESH' and not o.hide_viewport:
+        if o.type == 'MESH':
             if target_obj and o == target_obj:
                 continue
             if 'sphere' in o.name.lower() or 'ball' in o.name.lower():
                 return o
 
     return None
+
+def get_object_alpha_at_frame(obj, eval_obj):
+    """
+    Extract dynamic alpha opacity (0..255) from:
+    1. Viewport visibility keyframes (hide_viewport)
+    2. Scale collapse (scale ~ 0)
+    3. Object color alpha (obj.color[3], eval_obj.color[3])
+    4. Material Principled BSDF alpha / Base color alpha
+    """
+    # 1. Check viewport visibility & scale
+    if getattr(obj, 'hide_viewport', False) or getattr(eval_obj, 'hide_viewport', False) or \
+       eval_obj.scale.length_squared < 1e-6 or obj.scale.length_squared < 1e-6:
+        return 0
+
+    # 2. Object color alpha (supports keyframed viewport color / alpha on base obj and eval_obj)
+    for target in (eval_obj, obj):
+        if hasattr(target, 'color') and len(target.color) > 3:
+            if target.color[3] < 0.999:
+                return int(min(max(round(target.color[3] * 255.0), 0), 255))
+
+    # 3. Material Principled BSDF alpha input (check both eval_obj and obj materials)
+    for target in (eval_obj, obj):
+        if target.data and hasattr(target.data, 'materials'):
+            for mat in target.data.materials:
+                if mat and mat.use_nodes and mat.node_tree:
+                    for n in mat.node_tree.nodes:
+                        if n.type == 'BSDF_PRINCIPLED' and 'Alpha' in n.inputs:
+                            val = n.inputs['Alpha'].default_value
+                            if val < 0.999:
+                                return int(min(max(round(val * 255.0), 0), 255))
+
+    return 255
 
 def detect_guide_motion_range(scene, guide_obj, target_obj):
     """
@@ -727,11 +756,12 @@ def export_dcbs():
         dg = bpy.context.evaluated_depsgraph_get()
 
         for o_idx, obj in enumerate(geom_objs):
-            if obj.hide_viewport:
+            eval_obj = obj.evaluated_get(dg)
+            alpha = get_object_alpha_at_frame(obj, eval_obj)
+            if alpha == 0:
                 tf_bytes.extend(struct.pack('<16h', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
                 continue
 
-            eval_obj = obj.evaluated_get(dg)
             m = cam_mat_inv @ eval_obj.matrix_world
             r00 = int(round(m[0][0] * 8192.0))
             r01 = int(round(m[0][1] * 8192.0))
@@ -758,19 +788,25 @@ def export_dcbs():
                 r00, r01, r02, t0,
                 r10, r11, r12, t1,
                 r20, r21, r22, t2,
-                visible_tris, 0, 0, 0
+                visible_tris, alpha, 0, 0
             ))
 
         for i, s_obj in enumerate(sprite_objs):
             p2d_center = bpy_extras.object_utils.world_to_camera_view(scene, cam, s_obj.matrix_world.translation)
-            eval_obj = s_obj.evaluated_get(dg)
-            me = eval_obj.to_mesh()
+            eval_s_obj = s_obj.evaluated_get(dg)
+            spr_alpha = get_object_alpha_at_frame(s_obj, eval_s_obj)
+
+            if spr_alpha == 0 or p2d_center.z <= 0:
+                spr_frame_bytes.extend(struct.pack('<hhBBH', -32768, -32768, 0, 0, 0))
+                continue
+
+            me = eval_s_obj.to_mesh()
             v_coords = []
             for v in me.vertices:
-                wco = eval_obj.matrix_world @ v.co
+                wco = eval_s_obj.matrix_world @ v.co
                 p2d_v = bpy_extras.object_utils.world_to_camera_view(scene, cam, wco)
                 v_coords.append((p2d_v.x * 640.0, (1.0 - p2d_v.y) * 480.0))
-            eval_obj.to_mesh_clear()
+            eval_s_obj.to_mesh_clear()
 
             w, h, _, crop_w, crop_h, src_w, src_h, min_px, max_py = sprite_data[i]
             if v_coords:
@@ -786,8 +822,7 @@ def export_dcbs():
                 dest_x = int(round(p2d_center.x * 640.0 - (w / 2.0)))
                 dest_y = int(round((1.0 - p2d_center.y) * 480.0 - (h / 2.0)))
 
-            alpha = 255 if (p2d_center.z > 0 and dest_y < 460) else 0
-            spr_frame_bytes.extend(struct.pack('<hhBBH', dest_x, dest_y, alpha, 100, 0))
+            spr_frame_bytes.extend(struct.pack('<hhBBH', dest_x, dest_y, spr_alpha, 0, 0))
 
     # 5. Extract Boot Audio
     audio_pcm = find_audio_pcm(blend_dir)
