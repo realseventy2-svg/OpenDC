@@ -19,6 +19,10 @@ typedef volatile uint32_t reg32_t;
 #define G1_ATA_CTL             (*(reg8_t  *)0xA05F7018UL)
 #define G1_ATA_PIO_RACCESS     (*(reg32_t *)0xA05F7490UL)
 #define G1_ATA_PIO_WACCESS     (*(reg32_t *)0xA05F7494UL)
+#define G1_ATA_DMA_RACCESS     (*(reg32_t *)0xA05F74A0UL)
+#define G1_ATA_DMA_WACCESS     (*(reg32_t *)0xA05F74A4UL)
+#define SB_G1RRC               (*(reg32_t *)0xA05F74E4UL)
+#define SB_GDEN                (*(reg32_t *)0xA05F74F4UL)
 
 #define ATA_CMD_PACKET         0xA0
 #define ATA_DEVICE_MASTER      0x00
@@ -58,13 +62,21 @@ int ata_wait_complete(void) {
 }
 
 int ata_init(void) {
+    /* 1. Unlock G1 Bus ASIC hardware interface */
+    SB_GDEN = 0x00000001UL;
+    SB_G1RRC = 0x00000018UL;
+
+    /* 2. Configure PIO access cycle timings for Area 7 ATA bus */
     G1_ATA_PIO_RACCESS = G1_ACCESS_PIO_DEFAULT;
     G1_ATA_PIO_WACCESS = G1_ACCESS_PIO_DEFAULT;
+    G1_ATA_DMA_RACCESS = G1_ACCESS_PIO_DEFAULT;
+    G1_ATA_DMA_WACCESS = G1_ACCESS_PIO_DEFAULT;
+
     G1_ATA_CTL = 0;
     G1_ATA_DEVICE_SELECT = ATA_DEVICE_MASTER;
-    ata_delay(20);
+    ata_delay(200);
 
-    return ata_wait_status(ATA_ST_DRDY, ATA_ST_BSY);
+    return ata_wait_status(0, ATA_ST_BSY);
 }
 
 int ata_packet_begin(uint16_t byte_count) {

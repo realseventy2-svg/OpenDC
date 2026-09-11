@@ -17,11 +17,14 @@ bl_info = {
     "category": "Import-Export",
 }
 
-DEFAULT_OUTPUT_BIN = r"d:\Github\Personal\KallistiOS\projects\OpenDC\bootloader\boot_scene.bin"
-DEFAULT_LETTERS_DIR = os.path.expanduser(r"~\Desktop\bleemcast_letters")
-DEFAULT_AUDIO_MP3 = r"d:\Github\Personal\KallistiOS\projects\OpenDC\bootloader\res\boot.mp3"
-DEFAULT_AUDIO_PCM = r"d:\Github\Personal\KallistiOS\projects\OpenDC\bootloader\res\boot_11k.pcm"
-BOOTLOADER_DIR = r"d:\Github\Personal\KallistiOS\projects\OpenDC\bootloader"
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_BOOTLOADER_DIR = os.path.abspath(os.path.join(_THIS_DIR, ".."))
+
+DEFAULT_OUTPUT_BIN = os.path.join(_BOOTLOADER_DIR, "boot_scene.bin")
+DEFAULT_LETTERS_DIR = os.path.join(_BOOTLOADER_DIR, "res", "letters")
+DEFAULT_AUDIO_MP3 = os.path.join(_BOOTLOADER_DIR, "res", "boot.mp3")
+DEFAULT_AUDIO_PCM = os.path.join(_BOOTLOADER_DIR, "res", "boot_11k.pcm")
+BOOTLOADER_DIR = _BOOTLOADER_DIR
 
 def linear_to_srgb(c):
     c = max(c, 0.0)

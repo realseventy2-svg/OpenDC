@@ -20,12 +20,23 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$workspaceRoot = "D:\Github\Personal\KallistiOS"
-$bootloaderDir = "$workspaceRoot\projects\OpenDC\bootloader"
+$scriptDir = $PSScriptRoot
+$bootloaderDir = (Resolve-Path "$scriptDir\..").Path
+$workspaceRoot = (Resolve-Path "$bootloaderDir\..").Path
 $dcbsToolDir = "$bootloaderDir\tools\dcbs-tool"
 $dcbsScenesDir = "$dcbsToolDir\res\scenes"
 $blenderSceneDir = "$bootloaderDir\res\blender_scene"
 $exportScript = "$dcbsToolDir\export_dcbs.py"
+
+# Discover Flycast if installed in common paths or environment variable
+$flycastDir = if ($env:FLYCAST_DIR) { $env:FLYCAST_DIR } else {
+    @(
+        "D:\Github\Personal\KallistiOS\tools\flycast",
+        "C:\DreamSDK\tools\flycast",
+        "$env:LOCALAPPDATA\Programs\Flycast",
+        "$env:ProgramFiles\Flycast"
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
 
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host "  OpenDC 3D Boot Scene & Custom BIOS Compiler" -ForegroundColor Yellow
@@ -58,7 +69,7 @@ if (-not $blenderExe -or -not (Test-Path -LiteralPath $blenderExe)) {
     exit 1
 }
 
-Write-Host "[1/4] Blender executable: $blenderExe" -ForegroundColor Gray
+Write-Host "[1/3] Blender executable: $blenderExe" -ForegroundColor Gray
 
 # 2. Detect .blend scene file
 $targetBlend = $null
@@ -103,7 +114,7 @@ if (-not [string]::IsNullOrWhiteSpace($BlendPath)) {
     }
 }
 
-Write-Host "[2/4] Target Scene: $targetBlend" -ForegroundColor Green
+Write-Host "[2/3] Target Scene: $targetBlend" -ForegroundColor Green
 
 # 3. Export .blend -> boot_scene.bin using Python exporter
 Write-Host "      Exporting 3D geometry, keyframes, sprites & audio to boot_scene.bin..." -ForegroundColor Cyan
@@ -122,39 +133,62 @@ if (-not (Test-Path -LiteralPath $bootSceneBin)) {
 $sceneSize = (Get-Item $bootSceneBin).Length
 Write-Host "      boot_scene.bin generated successfully ($("{0:N0}" -f $sceneSize) bytes)." -ForegroundColor Green
 
-# 4. Compile OpenDC Bootloader (dc_boot.bin)
-Write-Host "[3/3] Compiling OpenDC Bootloader (dc_boot.bin)..." -ForegroundColor Cyan
-wsl -d Ubuntu-26.04 -e /mnt/d/Github/Personal/KallistiOS/scripts/kos-exec.sh "/mnt/d/Github/Personal/KallistiOS/projects/OpenDC/bootloader" make
+# 4. Compile OpenDC Bootloader & Combined BIOS
+Write-Host "[3/3] Compiling OpenDC Firmware..." -ForegroundColor Cyan
+
+# Dynamically discover DreamSDK bash or make
+$dreamSdkRoot = if ($env:DREAMSDK_ROOT) { $env:DREAMSDK_ROOT } else {
+    @("C:\DreamSDK", "D:\DreamSDK", "E:\DreamSDK") | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+
+$bashExe = if ($dreamSdkRoot -and (Test-Path "$dreamSdkRoot\usr\bin\bash.exe")) {
+    "$dreamSdkRoot\usr\bin\bash.exe"
+} else {
+    $cmd = Get-Command bash -ErrorAction SilentlyContinue
+    if ($cmd) { $cmd.Source } else { $null }
+}
+
+if ($bashExe) {
+    & $bashExe -lc "cd '$workspaceRoot' && make"
+} else {
+    $makeExe = if ($dreamSdkRoot) {
+        @(
+            "$dreamSdkRoot\usr\bin\make.exe",
+            "$dreamSdkRoot\opt\toolchains\dc\sh-elf\bin\kos-make.exe"
+        ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    } else { $null }
+
+    if (-not $makeExe) {
+        $cmd = Get-Command make -ErrorAction SilentlyContinue
+        $makeExe = if ($cmd) { $cmd.Source } else { "make" }
+    }
+
+    & $makeExe -C "$workspaceRoot"
+}
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "OpenDC bootloader build failed with exit code $LASTEXITCODE"
+    Write-Error "OpenDC build failed with exit code $LASTEXITCODE"
     exit $LASTEXITCODE
 }
 
-$dcBootBin = "$bootloaderDir\dc_boot.bin"
+$dcBootBin = "$workspaceRoot\boot_loader_custom.bios"
 if (Test-Path -LiteralPath $dcBootBin) {
     $bootSize = (Get-Item $dcBootBin).Length
-    Write-Host "      dc_boot.bin built ($("{0:N0}" -f $bootSize) bytes)." -ForegroundColor Green
+    Write-Host "      boot_loader_custom.bios built ($("{0:N0}" -f $bootSize) bytes)." -ForegroundColor Green
 
-    # Deploy OpenDC Custom BIOS
-    $customBiosDest = "$workspaceRoot\bios\boot_loader_custom.bios"
-    $openDcBiosDest = "$workspaceRoot\projects\OpenDC\boot_loader_custom.bios"
-    Copy-Item -LiteralPath $dcBootBin -Destination $customBiosDest -Force
-    Copy-Item -LiteralPath $dcBootBin -Destination $openDcBiosDest -Force
-    
     # Sync into Flycast directories
-    $flycastData = "$workspaceRoot\tools\flycast\data"
+    $flycastData = "$flycastDir\data"
     $appDataFlycast = "$env:APPDATA\Flycast"
     $appDataFlycastData = "$appDataFlycast\data"
     @(
         "$flycastData\dc_boot.bin", "$flycastData\bios.bin",
-        "$workspaceRoot\tools\flycast\dc_boot.bin",
+        "$flycastDir\dc_boot.bin",
         "$appDataFlycast\dc_boot.bin", "$appDataFlycastData\dc_boot.bin"
     ) | ForEach-Object {
         if (Test-Path (Split-Path $_ -Parent)) {
             Copy-Item -LiteralPath $dcBootBin -Destination $_ -Force -ErrorAction SilentlyContinue
         }
     }
-    Write-Host "      Deployed OpenDC BIOS (dc_boot.bin) to bios/ and Flycast." -ForegroundColor Gray
+    Write-Host "      Deployed OpenDC BIOS to Flycast directories." -ForegroundColor Gray
 }
 
 # 5. Analyze Flash ROM memory budget and remaining headroom

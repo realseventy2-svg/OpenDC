@@ -3,7 +3,7 @@
 #include "boot_scene.h"
 
 const boot_theme_t BOOT_THEME_DEFAULT = {
-    .bg_color           = RGB565(210, 213, 217), /* Authentic Sega Frosted Grey #D2D5D9 */
+    .bg_color           = COLOR_WHITE,
     .header_color       = COLOR_WHITE,
     .sub_color          = COLOR_CYAN,
     .status_ok_color    = COLOR_GREEN,
@@ -13,9 +13,9 @@ const boot_theme_t BOOT_THEME_DEFAULT = {
     .bar_fill_color     = RGB565(30, 140, 230),
     .bar_complete_color = RGB565(90, 210, 255),
 
-    .title              = "Open Dreamcast",
-    .subtitle           = "",
-    .version_text       = "",
+    .title              = NULL,
+    .subtitle           = NULL,
+    .version_text       = NULL,
 
     .splash_delay_seconds = 8,
     .splash_delay_frames  = 0,
@@ -37,8 +37,8 @@ const boot_theme_t BOOT_THEME_MINIMAL = {
     .bar_fill_color     = COLOR_CYAN,
     .bar_complete_color = COLOR_WHITE,
 
-    .title              = "DREAMCAST",
-    .subtitle           = "FAST BOOT",
+    .title              = NULL,
+    .subtitle           = NULL,
     .version_text       = NULL,
 
     .splash_delay_seconds = BOOT_DURATION_INSTANT, /* 0 seconds (Instant boot) */
@@ -61,11 +61,11 @@ const boot_theme_t BOOT_THEME_DARK = {
     .bar_fill_color     = COLOR_CYAN,
     .bar_complete_color = COLOR_GOLD,
 
-    .title              = "SEGA DREAMCAST",
-    .subtitle           = "KALLISTIOS FIRMWARE",
-    .version_text       = "OpenDC Custom BIOS",
+    .title              = NULL,
+    .subtitle           = NULL,
+    .version_text       = NULL,
 
-    .splash_delay_seconds = BOOT_DURATION_DEFAULT, /* 4 seconds */
+    .splash_delay_seconds = BOOT_DURATION_DEFAULT,
     .splash_delay_frames  = 0,
     .show_diagnostics     = 1,
     .show_progress_bar    = 1,
@@ -85,9 +85,9 @@ const boot_theme_t BOOT_THEME_CINEMATIC = {
     .bar_fill_color     = COLOR_CYAN,
     .bar_complete_color = COLOR_GREEN,
 
-    .title              = "SEGA DREAMCAST",
-    .subtitle           = "FRUTIGER AERO AMBIENCE",
-    .version_text       = "OpenDC Ambient Bios",
+    .title              = NULL,
+    .subtitle           = NULL,
+    .version_text       = NULL,
 
     .splash_delay_seconds = BOOT_DURATION_CINEMATIC, /* 16 seconds (full ambient cycle) */
     .splash_delay_frames  = 0,
@@ -109,9 +109,9 @@ const boot_theme_t BOOT_THEME_DIAGNOSTIC = {
     .bar_fill_color     = COLOR_CYAN,
     .bar_complete_color = COLOR_GREEN,
 
-    .title              = "OPEN DREAMCAST",
-    .subtitle           = "VERBOSE POST DIAGNOSTICS",
-    .version_text       = "POST / BIOS v1.0",
+    .title              = NULL,
+    .subtitle           = NULL,
+    .version_text       = NULL,
 
     .splash_delay_seconds = 8,
     .splash_delay_frames  = 0,

@@ -1,9 +1,10 @@
 TARGET   = boot
 ROM_SIZE = 2097152
 
-CC      = /opt/toolchains/dc/sh-elf/bin/sh-elf-gcc
-AS      = /opt/toolchains/dc/sh-elf/bin/sh-elf-as
-OBJCOPY = /opt/toolchains/dc/sh-elf/bin/sh-elf-objcopy
+SH_PREFIX ?= /opt/toolchains/dc/sh-elf/bin/sh-elf-
+CC        := $(shell which sh-elf-gcc 2>/dev/null || echo $(SH_PREFIX)gcc)
+AS        := $(shell which sh-elf-as 2>/dev/null || echo $(SH_PREFIX)as)
+OBJCOPY   := $(shell which sh-elf-objcopy 2>/dev/null || echo $(SH_PREFIX)objcopy)
 
 INCLUDES = -Isrc/core \
            -Isrc/storage \
@@ -125,11 +126,12 @@ dc_boot.bin: $(TARGET).bin
 	python3 -c "\
 import os; \
 sz = $(ROM_SIZE); \
-r_path = '/mnt/d/Github/Personal/KallistiOS/bios/jc-bootROM-retail-v1.032.bin'; \
-r = bytearray(open(r_path, 'rb').read()) if os.path.exists(r_path) else bytearray(sz); \
+r_candidates = [os.environ.get('RETAIL_BIOS', ''), '../bios/res/boot_loader_retail.bios', 'res/boot_loader_retail.bios']; \
+r_file = next((p for p in r_candidates if p and os.path.exists(p)), None); \
+r = bytearray(open(r_file, 'rb').read()) if r_file else bytearray(sz); \
 b = open('$<', 'rb').read(); \
 r[:len(b)] = b; \
-c_candidates = ['../bios/custom_bios.bin', '/mnt/d/Github/Personal/KallistiOS/projects/OpenDC/bios/custom_bios.bin']; \
+c_candidates = ['../bios/custom_bios.bin', '../bios/custom_payload.bin']; \
 [r.__setitem__(slice(65536, 65536 + len(open(cp, 'rb').read())), open(cp, 'rb').read()) for cp in c_candidates if os.path.exists(cp)]; \
 open('$@', 'wb').write(r[:sz]); \
 print(f'Built $@: {sz:,} bytes')"

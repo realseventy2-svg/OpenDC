@@ -71,6 +71,11 @@ start:
     mov.l   val_rfcr, r0
     mov.w   r0, @r1
 
+    ! SDRAM Mode Register Set (MRS) cycle for Area 3 Synchronous DRAM
+    mov.l   p_sdram_mrs, r1
+    mov     #0, r0
+    mov.l   r0, @r1
+
     ! ---- 3. PowerVR2 / HOLLY System ASIC Reset Pulse ----
     mov.l   p_pvr_reset, r1         ! 0xA05F8008
     mov.l   val_pvr_rst_on, r0      ! 0x00000003 (Assert TA & Core Reset)
@@ -214,6 +219,7 @@ p_rtcor:            .long   0xFF800024
 val_rtcor:          .long   0x0000A520
 p_rfcr:             .long   0xFF800028
 val_rfcr:           .long   0x0000A400
+p_sdram_mrs:        .long   0xFF940000     ! Area 3 SDRAM Mode Register Set space
 
 p_pvr_reset:        .long   0xA05F8008     ! PowerVR Core / TA Reset Register
 val_pvr_rst_on:     .long   0x00000003     ! Assert Reset

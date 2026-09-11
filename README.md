@@ -41,24 +41,28 @@ It boots retail GD-ROM games and KallistiOS homebrew, featuring a 60 FPS 3D boot
 ## Build & Run
 
 ### 1. Build Custom BIOS
-```powershell
-wsl make -C /mnt/d/Github/Personal/KallistiOS/projects/OpenDC/bootloader
-wsl cp /mnt/d/Github/Personal/KallistiOS/projects/OpenDC/bootloader/dc_boot.bin /mnt/d/Github/Personal/KallistiOS/bios/boot_loader_custom.bios
+From the OpenDC project root:
+```bash
+make clean
+make
 ```
+This builds both the Stage 1 bootloader and Stage 2 BIOS payload, generating `boot_loader_custom.bios` (2 MB).
 
 ### 2. Export Blender Scene (Optional)
-```powershell
+```bash
 kos-buildscene
-# Or manually:
-& "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe" "d:\path\to\scene.blend" -b -P bootloader\tools\dcbs-tool\export_dcbs.py
+# Or manually with Python:
+blender "path/to/scene.blend" -b -P bootloader/tools/dcbs-tool/export_dcbs.py
 ```
 
 ### 3. Run in Flycast
-```powershell
-. .\kos-env.ps1
+In DreamSDK bash (or PowerShell via `. .\kos-env.ps1`):
+```bash
+# Boot into OpenDC 3D Boot Scene & Dashboard
+kos-bootcustom
 
-# Boot BIOS / Game
-kos-bootcustom "D:\Games\Dreamcast\game.gdi"
+# Or boot directly with a game disc inserted
+kos-bootcustom "/path/to/game.gdi"
 ```
 
 ---

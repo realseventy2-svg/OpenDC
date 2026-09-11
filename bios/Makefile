@@ -9,24 +9,27 @@ BIOS_BASE ?= res/boot_loader_devkit.bios
 # The BIOS loader has a limited payload window after the 64 KiB ROM offset.
 # Use size optimization and omit optional audio assets from the romdisk.
 CFLAGS += -Os -flto=auto -ffunction-sections -fdata-sections
-LDFLAGS += -Wl,--gc-sections -s
+LDFLAGS += -Wl,--gc-sections -s $(if $(wildcard /opt/toolchains/dc/sh-elf/lib),-L/opt/toolchains/dc/sh-elf/lib,)
 LIBS += -lz
 
-all: $(TARGET).elf $(TARGET).bin rom cdi
+BIN2O ?= $(shell which bin2o 2>/dev/null || echo $(KOS_BASE)/utils/bin2o/bin2o)
+
+all: $(TARGET).elf $(TARGET).bin rom
 
 include $(KOS_BASE)/Makefile.rules
 
 clean:
 	-rm -f $(OBJS) crt0.o src/entry.o romdisk.img romdisk.o $(TARGET).elf $(TARGET).bin $(TARGET).cdi custom_dc_bios.bin
 
+# rungd.bin.gz is pre-built and checked in — no DreamDash dependency needed.
+romdisk/rungd.bin.gz:
+	@test -f $@ || (echo "ERROR: romdisk/rungd.bin.gz is missing. Re-check the repository." && exit 1)
+
 romdisk.img: romdisk/rungd.bin.gz
 	$(KOS_GENROMFS) -f romdisk.img -d romdisk -v -x .gitignore -x .DS_Store -x Thumbs.db -x bios_theme.wav -x boot_chime.wav
 
-romdisk/rungd.bin.gz: ../../DreamDash/res/rungd.bin
-	gzip -9 -c $< > $@
-
 romdisk.o: romdisk.img
-	/opt/toolchains/dc/kos/utils/bin2o/bin2o romdisk.img romdisk romdisk.o
+	$(BIN2O) romdisk.img romdisk romdisk.o
 
 $(TARGET).elf: $(OBJS)
 	kos-cc $(LDFLAGS) -o $(TARGET).elf $(OBJS) $(LIBS)
@@ -41,4 +44,11 @@ rom: $(TARGET).bin $(BIOS_BASE)
 	@echo "=== Custom BIOS with retail GD-ROM services assembled ==="
 
 cdi: $(TARGET).elf
-	../../../scripts/make-cdi.sh $(TARGET).elf $(TARGET).cdi "Custom KOS BIOS"
+	@if [ -x "../../../scripts/make-cdi.sh" ]; then \
+		../../../scripts/make-cdi.sh $(TARGET).elf $(TARGET).cdi "Custom KOS BIOS"; \
+	elif which makedisc >/dev/null 2>&1; then \
+		makedisc -cdi -output $(TARGET).cdi $(TARGET).bin; \
+	else \
+		echo "Notice: CDI creation tool (make-cdi.sh / makedisc) not found; skipping CDI target."; \
+	fi
+

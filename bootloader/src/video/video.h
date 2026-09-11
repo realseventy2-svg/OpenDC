@@ -26,6 +26,14 @@
 #define COLOR_DARK_GRAY     RGB565(40,  40,  40)
 #define COLOR_LIGHT_GRAY    RGB565(180, 180, 180)
 
+typedef enum {
+    CT_VGA       = 0,
+    CT_NONE      = 1,
+    CT_RGB       = 2,
+    CT_COMPOSITE = 3
+} dc_cable_type_t;
+
+dc_cable_type_t video_get_cable_type(void);
 void video_init(void);
 void video_set_border_color_565(uint16_t color);
 void video_wait_vblank(void);

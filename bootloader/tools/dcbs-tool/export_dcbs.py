@@ -205,6 +205,7 @@ def find_audio_pcm(blend_dir):
                     ffmpeg_bin = "ffmpeg"
                 try:
                     subprocess.run([ffmpeg_bin, "-y", "-i", p, "-ac", "1", "-ar", "11025", "-f", "s8", out_pcm],
+
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
                     if os.path.exists(out_pcm):
                         with open(out_pcm, 'rb') as f:

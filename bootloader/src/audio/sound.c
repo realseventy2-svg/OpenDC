@@ -207,11 +207,19 @@ void sound_stop_channel(int ch) {
 
 void sound_stop(void) {
     if (!s_sound_initialized) return;
-    for (int ch = 0; ch < 32; ch++) {
+
+    /* 1. Key off and mute all 64 AICA hardware channels */
+    for (int ch = 0; ch < 64; ch++) {
         AICA_CHN_REG(ch, 0x00) = 0x8000;
-        AICA_CHN_REG(ch, 0x24) = 0x0F00;
+        AICA_CHN_REG(ch, 0x24) = 0x0000; /* DISDL = 0 (muted) */
     }
+
+    /* 2. Mute master DAC output */
     *(volatile uint16_t *)0xA0702800UL = 0x0000;
+
+    /* 3. Hold ARM7 in reset */
+    *(volatile uint32_t *)0xA0702C00UL |= 1;
+
     s_sound_initialized = 0;
 }
 

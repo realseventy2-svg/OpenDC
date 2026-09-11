@@ -97,8 +97,8 @@ Each step takes 5 MIDI note numbers:
 - `chime_note`: Mellow crystal bell / water chime echo melody (MIDI 65 to 88).
 
 ### Step 3: Compile and Test
-Run the standard WSL build script:
+Run the build command from the OpenDC project root:
 ```bash
-wsl -d Ubuntu-26.04 -e /mnt/d/Github/Personal/KallistiOS/scripts/kos-exec.sh /mnt/d/Github/Personal/KallistiOS/projects/OpenDC make clean check
+make clean check
 ```
 In the BIOS **System Settings** menu, navigate to **Firmware Theme** and press **Left / Right / (A)** to preview your theme in real-time!

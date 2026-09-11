@@ -4,6 +4,7 @@
 #include "syscalls.h"
 #include "wince.h"
 #include "video.h"
+#include "sound.h"
 
 static int s_sega_license_enabled = 1;
 
@@ -132,6 +133,9 @@ int gdrom_boot_game(uint32_t data_fad) {
             *(volatile uint32_t *)&stub_uncached[4] = 0x8C010000UL;
         }
     }
+
+    /* 6a. Mute DAC and silence all 64 AICA audio channels */
+    sound_stop();
 
     /* 6b. Purge entire 8MB VRAM and reset PVR hardware pipeline to eliminate VRAM dirt in games */
     video_clean_handoff();

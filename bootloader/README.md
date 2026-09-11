@@ -132,7 +132,7 @@ Or manually run the exporter through `blender.exe`:
 ```
 
 ### 2. Compile Bootloader Binary
-From WSL or Linux shell:
+From DreamSDK or Linux shell:
 
 ```bash
 make
@@ -140,26 +140,26 @@ make
 
 This compiles all source modules, wraps `boot_scene.bin` into `boot_scene_blob.o`, and builds `boot.bin` and the final 2MB `dc_boot.bin` image.
 
-### 3. All-in-One Build Command (PowerShell)
-```powershell
-wsl make -C /mnt/d/Github/Personal/KallistiOS/projects/OpenDC/bootloader; wsl cp /mnt/d/Github/Personal/KallistiOS/projects/OpenDC/bootloader/dc_boot.bin /mnt/d/Github/Personal/KallistiOS/bios/boot_loader_custom.bios
+### 3. Full Firmware Build
+From the OpenDC project root:
+```bash
+make clean
+make
 ```
 
 ---
 
 ## Testing
 
-Run the compiled BIOS in Flycast using PowerShell:
+Run the compiled BIOS in Flycast using DreamSDK shell (or PowerShell with `. .\kos-env.ps1`):
 
-```powershell
-. .\kos-env.ps1
-
+```bash
 # Boot directly to custom BIOS
 kos-bootcustom
 
 # Boot a game disc image through the custom BIOS
-kos-bootcustom "D:\Games\Dreamcast\Sonic Adventure 2.gdi"
-kos-bootcustom "D:\Games\Dreamcast\game.cdi"
+kos-bootcustom "D:/Games/Dreamcast/Sonic Adventure 2.gdi"
+kos-bootcustom "D:/Games/Dreamcast/game.cdi"
 ```
 
 ---

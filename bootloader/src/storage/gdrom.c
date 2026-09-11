@@ -25,21 +25,38 @@ int gdrom_drive_ready(void) {
 }
 
 int gdrom_init(void) {
-    return ata_init();
+    int result = ata_init();
+    if(result != ATA_OK) {
+        /* Cold-boot spin-up delay for GDEMU FPGA / physical laser optical drive */
+        for(int retry = 0; retry < 50; retry++) {
+            ata_delay(20000);
+            result = ata_init();
+            if(result == ATA_OK) break;
+        }
+    }
+    return result;
 }
 
 int gdrom_prepare_disk(void) {
     uint8_t packet[12] = { 0 };
-    int result;
+    int result = ATA_TIMEOUT;
 
     packet[0] = 0x70; /* REQ_STAT */
     packet[2] = 0x1F;
 
-    result = ata_packet_begin(0);
-    if(result != ATA_OK) return result;
-    result = ata_packet_write(packet);
-    if(result != ATA_OK) return result;
-    return ata_wait_complete();
+    /* Up to 10 retries for disc drive state transition */
+    for(int retry = 0; retry < 10; retry++) {
+        result = ata_packet_begin(0);
+        if(result == ATA_OK) {
+            result = ata_packet_write(packet);
+            if(result == ATA_OK) {
+                result = ata_wait_complete();
+                if(result == ATA_OK) return GDROM_OK;
+            }
+        }
+        ata_delay(5000);
+    }
+    return result;
 }
 
 int gdrom_read_raw_toc(uint8_t *buffer, uint8_t session) {

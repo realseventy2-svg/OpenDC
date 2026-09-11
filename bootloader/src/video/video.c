@@ -133,14 +133,32 @@ void video_set_border_color_565(uint16_t color) {
     PVR_BORDER_COLOR = (r << 16) | (g << 8) | b;
 }
 
+dc_cable_type_t video_get_cable_type(void) {
+    /* Set PCTRA Port A Control to standard Sega sensing */
+    *(volatile uint32_t *)0xFF80002CUL = 0x000A03F0;
+    uint32_t pdtra = *(volatile uint32_t *)0xFF800030UL;
+    return (dc_cable_type_t)((pdtra >> 8) & 0x03);
+}
+
 void video_init(void) {
+    dc_cable_type_t cable = video_get_cable_type();
+
     PVR_VIDEO_CFG     = 0x00000008;
     PVR_BORDER_COLOR  = 0x00D2D5D9; /* Authentic Sega Frosted Grey #D2D5D9 */
 
     PVR_BORDER_X      = 0x007E0345;
     PVR_BORDER_Y      = 0x00240204;
-    PVR_SCAN_CLK      = 0x020C0359;
-    PVR_IL_CFG        = 0x00000100;
+
+    if (cable == CT_VGA) {
+        /* VGA 31kHz 60Hz Progressive (640x480) */
+        PVR_SCAN_CLK  = 0x020C0359;
+        PVR_IL_CFG    = 0x00000100;
+    } else {
+        /* 15kHz CRT / TV: Composite, S-Video, or RGB/SCART (640x480) */
+        PVR_SCAN_CLK  = 0x00000359;
+        PVR_IL_CFG    = 0x00000100;
+    }
+
     PVR_BITMAP_X      = 0x000000AC;
     PVR_BITMAP_Y      = 0x00280028;
     PVR_SCALER_CFG    = 0x00000400;

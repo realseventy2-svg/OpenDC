@@ -131,21 +131,20 @@ The 3D boot scene is packaged into a compact binary blob generated from Blender 
 ## Build & Test Workflow
 
 ### Compile Bootloader & Custom BIOS
-```powershell
-wsl make -C /mnt/d/Github/Personal/KallistiOS/projects/OpenDC/bootloader
-wsl cp /mnt/d/Github/Personal/KallistiOS/projects/OpenDC/bootloader/dc_boot.bin /mnt/d/Github/Personal/KallistiOS/bios/boot_loader_custom.bios
+```bash
+make clean
+make
 ```
 
 ### Export Blender Scene
-```powershell
+```bash
 kos-buildscene
-# Or manually:
-& "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe" "d:\path\to\scene.blend" -b -P bootloader\tools\dcbs-tool\export_dcbs.py
+# Or manually with Python:
+blender "path/to/scene.blend" -b -P bootloader/tools/dcbs-tool/export_dcbs.py
 ```
 
 ### Launch in Flycast
-```powershell
-. .\kos-env.ps1
-kos-bootcustom "D:\Games\Dreamcast\game.gdi"
+```bash
+kos-bootcustom "/path/to/game.gdi"
 ```
 
