@@ -131,10 +131,10 @@ static int execute_pending_command(void) {
                 break;
             }
             (void)gdrom_prepare_disk();
-            /* Katana area 0 = DoubleDensity (Session 2 / ATA session 1), area 1 = SingleDensity (ATA session 0) */
-            uint8_t ata_session = (area == 0) ? 1 : 0;
+            int is_gdi = (gdrom_get_cached_disc_type() == 0x80);
+            uint8_t ata_session = is_gdi ? ((area == 0) ? 1 : 0) : 0;
             result = gdrom_read_toc(kos_buffer_address(dst_buf), ata_session);
-            if(result != GDROM_OK && area == 0)
+            if(result != GDROM_OK && is_gdi && area == 0)
                 result = gdrom_read_toc(kos_buffer_address(dst_buf), 0);
             if(result == GDROM_OK)
                 pending_command.transferred = sizeof(kos_toc_t);
@@ -255,21 +255,20 @@ static int execute_pending_command(void) {
 }
 
 static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
-                                  uint32_t super_function,
-                                  uint32_t function) {
-    /* Handle MISC superfunction (r6 == -1) */
-    if((int32_t)super_function == -1) {
-        if(function == 0) {
+                                  uint32_t superfunc, uint32_t func) {
+    /* Handle MISC superfunction */
+    if((int32_t)superfunc == -1 || (int32_t)func == -1) {
+        if(func == 0 || arg0 == 0) {
             /* MISC_INIT */
             return 0;
-        } else if(function == 1) {
+        } else if(func == 1 || arg0 == 1) {
             /* MISC_SETVECTOR */
             return 0;
         }
         return 0;
     }
 
-    switch(function) {
+    switch(func) {
         case KOS_FUNC_INIT:
         case KOS_FUNC_RESET:
             return gdrom_init();
@@ -278,7 +277,7 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             if(!arg0) return -1;
             kos_drive_status_t *status = (kos_drive_status_t *)kos_buffer_address((void *)arg0);
             status->status = KOS_STATUS_STANDBY;
-            status->disc_type = (gdrom_get_cached_data_fad() >= 45000U) ? KOS_DISC_GDROM : 0x10;
+            status->disc_type = gdrom_get_cached_disc_type();
             return 0;
         }
 
@@ -363,7 +362,9 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
             if(transfer->addr && pending_command.params[1] > 0) {
                 uint32_t fad = pending_command.params[0] & 0x00FFFFFF;
                 if(fad < 150U && fad > 0) fad += 150U;
-                if(fad == 0) fad = 45150U;
+                if(fad == 0) {
+                    fad = (gdrom_get_cached_disc_type() == 0x80) ? 45150U : gdrom_get_cached_data_fad();
+                }
                 uint32_t num = pending_command.params[1];
                 if(num > 0xFFFFU) num = 1;
                 gdrom_read_fad(kos_buffer_address(transfer->addr), fad, (uint16_t)num);
@@ -415,14 +416,14 @@ static int gdrom_syscall_dispatch(uint32_t arg0, uint32_t arg1,
 }
 
 static int kos_sysinfo_dispatch(uint32_t arg0, uint32_t arg1,
-                                uint32_t arg2, uint32_t function) {
+                                uint32_t arg2, uint32_t func) {
     (void)arg2;
-    if(function == 0) {
+    if(func == 0) {
         /* SYSINFO_INIT: returns 0 on success */
         return 0;
     }
-    if(function == 2) {
-        /* SYSINFO_ICON: r4 = icon num (0-9), r5 = destination buffer (704 bytes) */
+    if(func == 2) {
+        /* SYSINFO_ICON: arg0 = icon num (0-9), arg1 = destination buffer (704 bytes) */
         if(arg0 > 9) return -1;
         if(arg1) {
             uint8_t *dst = (uint8_t *)kos_buffer_address((void *)arg1);
@@ -434,17 +435,32 @@ static int kos_sysinfo_dispatch(uint32_t arg0, uint32_t arg1,
     return (int)0x8C000068UL;
 }
 
-static int kos_biofont_dispatch(uint32_t arg0, uint32_t arg1,
-                                uint32_t arg2, uint32_t function) {
-    (void)arg0; (void)arg1; (void)arg2; (void)function;
-    register uint32_t cmd __asm__("r1");
-    if(cmd == 0) {
-        /* bfont address */
-        return (int)0xA0100020UL;
+static uint32_t kos_biofont_dispatch(uint32_t ch, uint32_t arg0,
+                                     uint32_t arg1, uint32_t arg2) {
+    (void)arg0; (void)arg1; (void)arg2;
+    if(ch == 0) {
+        return 0xA0100020UL;
     }
-    return 0;
+    if(ch >= 32 && ch <= 126) {
+        return 0xA0100020UL + ((ch - 32) * 36U);
+    }
+    if(ch >= 0xA0 && ch <= 0xDF) {
+        /* Half-width katakana */
+        return 0xA0100020UL + ((ch - 0xA0 + 96) * 36U);
+    }
+    if(ch >= 0x0100) {
+        /* Full-width Japanese character (Shift-JIS) */
+        uint32_t c1 = (ch >> 8) & 0xFF;
+        uint32_t c2 = ch & 0xFF;
+        if(c1 >= 0x81 && c1 <= 0x9F) c1 -= 0x81;
+        else if(c1 >= 0xE0 && c1 <= 0xEA) c1 -= 0xC1;
+        if(c2 >= 0x40 && c2 <= 0x7E) c2 -= 0x40;
+        else if(c2 >= 0x80 && c2 <= 0xFC) c2 -= 0x41;
+        uint32_t jis_idx = (c1 * 188) + c2;
+        return 0xA0100000UL + 0x2000 + (jis_idx * 72U);
+    }
+    return 0xA0100020UL;
 }
-
 
 static const uint8_t syscfg_block[64] = {
     0x05, 0x00,             /* block_id = 5 (LE) */
@@ -463,10 +479,28 @@ static const uint8_t syscfg_block[64] = {
     0x40, 0x03              /* CRC16 = 0x0340 */
 };
 
+static const char *get_disc_region_props(void) {
+    const char *cc = (const char *)0x8C008030UL;
+    int has_j = 0, has_u = 0, has_e = 0;
+    for(int i = 0; i < 8; i++) {
+        if(cc[i] == 'J') has_j = 1;
+        if(cc[i] == 'U') has_u = 1;
+        if(cc[i] == 'E') has_e = 1;
+    }
+    if(has_j && !has_u && !has_e) {
+        return "00010"; /* Japan NTSC */
+    }
+    if(has_e && !has_u && !has_j) {
+        return "00220"; /* Europe PAL */
+    }
+    return "00110";     /* USA / World NTSC */
+}
+
 static uint8_t fake_flashrom_byte(uint32_t addr) {
+    const char *region = get_disc_region_props();
+
     /* Partition 0: System (Factory info, starts at 0x1A000 and mirror at 0x1A0A0) */
     if(addr >= 0x1A000 && addr < 0x1A005) {
-        const char *region = "00110"; /* USA NTSC */
         return (uint8_t)region[addr - 0x1A000];
     }
     if(addr >= 0x1A005 && addr < 0x1A010) {
@@ -474,7 +508,6 @@ static uint8_t fake_flashrom_byte(uint32_t addr) {
         return (uint8_t)magic[addr - 0x1A005];
     }
     if(addr >= 0x1A0A0 && addr < 0x1A0A5) {
-        const char *region = "00110";
         return (uint8_t)region[addr - 0x1A0A0];
     }
     if(addr >= 0x1A0A5 && addr < 0x1A0B0) {
@@ -506,8 +539,8 @@ static uint8_t fake_flashrom_byte(uint32_t addr) {
 }
 
 static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
-                                 uint32_t arg2, uint32_t function) {
-    if(function == 0) {
+                                 uint32_t arg2, uint32_t func) {
+    if(func == 0) {
         /* flashrom_info (partition, ptrs[2]) */
         int part = (int)arg0;
         if(!arg1) return -1;
@@ -522,7 +555,7 @@ static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
             default: return -1;
         }
         return 0;
-    } else if(function == 1) {
+    } else if(func == 1) {
         /* flashrom_read (offset, buffer, bytes) */
         uint32_t offset = arg0;
         if(!arg1) return -1;
@@ -535,10 +568,10 @@ static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
             dst[i] = fake_flashrom_byte(offset + i);
         }
         return 0; /* Returns 0 on success, -1 on failure */
-    } else if(function == 2) {
+    } else if(func == 2) {
         /* flashrom_write */
         return (int)arg2;
-    } else if(function == 3) {
+    } else if(func == 3) {
         /* flashrom_delete */
         return 0;
     }
@@ -546,9 +579,9 @@ static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
 }
 
 static int kos_system_dispatch(uint32_t arg0, uint32_t arg1,
-                               uint32_t arg2, uint32_t function) {
-    (void)arg1; (void)arg2; (void)function;
-    if(arg0 == 0) {
+                               uint32_t arg2, uint32_t func) {
+    (void)arg0; (void)arg1; (void)arg2;
+    if(func == 0) {
         /* MISC normal init: set GD DMA start, clear normal interrupts and set border color */
         uint32_t gdstard = wince_get_gdstard();
         *(volatile uint32_t *)0xA05F7404UL = gdstard; /* SB_GDSTARD */
@@ -556,7 +589,7 @@ static int kos_system_dispatch(uint32_t arg0, uint32_t arg1,
         *(volatile uint32_t *)0xA05F8040UL = 0x00C0BEBCUL; /* VO_BORDER_COL */
         return 0x00C0BEBC;
     }
-    if(arg0 == 2) {
+    if(func == 2) {
         /* MISC check disk: return 0 = disc ready */
         return 0;
     }
@@ -572,7 +605,8 @@ void gdrom_install_syscall(void) {
     }
 
     /* System drive status global variables checked by IP.BIN */
-    uint32_t disc_type = (gdrom_get_cached_data_fad() >= 45000U) ? 0x80 : 0x10;
+    uint32_t disc_type = (uint32_t)gdrom_get_cached_disc_type();
+    if(disc_type == 0) disc_type = 0x10;
     *(volatile uint32_t *)0x8C000040UL = 0;
     *(volatile uint32_t *)0x8C000048UL = 2; /* STANDBY */
     *(volatile uint32_t *)0x8C00004CUL = disc_type;
@@ -608,23 +642,16 @@ void gdrom_install_syscall(void) {
     tlb_stub[0] = 0x002B; /* rte */
     tlb_stub[1] = 0x0009; /* nop */
 
-    /* Complete SH-4 interrupt stub that acknowledges / clears Holly ASIC interrupts
-       (SB_ISTNRM at 0xA05F6900 and SB_ISTEXT at 0xA05F6904) before executing rte; nop.
-       This prevents unacknowledged VBlank/Timer IRQ storms from locking the CPU. */
-    static const uint32_t irq_stub_code[] = {
-        0x6102D003, /* mov.l @(12,pc), r0 ; mov.l @r0, r1 */
-        0xD0032012, /* mov.l r1, @r0      ; mov.l @(12,pc), r0 */
-        0x20126102, /* mov.l @r0, r1      ; mov.l r1, @r0 */
-        0x0009002B, /* rte                ; nop */
-        0xA05F6900, /* SB_ISTNRM */
-        0xA05F6904  /* SB_ISTEXT */
-    };
+    extern const uint8_t interrupt_stub_template[];
+    extern const uint8_t interrupt_stub_template_end[];
 
-    uint32_t *irq_dst_cached = (uint32_t *)0x8C000600UL;
-    uint32_t *irq_dst_uncached = (uint32_t *)0xAC000600UL;
-    for(size_t i = 0; i < sizeof(irq_stub_code)/sizeof(irq_stub_code[0]); i++) {
-        irq_dst_cached[i]   = irq_stub_code[i];
-        irq_dst_uncached[i] = irq_stub_code[i];
+    size_t irq_len = (size_t)(interrupt_stub_template_end - interrupt_stub_template);
+    const uint8_t *irq_src = interrupt_stub_template;
+    uint8_t *irq_dst_cached = (uint8_t *)0x8C000600UL;
+    uint8_t *irq_dst_uncached = (uint8_t *)0xAC000600UL;
+    for(size_t i = 0; i < irq_len; i++) {
+        irq_dst_cached[i]   = irq_src[i];
+        irq_dst_uncached[i] = irq_src[i];
     }
 
     /* Replicate exception stubs in uncached P2 mirror (0xAC000000) */
@@ -639,9 +666,13 @@ void gdrom_install_syscall(void) {
     /* 0x00-0x07: system_id from flashrom 0x1A056 ("SEGA    ") */
     sysinfo[0] = 'S'; sysinfo[1] = 'E'; sysinfo[2] = 'G'; sysinfo[3] = 'A';
     sysinfo[4] = ' '; sysinfo[5] = ' '; sysinfo[6] = ' '; sysinfo[7] = ' ';
-    /* 0x08-0x0C: system_props from flashrom 0x1A000 ("00110" for USA NTSC) */
-    sysinfo[8]  = '0'; sysinfo[9]  = '0'; sysinfo[10] = '1';
-    sysinfo[11] = '1'; sysinfo[12] = '0';
+    /* 0x08-0x0C: system_props from disc region */
+    const char *props = get_disc_region_props();
+    sysinfo[8]  = props[0];
+    sysinfo[9]  = props[1];
+    sysinfo[10] = props[2];
+    sysinfo[11] = props[3];
+    sysinfo[12] = props[4];
     /* 0x0D-0x0F: padding (zeroes) */
     sysinfo[13] = 0; sysinfo[14] = 0; sysinfo[15] = 0;
     /* 0x10-0x17: time_lo (0), time_hi (0) */
@@ -656,14 +687,18 @@ void gdrom_install_syscall(void) {
     *(volatile uintptr_t *)0x8C0000B0UL = (uintptr_t)&kos_sysinfo_dispatch;
     *(volatile uintptr_t *)0x8C0000B4UL = (uintptr_t)&kos_biofont_dispatch;
     *(volatile uintptr_t *)0x8C0000B8UL = (uintptr_t)&kos_flashrom_dispatch;
-    /* Install executable trampoline at 0x8C0010F0 for direct gd2 entry calls
-       (used by WinCE games like Midway, Ooga Booga, and San Francisco Rush):
-       0x10F0: mov.l @(4, PC), r0  (0xD001)
-       0x10F2: jmp   @r0           (0x402B)
-       0x10F4: nop                 (0x0009)
-       0x10F6: nop                 (0x0009)
-       0x10F8: &gdrom_syscall_dispatch
-    */
+    *(volatile uintptr_t *)0x8C0000BCUL = (uintptr_t)&gdrom_syscall_dispatch;
+    *(volatile uintptr_t *)0x8C0000C0UL = (uintptr_t)&gdrom_syscall_dispatch;
+    *(volatile uintptr_t *)0x8C0000E0UL = (uintptr_t)&kos_system_dispatch;
+
+    *(volatile uintptr_t *)0xAC0000B0UL = (uintptr_t)&kos_sysinfo_dispatch;
+    *(volatile uintptr_t *)0xAC0000B4UL = (uintptr_t)&kos_biofont_dispatch;
+    *(volatile uintptr_t *)0xAC0000B8UL = (uintptr_t)&kos_flashrom_dispatch;
+    *(volatile uintptr_t *)0xAC0000BCUL = (uintptr_t)&gdrom_syscall_dispatch;
+    *(volatile uintptr_t *)0xAC0000C0UL = (uintptr_t)&gdrom_syscall_dispatch;
+    *(volatile uintptr_t *)0xAC0000E0UL = (uintptr_t)&kos_system_dispatch;
+
+    /* Install trampoline at 0x8C0010F0 for direct gd2 entry calls */
     volatile uint16_t *tramp_c = (volatile uint16_t *)0x8C0010F0UL;
     volatile uint16_t *tramp_u = (volatile uint16_t *)0xAC0010F0UL;
     tramp_c[0] = 0xD001;
@@ -675,15 +710,4 @@ void gdrom_install_syscall(void) {
     for(int i = 0; i < 6; i++) {
         tramp_u[i] = tramp_c[i];
     }
-
-    *(volatile uintptr_t *)0x8C0000BCUL = 0x8C0010F0UL;
-    *(volatile uintptr_t *)0x8C0000C0UL = 0x8C0010F0UL;
-    *(volatile uintptr_t *)0x8C0000E0UL = (uintptr_t)&kos_system_dispatch;
-
-    *(volatile uintptr_t *)0xAC0000B0UL = (uintptr_t)&kos_sysinfo_dispatch;
-    *(volatile uintptr_t *)0xAC0000B4UL = (uintptr_t)&kos_biofont_dispatch;
-    *(volatile uintptr_t *)0xAC0000B8UL = (uintptr_t)&kos_flashrom_dispatch;
-    *(volatile uintptr_t *)0xAC0000BCUL = 0x8C0010F0UL;
-    *(volatile uintptr_t *)0xAC0000C0UL = 0x8C0010F0UL;
-    *(volatile uintptr_t *)0xAC0000E0UL = (uintptr_t)&kos_system_dispatch;
 }

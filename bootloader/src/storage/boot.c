@@ -113,24 +113,29 @@ int gdrom_boot_game(uint32_t data_fad) {
         }
 
         /* 
-         * For Self-Boot CDIs: Neutralize the binhack bootstrap in sectors 14/15.
-         * Replace the payload at 0x8C00F060 with an immediate jump straight to 0x8C010000.
+         * For Self-Boot CDIs: Neutralize the legacy binhack bootstrap in sectors 14/15.
+         * Replace the payload at 0x8C00F000 and 0x8C00F060 with an immediate jump straight to 0x8C010000.
          * SH-4 opcodes:
          *   mov.l @(4, PC), r0  -> 0xD001
          *   jmp   @r0           -> 0x402B
          *   nop                 -> 0x0009
+         *   nop                 -> 0x0009
          *   .long 0x8C010000
          */
-        if(data_fad < 45000UL) {
-            volatile uint16_t *stub = (volatile uint16_t *)0x8C00F060UL;
-            volatile uint16_t *stub_uncached = (volatile uint16_t *)0xAC00F060UL;
+        int is_gdi = (gdrom_get_cached_disc_type() == 0x80);
+        if(!is_gdi) {
+            uint32_t stub_addrs[2] = { 0x8C00F000UL, 0x8C00F060UL };
+            for(int s = 0; s < 2; s++) {
+                volatile uint16_t *stub = (volatile uint16_t *)stub_addrs[s];
+                volatile uint16_t *stub_uncached = (volatile uint16_t *)(stub_addrs[s] | 0x20000000UL);
 
-            stub[0] = 0xD001; stub_uncached[0] = 0xD001; /* mov.l @(PC+4), r0 */
-            stub[1] = 0x402B; stub_uncached[1] = 0x402B; /* jmp @r0            */
-            stub[2] = 0x0009; stub_uncached[2] = 0x0009; /* nop (delay slot)   */
-            stub[3] = 0x0009; stub_uncached[3] = 0x0009; /* alignment nop      */
-            *(volatile uint32_t *)&stub[4] = 0x8C010000UL;
-            *(volatile uint32_t *)&stub_uncached[4] = 0x8C010000UL;
+                stub[0] = 0xD001; stub_uncached[0] = 0xD001; /* mov.l @(PC+4), r0 */
+                stub[1] = 0x402B; stub_uncached[1] = 0x402B; /* jmp @r0            */
+                stub[2] = 0x0009; stub_uncached[2] = 0x0009; /* nop (delay slot)   */
+                stub[3] = 0x0009; stub_uncached[3] = 0x0009; /* alignment nop      */
+                *(volatile uint32_t *)&stub[4] = 0x8C010000UL;
+                *(volatile uint32_t *)&stub_uncached[4] = 0x8C010000UL;
+            }
         }
     }
 

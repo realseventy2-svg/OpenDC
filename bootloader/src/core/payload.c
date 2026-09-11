@@ -19,14 +19,29 @@ extern const uint8_t _boot_scene_bin_start[];
 
 static void install_exception_vectors(void) {
     /* Copy authentic retail exception vectors (0x0000..0x0800, 2048 bytes).
-       This includes the real general exception (0x100), TLB miss (0x400),
-       and interrupt (0x600) dispatchers that Windows CE and Katana expect. */
+       This provides the factory sysinfo, BIOS layout, and system headers. */
     uint32_t *dst_c = (uint32_t *)0x8C000000UL;
     uint32_t *dst_u = (uint32_t *)0xAC000000UL;
     const uint32_t *src = (const uint32_t *)dc_retail_vectors;
     for(size_t i = 0; i < (sizeof(dc_retail_vectors) / sizeof(uint32_t)); i++) {
         dst_c[i] = src[i];
         dst_u[i] = src[i];
+    }
+
+    /* Install safe exception stubs for generic exception (0x100) and TLB miss (0x400) */
+    size_t exc_len = (size_t)(vector_stub_template_end - vector_stub_template);
+    for(size_t i = 0; i < exc_len; i++) {
+        ((uint8_t *)0x8C000100UL)[i] = vector_stub_template[i];
+        ((uint8_t *)0xAC000100UL)[i] = vector_stub_template[i];
+        ((uint8_t *)0x8C000400UL)[i] = vector_stub_template[i];
+        ((uint8_t *)0xAC000400UL)[i] = vector_stub_template[i];
+    }
+
+    /* Install interrupt handler at 0x600 to update vblank frame counter & acknowledge ASIC */
+    size_t irq_len = (size_t)(interrupt_stub_template_end - interrupt_stub_template);
+    for(size_t i = 0; i < irq_len; i++) {
+        ((uint8_t *)0x8C000600UL)[i] = interrupt_stub_template[i];
+        ((uint8_t *)0xAC000600UL)[i] = interrupt_stub_template[i];
     }
 
     /* Flush I/D caches */

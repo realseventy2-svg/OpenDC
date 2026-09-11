@@ -171,12 +171,35 @@ _vector_stub_template:
 _vector_stub_template_end:
 
 .align 4
+.global interrupt_stub_template
 .global _interrupt_stub_template
+.global interrupt_stub_template_end
 .global _interrupt_stub_template_end
+interrupt_stub_template:
 _interrupt_stub_template:
+    mov.l   1f, r0          ! 0x8C000040 (vblank frame counter)
+    mov.l   @r0, r1
+    add     #1, r1
+    mov.l   r1, @r0
+
+    mov.l   2f, r0          ! 0xA05F6900 (SB_ISTNRM)
+    mov.l   @r0, r1
+    mov.l   r1, @r0         ! acknowledge normal interrupts
+
+    mov.l   3f, r0          ! 0xA05F6904 (SB_ISTEXT)
+    mov.l   @r0, r1
+    mov.l   r1, @r0         ! acknowledge external interrupts
+
     rte
     nop
+
+    .align 4
+1:  .long   0x8C000040
+2:  .long   0xA05F6900
+3:  .long   0xA05F6904
+interrupt_stub_template_end:
 _interrupt_stub_template_end:
+
 
 .global _generic_exception_handler
 .align 4
