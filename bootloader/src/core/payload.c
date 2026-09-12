@@ -5,6 +5,7 @@
 #include "sound.h"
 #include "boot.h"
 #include "boot_scene.h"
+#include "syscalls.h"
 
 /* Provided by crt0.s: exception and interrupt vector stubs */
 extern const uint8_t vector_stub_template[];
@@ -158,12 +159,13 @@ void main(void) {
         }
     }
 
-    /* 6. If a bootable disc is detected, stop sound and start the game */
-    if (iso_result == GDROM_OK) {
+    /* 6. If a bootable disc is detected and Disc Auto-Start is enabled in FlashROM, start the game */
+    int autostart = flashrom_get_autostart_setting();
+    if (iso_result == GDROM_OK && autostart) {
         sound_stop();
         (void)gdrom_boot_game(iso_fad);
     }
 
-    /* 7. Fall back to Custom BIOS Dashboard if no bootable disc */
+    /* 7. Fall back to Custom BIOS Dashboard if no bootable disc or Auto-Start is disabled */
     chainload_custom_bios();
 }

@@ -13,4 +13,7 @@
 /* Install the standard Dreamcast BIOS syscall vector table & SYSINFO block */
 void gdrom_install_syscall(void);
 
+/* Query FlashROM Partition 2 Sysconfig block to check if Disc Auto-Start is enabled (1 = enabled, 0 = disabled) */
+int flashrom_get_autostart_setting(void);
+
 #endif /* CUSTOM_BOOTLOADER_SYSCALLS_H */

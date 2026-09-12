@@ -89,6 +89,7 @@ void disc_launch(void) {
         audio_play_confirm();
         thd_sleep(250);
         uint32_t fad = s_disc.data_fad ? s_disc.data_fad : 45150U;
+        irq_disable();
         gd->boot_game(fad);
     }
 }

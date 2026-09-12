@@ -12,11 +12,9 @@ void boot_set_sega_license_enabled(int enabled) {
     s_sega_license_enabled = enabled;
 }
 
-int boot_get_sega_license_enabled(void) {
-    return s_sega_license_enabled;
-}
+static const uint32_t val_top_stack = 0x8D000000UL;
 
-int gdrom_boot_game(uint32_t data_fad) {
+static int gdrom_boot_game_internal(uint32_t data_fad) {
     if(data_fad == 0)
         data_fad = gdrom_get_cached_data_fad();
     if(data_fad == 0)
@@ -245,4 +243,48 @@ int gdrom_boot_game(uint32_t data_fad) {
 
     while(1) { __asm__ volatile("nop"); }
     return GDROM_OK;
+}
+
+int boot_get_sega_license_enabled(void) {
+    return s_sega_license_enabled;
+}
+
+int gdrom_boot_game(uint32_t data_fad) {
+    /* 0. Disable all interrupts and reset SH-4 interrupt mask */
+    uint32_t sr;
+    __asm__ volatile("stc sr, %0" : "=r"(sr));
+    sr |= 0x100000F0UL; /* BL=1, IMASK=0xF */
+    __asm__ volatile("ldc %0, sr" : : "r"(sr));
+
+    /* Stop all SH-4 timers (TMU0, TMU1, TMU2) */
+    *(volatile uint8_t *)0xFFD80004UL = 0; /* TSTR = 0 */
+
+    /* Mask and acknowledge all ASIC interrupts */
+    *(volatile uint32_t *)0xA05F6910UL = 0; /* ASIC_IRQ9_MASK */
+    *(volatile uint32_t *)0xA05F6920UL = 0; /* ASIC_IRQ11_MASK */
+    *(volatile uint32_t *)0xA05F6930UL = 0; /* ASIC_IRQ13_MASK */
+    *(volatile uint32_t *)0xA05F6900UL = 0xFFFFFFFFUL; /* ASIC_ACK_A */
+    *(volatile uint32_t *)0xA05F6904UL = 0xFFFFFFFFUL; /* ASIC_ACK_B */
+    *(volatile uint32_t *)0xA05F6908UL = 0xFFFFFFFFUL; /* ASIC_ACK_C */
+
+    /* Stop DMAC transfers */
+    *(volatile uint16_t *)0xFFA00040UL = 0; /* DMAOR = 0 */
+    *(volatile uint32_t *)0xFFA0000CUL = 0; /* CHCR0 */
+    *(volatile uint32_t *)0xFFA0001CUL = 0; /* CHCR1 */
+    *(volatile uint32_t *)0xFFA0002CUL = 0; /* CHCR2 */
+    *(volatile uint32_t *)0xFFA0003CUL = 0; /* CHCR3 */
+
+    /* Switch stack pointer to safe top of SDRAM (0x8D000000) and invoke gdrom_boot_game_internal */
+    register uint32_t r4_fad __asm__("r4") = data_fad;
+    register void *fn __asm__("r1") = (void *)gdrom_boot_game_internal;
+    __asm__ volatile(
+        "mov.l  %1, r15\n\t"
+        "jmp    @%2\n\t"
+        "nop\n\t"
+        :
+        : "r"(r4_fad), "m"(val_top_stack), "r"(fn)
+        : "memory"
+    );
+
+    return 0;
 }

@@ -601,6 +601,57 @@ static uint8_t fake_flashrom_byte(uint32_t addr) {
     return *(const volatile uint8_t *)(0xA0200000UL + addr);
 }
 
+static uint16_t calc_flash_crc(const uint8_t *data) {
+    uint16_t crc = 0xFFFF;
+    for(int i = 0; i < 62; i++) {
+        crc ^= (uint16_t)(data[i] << 8);
+        for(int b = 0; b < 8; b++) {
+            if(crc & 0x8000)
+                crc = (crc << 1) ^ 0x1021;
+            else
+                crc = (crc << 1);
+        }
+    }
+    return ~crc;
+}
+
+int flashrom_get_autostart_setting(void) {
+    init_flashrom_if_needed();
+
+    /* Scan Partition 2 in SDRAM buffer (0x8C004000) for active Sysconfig (Block 0x0005) */
+    volatile const uint8_t *p2_ram = (volatile const uint8_t *)FLASH_RAM_BASE;
+    if(p2_ram[0] == 'K' && p2_ram[1] == 'A' && p2_ram[2] == 'T' && p2_ram[3] == 'A') {
+        for(int i = 250; i >= 0; i--) {
+            volatile const uint8_t *blk = p2_ram + ((i + 1) * 64);
+            uint16_t bid = (uint16_t)blk[0] | ((uint16_t)blk[1] << 8);
+            if(bid == 0x0005) {
+                uint16_t c = (uint16_t)blk[62] | ((uint16_t)blk[63] << 8);
+                if(c == calc_flash_crc((const uint8_t *)blk)) {
+                    /* autostart: 0 = enabled (return 1), 1 = disabled (return 0) */
+                    return (blk[9] == 0) ? 1 : 0;
+                }
+            }
+        }
+    }
+
+    /* Fallback: Scan physical FlashROM Area 0 (0xA021C000) */
+    volatile const uint8_t *p2_rom = (volatile const uint8_t *)0xA021C000UL;
+    if(p2_rom[0] == 'K' && p2_rom[1] == 'A' && p2_rom[2] == 'T' && p2_rom[3] == 'A') {
+        for(int i = 250; i >= 0; i--) {
+            volatile const uint8_t *blk = p2_rom + ((i + 1) * 64);
+            uint16_t bid = (uint16_t)blk[0] | ((uint16_t)blk[1] << 8);
+            if(bid == 0x0005) {
+                uint16_t c = (uint16_t)blk[62] | ((uint16_t)blk[63] << 8);
+                if(c == calc_flash_crc((const uint8_t *)blk)) {
+                    return (blk[9] == 0) ? 1 : 0;
+                }
+            }
+        }
+    }
+
+    return 1; /* Default: Enabled */
+}
+
 
 static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
                                  uint32_t arg2, uint32_t func) {
