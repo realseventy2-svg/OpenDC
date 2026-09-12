@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+
+id = "io_scene_dcui"
+name = "OpenDC 3D BIOS UI & Logic Nodes Exporter"
+version = "1.0.0"
+tagline = "Visual Scripting Blueprints & 3D UI Scene Exporter for Sega Dreamcast OpenDC BIOS"
+maintainer = "OpenDC Team"
+type = "add-on"
+
+tags = ["Import-Export"]
+blender_version_min = "4.0.0"
+license = [
+  "SPDX:GPL-2.0-or-later",
+]

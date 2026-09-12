@@ -1,5 +1,5 @@
-﻿import bpy
-from bpy.types import NodeTree, Node, NodeSocket
+import bpy
+from bpy.types import NodeTree, Node, NodeSocket, Menu
 
 # ----------------------------------------------------------------------------
 # Custom Node Tree
@@ -249,6 +249,53 @@ class OPENDC_DelayNode(OPENDC_BaseNode):
         layout.prop(self, "frames")
 
 # ----------------------------------------------------------------------------
+# Add Menus (Shift + A)
+# ----------------------------------------------------------------------------
+class OPENDC_MT_node_add_events(Menu):
+    bl_label = "Events (Triggers)"
+    bl_idname = "OPENDC_MT_node_add_events"
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("node.add_node", text="On Controller Button").type = "OpenDCEventButtonNodeType"
+        layout.operator("node.add_node", text="On UI Focus / Hover").type = "OpenDCEventFocusNodeType"
+        layout.operator("node.add_node", text="On Scene Start").type = "OpenDCEventInitNodeType"
+        layout.operator("node.add_node", text="On Disc Change").type = "OpenDCEventDiscNodeType"
+
+class OPENDC_MT_node_add_actions(Menu):
+    bl_label = "Actions (Visuals & Audio)"
+    bl_idname = "OPENDC_MT_node_add_actions"
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("node.add_node", text="Play Animation").type = "OpenDCActionPlayAnimNodeType"
+        layout.operator("node.add_node", text="Camera Transition").type = "OpenDCActionCameraGotoNodeType"
+        layout.operator("node.add_node", text="Play Audio Chime").type = "OpenDCActionPlaySoundNodeType"
+
+class OPENDC_MT_node_add_services(Menu):
+    bl_label = "System Services"
+    bl_idname = "OPENDC_MT_node_add_services"
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("node.add_node", text="Boot GD-ROM Disc").type = "OpenDCServiceBootDiscNodeType"
+        layout.operator("node.add_node", text="Open BIOS Screen").type = "OpenDCServiceGotoScreenNodeType"
+        layout.operator("node.add_node", text="Reboot Console").type = "OpenDCServiceRebootNodeType"
+
+class OPENDC_MT_node_add_logic(Menu):
+    bl_label = "Logic & Flow"
+    bl_idname = "OPENDC_MT_node_add_logic"
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("node.add_node", text="If Disc Present").type = "OpenDCBranchDiscNodeType"
+        layout.operator("node.add_node", text="Delay Frames").type = "OpenDCDelayNodeType"
+
+def draw_add_menu(self, context):
+    if getattr(context.space_data, "tree_type", "") == 'OpenDCLogicTreeType':
+        layout = self.layout
+        layout.menu("OPENDC_MT_node_add_events", icon='EVENT_A')
+        layout.menu("OPENDC_MT_node_add_actions", icon='ACTION')
+        layout.menu("OPENDC_MT_node_add_services", icon='WINDOW')
+        layout.menu("OPENDC_MT_node_add_logic", icon='QUESTION')
+
+# ----------------------------------------------------------------------------
 # Registration
 # ----------------------------------------------------------------------------
 classes = (
@@ -267,12 +314,25 @@ classes = (
     OPENDC_ServiceRebootNode,
     OPENDC_BranchDiscNode,
     OPENDC_DelayNode,
+    OPENDC_MT_node_add_events,
+    OPENDC_MT_node_add_actions,
+    OPENDC_MT_node_add_services,
+    OPENDC_MT_node_add_logic,
 )
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
+    bpy.types.NODE_MT_add.append(draw_add_menu)
 
 def unregister():
+    try:
+        bpy.types.NODE_MT_add.remove(draw_add_menu)
+    except Exception:
+        pass
     for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
+        try:
+            bpy.utils.unregister_class(cls)
+        except Exception:
+            pass
+

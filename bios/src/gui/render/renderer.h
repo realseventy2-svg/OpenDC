@@ -5,7 +5,13 @@
 #include "config.h"
 
 void renderer_set_fb(uint16_t *fb);
+uint16_t *renderer_get_fb(void);
 void draw_rect(int x, int y, int w, int h, uint16_t color);
+
+void draw_line(int x0, int y0, int x1, int y1, uint16_t color);
+void draw_triangle_filled(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color);
+void draw_quad_filled(int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color);
+
 
 /* Authentic Sega 12x24 BIOS Font (Primary UI Font) */
 void draw_bfont_char(int x, int y, char c, uint16_t color);

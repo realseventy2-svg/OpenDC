@@ -106,6 +106,10 @@ static const uint8_t FONT_8X8[95][8] = {
     { 0x76, 0xDC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }  /* 126 '~' */
 };
 
+uint16_t *renderer_get_fb(void) {
+    return s_fb;
+}
+
 void renderer_set_fb(uint16_t *fb) {
     s_fb = fb;
 }
@@ -125,6 +129,101 @@ void draw_rect(int x, int y, int w, int h, uint16_t color) {
         }
     }
 }
+
+void draw_line(int x0, int y0, int x1, int y1, uint16_t color) {
+    if(!s_fb) return;
+    int dx = (x1 >= x0) ? (x1 - x0) : (x0 - x1);
+    int dy = (y1 >= y0) ? (y1 - y0) : (y0 - y1);
+    int sx = (x0 < x1) ? 1 : -1;
+    int sy = (y0 < y1) ? 1 : -1;
+    int err = dx - dy;
+
+    while(1) {
+        if(x0 >= 0 && x0 < SCREEN_W && y0 >= 0 && y0 < SCREEN_H) {
+            s_fb[y0 * SCREEN_W + x0] = color;
+        }
+        if(x0 == x1 && y0 == y1) break;
+        int e2 = 2 * err;
+        if(e2 > -dy) { err -= dy; x0 += sx; }
+        if(e2 < dx)  { err += dx; y0 += sy; }
+    }
+}
+
+static void draw_flat_bottom_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color) {
+    if (y1 == y0) return;
+    float invslope1 = (float)(x1 - x0) / (float)(y1 - y0);
+    float invslope2 = (float)(x2 - x0) / (float)(y2 - y0);
+
+    float curx1 = (float)x0;
+    float curx2 = (float)x0;
+
+    for (int scanlineY = y0; scanlineY <= y1; scanlineY++) {
+        if (scanlineY >= 0 && scanlineY < SCREEN_H) {
+            int sx = (int)curx1;
+            int ex = (int)curx2;
+            if (sx > ex) { int t = sx; sx = ex; ex = t; }
+            if (sx < 0) sx = 0;
+            if (ex >= SCREEN_W) ex = SCREEN_W - 1;
+            uint16_t *row = &s_fb[scanlineY * SCREEN_W];
+            for (int x = sx; x <= ex; x++) {
+                row[x] = color;
+            }
+        }
+        curx1 += invslope1;
+        curx2 += invslope2;
+    }
+}
+
+static void draw_flat_top_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color) {
+    if (y2 == y0) return;
+    float invslope1 = (float)(x2 - x0) / (float)(y2 - y0);
+    float invslope2 = (float)(x2 - x1) / (float)(y2 - y1);
+
+    float curx1 = (float)x2;
+    float curx2 = (float)x2;
+
+    for (int scanlineY = y2; scanlineY > y0; scanlineY--) {
+        if (scanlineY >= 0 && scanlineY < SCREEN_H) {
+            int sx = (int)curx1;
+            int ex = (int)curx2;
+            if (sx > ex) { int t = sx; sx = ex; ex = t; }
+            if (sx < 0) sx = 0;
+            if (ex >= SCREEN_W) ex = SCREEN_W - 1;
+            uint16_t *row = &s_fb[scanlineY * SCREEN_W];
+            for (int x = sx; x <= ex; x++) {
+                row[x] = color;
+            }
+        }
+        curx1 -= invslope1;
+        curx2 -= invslope2;
+    }
+}
+
+void draw_triangle_filled(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color) {
+    if(!s_fb) return;
+
+    /* Sort vertices by Y ascending (y0 <= y1 <= y2) */
+    if (y0 > y1) { int tx = x0; x0 = x1; x1 = tx; int ty = y0; y0 = y1; y1 = ty; }
+    if (y1 > y2) { int tx = x1; x1 = x2; x2 = tx; int ty = y1; y1 = y2; y2 = ty; }
+    if (y0 > y1) { int tx = x0; x0 = x1; x1 = tx; int ty = y0; y0 = y1; y1 = ty; }
+
+    if (y1 == y2) {
+        draw_flat_bottom_triangle(x0, y0, x1, y1, x2, y2, color);
+    } else if (y0 == y1) {
+        draw_flat_top_triangle(x0, y0, x1, y1, x2, y2, color);
+    } else {
+        int x3 = (int)(x0 + ((float)(y1 - y0) / (float)(y2 - y0)) * (x2 - x0));
+        int y3 = y1;
+        draw_flat_bottom_triangle(x0, y0, x1, y1, x3, y3, color);
+        draw_flat_top_triangle(x1, y1, x3, y3, x2, y2, color);
+    }
+}
+
+void draw_quad_filled(int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color) {
+    draw_triangle_filled(x0, y0, x1, y1, x2, y2, color);
+    draw_triangle_filled(x0, y0, x2, y2, x3, y3, color);
+}
+
 
 #include "bfont_data.h"
 

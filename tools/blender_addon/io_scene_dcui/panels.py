@@ -1,4 +1,4 @@
-﻿import bpy
+import bpy
 
 class OPENDC_PT_ObjectProperties(bpy.types.Panel):
     bl_label = "OpenDC 3D UI Properties"
@@ -61,11 +61,13 @@ def register():
     bpy.utils.register_class(OPENDC_PT_ObjectProperties)
 
 def unregister():
-    bpy.utils.unregister_class(OPENDC_PT_ObjectProperties)
-    del bpy.types.Object.opendc_node_type
-    del bpy.types.Object.opendc_nav_up
-    del bpy.types.Object.opendc_nav_down
-    del bpy.types.Object.opendc_nav_left
-    del bpy.types.Object.opendc_nav_right
-    del bpy.types.Object.opendc_text_binding
-    del bpy.types.Object.opendc_logic_tree
+    try:
+        bpy.utils.unregister_class(OPENDC_PT_ObjectProperties)
+    except Exception:
+        pass
+    for attr in ["opendc_node_type", "opendc_nav_up", "opendc_nav_down", "opendc_nav_left", "opendc_nav_right", "opendc_text_binding", "opendc_logic_tree"]:
+        try:
+            delattr(bpy.types.Object, attr)
+        except Exception:
+            pass
+

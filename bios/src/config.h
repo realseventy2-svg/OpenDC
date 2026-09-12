@@ -18,6 +18,9 @@
 #define COLOR_GOLD       0xFEA0  /* Accent Gold */
 #define COLOR_CYAN       0x367F  /* Header Cyan */
 #define COLOR_RED        0xF986  /* Error Red */
+#define COLOR_ORANGE     0xFB20  /* Dreamcast Swirl Orange */
+#define COLOR_BLUE       0x1BD9  /* Cobalt Blue */
+
 
 /* Screen IDs */
 typedef enum {
