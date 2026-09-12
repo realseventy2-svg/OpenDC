@@ -1,43 +1,17 @@
-#include "disc.h"
-#include "font.h"
-#include "audio.h"
+#include "disc_service.h"
+#include "audio_driver.h"
 #include "bootloader_gdrom.h"
 #include <kos.h>
-#include <dc/video.h>
 #include <string.h>
 
 static disc_info_t s_disc;
 
-const char *get_cable_name(void) {
-    int cable = vid_check_cable();
-    switch(cable) {
-        case CT_VGA: return "VGA (480p 60Hz)";
-        case CT_RGB: return "RGB (480i 60Hz)";
-        case CT_COMPOSITE: return "Composite (480i)";
-        default: return "Auto-Detect";
-    }
-}
-
-const char *get_region_name(void) {
-    const char *cc = (const char *)0x8C008030UL;
-    int has_j = 0, has_u = 0, has_e = 0;
-    for(int i = 0; i < 8; i++) {
-        if(cc[i] == 'J') has_j = 1;
-        if(cc[i] == 'U') has_u = 1;
-        if(cc[i] == 'E') has_e = 1;
-    }
-    if(has_j && !has_u && !has_e) return "NTSC-J";
-    if(has_e && !has_u && !has_j) return "PAL";
-    if(has_u) return "NTSC-U";
-    return "Universal";
-}
-
-void disc_init(void) {
+void disc_service_init(void) {
     memset(&s_disc, 0, sizeof(s_disc));
-    disc_probe();
+    disc_service_probe();
 }
 
-void disc_probe(void) {
+void disc_service_probe(void) {
     memset(&s_disc, 0, sizeof(s_disc));
     volatile gdrom_service_table_t *gd = gdrom_services();
 
@@ -83,7 +57,7 @@ void disc_probe(void) {
     }
 }
 
-void disc_launch(void) {
+void disc_service_launch(void) {
     volatile gdrom_service_table_t *gd = gdrom_services();
     if(gd && gd->magic == GDROM_SERVICE_MAGIC && s_disc.disc_present) {
         audio_play_confirm();
@@ -94,6 +68,6 @@ void disc_launch(void) {
     }
 }
 
-const disc_info_t *disc_get_info(void) {
+const disc_info_t *disc_service_get_info(void) {
     return &s_disc;
 }

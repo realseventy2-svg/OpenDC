@@ -1,4 +1,4 @@
-#include "audio.h"
+#include "audio_driver.h"
 
 #define AICA_REG_BASE 0xA0700000UL
 #define AICA_RAM_BASE 0xA0800000UL
@@ -6,7 +6,7 @@
 
 static int s_audio_timer = 0;
 
-void audio_hw_init(void) {
+void audio_driver_init(void) {
     /* Mute all AICA channels on startup */
     *(volatile uint32_t *)0xA0702C00UL |= 1;
     *(volatile uint16_t *)0xA0702800UL = 0x000F;
@@ -21,7 +21,7 @@ void audio_play_tone(int ch, uint32_t pitch, int volume, int pan, int duration_f
     s_audio_timer = duration_frames;
 }
 
-void audio_stop_all(void) {
+void audio_driver_stop_all(void) {
     for(int ch = 0; ch < 64; ch++) {
         AICA_CHN_REG(ch, 0x00) = 0x8000;
     }
@@ -35,11 +35,11 @@ void audio_play_confirm(void) {
     /* Silent on selection */
 }
 
-void audio_update(void) {
+void audio_driver_update(void) {
     if(s_audio_timer > 0) {
         s_audio_timer--;
         if(s_audio_timer == 0) {
-            audio_stop_all();
+            audio_driver_stop_all();
         }
     }
 }

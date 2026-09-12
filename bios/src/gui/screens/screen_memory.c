@@ -1,13 +1,12 @@
-#include "memory_ui.h"
-#include "config.h"
-#include "font.h"
-#include "audio.h"
+#include "screen_memory.h"
+#include "renderer.h"
+#include "memory_service.h"
+#include "audio_driver.h"
 #include <dc/maple/controller.h>
-#include <stdio.h>
 
 static uint32_t s_mem_addr = 0x8C000000UL;
 
-void memory_ui_render(void) {
+void screen_memory_render(void) {
     int start_x = MARGIN_X;
     int y = 24;
 
@@ -28,23 +27,11 @@ void memory_ui_render(void) {
 
     for(int row = 0; row < 16; row++) {
         uint32_t addr = s_mem_addr + (row * 16);
-        const uint8_t *ptr = (const uint8_t *)addr;
-
         char hex1[32] = {0};
         char hex2[32] = {0};
         char ascii[17] = {0};
 
-        for(int b = 0; b < 8; b++) {
-            uint8_t byte = ptr[b];
-            sprintf(hex1 + (b * 3), "%02X ", byte);
-            ascii[b] = (byte >= 32 && byte <= 126) ? (char)byte : '.';
-        }
-        for(int b = 0; b < 8; b++) {
-            uint8_t byte = ptr[8 + b];
-            sprintf(hex2 + (b * 3), "%02X ", byte);
-            ascii[8 + b] = (byte >= 32 && byte <= 126) ? (char)byte : '.';
-        }
-        ascii[16] = '\0';
+        memory_service_format_hex_row(addr, hex1, hex2, ascii);
 
         draw_text_fmt(start_x, y, COLOR_LIGHT_GRAY,
             "%08X   %s %s  %s", (unsigned int)addr, hex1, hex2, ascii);
@@ -55,11 +42,17 @@ void memory_ui_render(void) {
         "(UP/DN) +/-16B   (L/R) +/-256B   (X) RAM   (Y) ROM   (B) Exit");
 }
 
-void memory_ui_handle_input(uint32_t pressed) {
+bios_screen_t screen_memory_handle_input(uint32_t pressed) {
     if(pressed & CONT_DPAD_UP)    s_mem_addr -= 16;
     if(pressed & CONT_DPAD_DOWN)  s_mem_addr += 16;
     if(pressed & CONT_DPAD_LEFT)  s_mem_addr -= 256;
     if(pressed & CONT_DPAD_RIGHT) s_mem_addr += 256;
     if(pressed & CONT_X)          s_mem_addr = 0x8C000000UL;
     if(pressed & CONT_Y)          s_mem_addr = 0xA0000000UL;
+    if(pressed & CONT_B) {
+        audio_play_click();
+        return SCREEN_MAIN_MENU;
+    }
+
+    return SCREEN_MEMORY;
 }

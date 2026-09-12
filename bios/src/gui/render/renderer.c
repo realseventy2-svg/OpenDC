@@ -1,4 +1,4 @@
-#include "font.h"
+#include "renderer.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -106,7 +106,7 @@ static const uint8_t FONT_8X8[95][8] = {
     { 0x76, 0xDC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }  /* 126 '~' */
 };
 
-void font_set_fb(uint16_t *fb) {
+void renderer_set_fb(uint16_t *fb) {
     s_fb = fb;
 }
 
@@ -153,29 +153,23 @@ void draw_char_2x(int x, int y, char c, uint16_t color) {
     const uint8_t *glyph = FONT_8X8[(uint8_t)c - 32];
     for(int row = 0; row < 8; row++) {
         uint8_t bits = glyph[row];
-        int py0 = y + row * 2;
-        int py1 = py0 + 1;
+        int py1 = y + (row * 2);
+        int py2 = py1 + 1;
 
-        if(py0 >= 0 && py0 < SCREEN_H) {
-            uint16_t *line0 = &s_fb[py0 * SCREEN_W];
-            for(int col = 0; col < 8; col++) {
-                if(bits & (0x80 >> col)) {
-                    int px = x + col * 2;
-                    if(px >= 0 && px + 1 < SCREEN_W) {
-                        line0[px] = color;
-                        line0[px + 1] = color;
-                    }
-                }
-            }
-        }
         if(py1 >= 0 && py1 < SCREEN_H) {
             uint16_t *line1 = &s_fb[py1 * SCREEN_W];
+            uint16_t *line2 = (py2 < SCREEN_H) ? &s_fb[py2 * SCREEN_W] : NULL;
+
             for(int col = 0; col < 8; col++) {
                 if(bits & (0x80 >> col)) {
-                    int px = x + col * 2;
-                    if(px >= 0 && px + 1 < SCREEN_W) {
-                        line1[px] = color;
-                        line1[px + 1] = color;
+                    int px1 = x + (col * 2);
+                    int px2 = px1 + 1;
+
+                    if(px1 >= 0 && px1 < SCREEN_W) line1[px1] = color;
+                    if(px2 >= 0 && px2 < SCREEN_W) line1[px2] = color;
+                    if(line2) {
+                        if(px1 >= 0 && px1 < SCREEN_W) line2[px1] = color;
+                        if(px2 >= 0 && px2 < SCREEN_W) line2[px2] = color;
                     }
                 }
             }
@@ -186,13 +180,12 @@ void draw_char_2x(int x, int y, char c, uint16_t color) {
 void draw_text(int x, int y, uint16_t color, const char *str) {
     if(!str) return;
     int cur_x = x;
-    int cur_y = y;
     while(*str) {
         if(*str == '\n') {
-            cur_y += 14;
+            y += 12;
             cur_x = x;
         } else {
-            draw_char_1x(cur_x, cur_y, *str, color);
+            draw_char_1x(cur_x, y, *str, color);
             cur_x += 8;
         }
         str++;
@@ -211,13 +204,12 @@ void draw_text_fmt(int x, int y, uint16_t color, const char *fmt, ...) {
 void draw_text_2x(int x, int y, uint16_t color, const char *str) {
     if(!str) return;
     int cur_x = x;
-    int cur_y = y;
     while(*str) {
         if(*str == '\n') {
-            cur_y += 24;
+            y += 20;
             cur_x = x;
         } else {
-            draw_char_2x(cur_x, cur_y, *str, color);
+            draw_char_2x(cur_x, y, *str, color);
             cur_x += 16;
         }
         str++;
@@ -231,17 +223,4 @@ void draw_text_2x_fmt(int x, int y, uint16_t color, const char *fmt, ...) {
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
     draw_text_2x(x, y, color, buf);
-}
-
-void get_clean_str(char *dst, const char *src, int max_len) {
-    if(!dst || !src || max_len <= 0) return;
-    int len = 0;
-    while(src[len] && len < max_len) {
-        char c = src[len];
-        if(c < 32 || c > 126) break;
-        dst[len] = c;
-        len++;
-    }
-    while(len > 0 && dst[len - 1] == ' ') len--;
-    dst[len] = '\0';
 }
