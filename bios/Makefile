@@ -11,6 +11,9 @@ BACKEND_OBJS = src/backend/audio_driver.o \
 # GUI presentation & render objects
 GUI_OBJS = src/gui/render/renderer.o \
            src/gui/render/bfont_data.o \
+           src/gui/dcui/default_scene.o \
+           src/gui/dcui/dcui_vm.o \
+           src/gui/dcui/dcui_engine.o \
            src/gui/screens/screen_main_menu.o \
            src/gui/screens/screen_sysinfo.o \
            src/gui/screens/screen_maple.o \
@@ -27,7 +30,7 @@ BIOS_BASE ?= res/boot_loader_devkit.bios
 
 # The BIOS loader has a limited payload window after the 64 KiB ROM offset.
 # Use size optimization and omit optional audio assets from the romdisk.
-CFLAGS += -Os -flto=auto -ffunction-sections -fdata-sections -Isrc -Isrc/backend -Isrc/gui/render -Isrc/gui/screens
+CFLAGS += -Os -flto=auto -ffunction-sections -fdata-sections -Isrc -Isrc/backend -Isrc/gui/render -Isrc/gui/screens -Isrc/gui/dcui
 LDFLAGS += -Wl,--gc-sections -s $(if $(wildcard /opt/toolchains/dc/sh-elf/lib),-L/opt/toolchains/dc/sh-elf/lib,)
 LIBS += -lz
 
@@ -38,7 +41,7 @@ all: $(TARGET).elf $(TARGET).bin rom
 include $(KOS_BASE)/Makefile.rules
 
 clean:
-	-rm -f $(OBJS) crt0.o src/entry.o romdisk.img romdisk.o $(TARGET).elf $(TARGET).bin $(TARGET).cdi custom_dc_bios.bin src/*.o src/backend/*.o src/gui/render/*.o src/gui/screens/*.o
+	-rm -f $(OBJS) crt0.o src/entry.o romdisk.img romdisk.o $(TARGET).elf $(TARGET).bin $(TARGET).cdi custom_dc_bios.bin src/*.o src/backend/*.o src/gui/render/*.o src/gui/screens/*.o src/gui/dcui/*.o
 
 # rungd.bin.gz is pre-built and checked in — no DreamDash dependency needed.
 romdisk/rungd.bin.gz:

@@ -18,6 +18,7 @@
 
 /* GUI Render & Screens */
 #include "renderer.h"
+#include "dcui_engine.h"
 #include "screen_main_menu.h"
 #include "screen_sysinfo.h"
 #include "screen_maple.h"
@@ -33,6 +34,8 @@ KOS_INIT_FLAGS(INIT_IRQ | INIT_THD_PREEMPT | INIT_CONTROLLER | INIT_VMU | INIT_N
 /* Framebuffer pointer */
 static uint16_t *s_fb = NULL;
 static bios_screen_t s_screen = SCREEN_MAIN_MENU;
+static uint8_t *s_dcui_blob = NULL;
+static int s_has_dcui = 0;
 
 /* -------------------------------------------------------------------------- */
 /* Main Application Entry & Event Loop                                        */
@@ -62,6 +65,27 @@ int main(int argc, char **argv) {
     maple_service_init();
     screen_flashrom_init();
 
+    /* Initialize 3D DCUI engine with builtin default scene */
+    dcui_engine_init(NULL);
+    s_has_dcui = 1;
+
+    /* Mount romdisk and check for custom user menu */
+    fs_romdisk_init();
+    fs_romdisk_mount("/rd", romdisk, 0);
+
+    file_t f = fs_open("/rd/menu.dcui", O_RDONLY);
+    if(f >= 0) {
+        size_t sz = fs_total(f);
+        if(sz > 0) {
+            s_dcui_blob = (uint8_t *)malloc(sz);
+            if(s_dcui_blob) {
+                fs_read(f, s_dcui_blob, sz);
+                dcui_engine_init(s_dcui_blob);
+            }
+        }
+        fs_close(f);
+    }
+
     uint32_t prev_buttons = 0;
     int disc_probe_timer = 0;
 
@@ -81,7 +105,10 @@ int main(int argc, char **argv) {
 
         /* Route to active screen renderer */
         switch(s_screen) {
-            case SCREEN_MAIN_MENU: screen_main_menu_render(); break;
+            case SCREEN_MAIN_MENU:
+                if(s_has_dcui) dcui_engine_render();
+                else screen_main_menu_render();
+                break;
             case SCREEN_SYSINFO:   screen_sysinfo_render(); break;
             case SCREEN_MAPLE:     screen_maple_render(); break;
             case SCREEN_FLASHROM:  screen_flashrom_render(); break;
@@ -107,7 +134,11 @@ int main(int argc, char **argv) {
                 if(pressed) {
                     switch(s_screen) {
                         case SCREEN_MAIN_MENU:
-                            s_screen = screen_main_menu_handle_input(pressed);
+                            if(s_has_dcui) {
+                                s_screen = dcui_engine_handle_input(pressed);
+                            } else {
+                                s_screen = screen_main_menu_handle_input(pressed);
+                            }
                             if(s_screen == SCREEN_FLASHROM) {
                                 screen_flashrom_init();
                             }
