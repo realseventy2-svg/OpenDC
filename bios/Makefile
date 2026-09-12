@@ -1,7 +1,7 @@
 TARGET = custom_bios
 # This is a normal KOS payload injected into the BIOS loader. Deliberately
 # do not add crt0.o or src/entry.o: KOS supplies the startup/runtime entry.
-OBJS = src/main.o romdisk.o
+OBJS = src/main.o src/font.o src/audio.o src/disc.o src/flashrom_ui.o src/sysinfo_ui.o src/maple_ui.o src/memory_ui.o src/test_ui.o romdisk.o
 # The unified build generates this base from bootloader/dc_boot.bin. Override
 # this on the command line only when intentionally testing another loader.
 BIOS_BASE ?= res/boot_loader_devkit.bios
