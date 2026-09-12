@@ -96,8 +96,11 @@ int flashrom_service_set_syscfg(const bios_syscfg_t *cfg) {
         size = FLASHROM_P2_SIZE;
     }
 
-    int bmcnt = (size / FLASHROM_BLOCK_SIZE) / 8;
-    int bitmap_offset = start + size - bmcnt;
+    /* KOS standard bitmap calculation: round up to 64-byte boundary */
+    int bmcnt = size / 64;
+    bmcnt = (bmcnt + (64 * 8) - 1) & ~(64 * 8 - 1);
+    bmcnt = bmcnt / 8; /* 64 bytes for Partition 2 */
+    int bitmap_offset = start + size - bmcnt; /* 0x1C000 + 0x4000 - 64 = 0x1FFC0 */
 
     uint8_t *bitmap = (uint8_t *)malloc(bmcnt);
     if(!bitmap) return -2;
@@ -108,7 +111,7 @@ int flashrom_service_set_syscfg(const bios_syscfg_t *cfg) {
     }
 
     int free_idx = -1;
-    for(int i = 0; i < (size / FLASHROM_BLOCK_SIZE) - 1; i++) {
+    for(int i = 0; i < (size / FLASHROM_BLOCK_SIZE) - 2; i++) {
         if(bitmap[i / 8] & (0x80 >> (i % 8))) {
             free_idx = i;
             break;

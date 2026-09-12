@@ -108,6 +108,9 @@ int main(int argc, char **argv) {
                     switch(s_screen) {
                         case SCREEN_MAIN_MENU:
                             s_screen = screen_main_menu_handle_input(pressed);
+                            if(s_screen == SCREEN_FLASHROM) {
+                                screen_flashrom_init();
+                            }
                             break;
                         case SCREEN_SYSINFO:
                             s_screen = screen_sysinfo_handle_input(pressed);
