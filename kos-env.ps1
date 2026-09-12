@@ -34,6 +34,7 @@ $Script:FlycastExe = if ($Script:FlycastDir) {
 
 # Retail / Devkit / Flash BIOS paths (Auto-discovered across local folders)
 $Script:FlashBin = @(
+    "$Script:ProjectRoot\dc_flash.bin",
     "$Script:ProjectRoot\bios\res\dc_flash.bin",
     "$Script:ProjectRoot\bootloader\res\dc_flash.bin",
     "D:\Github\Personal\KallistiOS\bios\dc_flash.bin"
@@ -79,7 +80,7 @@ function Set-FlycastBios {
     )
     foreach ($t in $targets) { Copy-Item $BiosPath $t -Force -ErrorAction SilentlyContinue }
 
-    # Flash file
+    # Flash file - only initialize if target does not exist so user FlashROM / NVRAM persists!
     if (Test-Path $Script:FlashBin) {
         $flashTargets = @(
             "$flycastData\dc_flash.bin",       "$flycastData\flash.bin",
@@ -87,13 +88,38 @@ function Set-FlycastBios {
             "$appDataFlycast\dc_flash.bin",    "$appDataFlycast\flash.bin",
             "$appDataFlycastData\dc_flash.bin","$appDataFlycastData\flash.bin"
         )
-        foreach ($ft in $flashTargets) { Copy-Item $Script:FlashBin $ft -Force -ErrorAction SilentlyContinue }
+        foreach ($ft in $flashTargets) {
+            if (-not (Test-Path $ft)) {
+                Copy-Item $Script:FlashBin $ft -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
 
-    # Write emu.cfg so Flycast always loads the right BIOS
-    $cfg = "[config]`nhle = no`nAutoHLE = 0`nFastBoot = yes`nbios = $BiosPath`n"
-    Set-Content -Path "$Script:FlycastDir\emu.cfg"  -Value $cfg -Encoding UTF8 -Force
-    Set-Content -Path "$appDataFlycast\emu.cfg"     -Value $cfg -Encoding UTF8 -Force
+
+    # Update emu.cfg preserving existing settings
+    foreach ($cfgPath in @("$Script:FlycastDir\emu.cfg", "$appDataFlycast\emu.cfg")) {
+        if (Test-Path $cfgPath) {
+            $lines = Get-Content $cfgPath
+            $hasBios = $false
+            $newLines = @()
+            foreach ($line in $lines) {
+                if ($line -match '^\s*bios\s*=') {
+                    $newLines += "bios = $BiosPath"
+                    $hasBios = $true
+                } else {
+                    $newLines += $line
+                }
+            }
+            if (-not $hasBios) {
+                $newLines += "bios = $BiosPath"
+            }
+            Set-Content -Path $cfgPath -Value $newLines -Encoding UTF8 -Force
+        } else {
+            $cfg = "[config]`nhle = no`nAutoHLE = 0`nFastBoot = yes`nbios = $BiosPath`n"
+            Set-Content -Path $cfgPath -Value $cfg -Encoding UTF8 -Force
+        }
+    }
+
 
     return $true
 }

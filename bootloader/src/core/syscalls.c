@@ -462,13 +462,15 @@ static uint32_t kos_biofont_dispatch(uint32_t ch, uint32_t arg0,
     return 0xA0100020UL;
 }
 
-static const uint8_t syscfg_block[64] = {
+#define FLASH_RAM_BASE 0x8C004000UL
+
+static const uint8_t s_syscfg_default[64] = {
     0x05, 0x00,             /* block_id = 5 (LE) */
     0x00, 0x00, 0x00, 0x00, /* date = 0 */
     0x00,                   /* unk1 */
     0x01,                   /* lang = 1 (English) */
     0x00,                   /* mono = 0 (Stereo) */
-    0x00,                   /* autostart = 0 */
+    0x00,                   /* autostart = 0 (Enabled) */
     0x00, 0x00, 0x00, 0x00, /* unk2 */
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -496,50 +498,114 @@ static const char *get_disc_region_props(void) {
     return "00110";     /* USA / World NTSC */
 }
 
-static uint8_t fake_flashrom_byte(uint32_t addr) {
-    const char *region = get_disc_region_props();
+static void jedec_flash_write_byte(uint32_t offset, uint8_t data) {
+    volatile uint8_t *p_flash = (volatile uint8_t *)0xA0200000UL;
+    /* Standard Macronix/AMD JEDEC 8-bit NOR Flash Unlock & Program Sequence */
+    p_flash[0x5555] = 0xAA;
+    p_flash[0x2AAA] = 0x55;
+    p_flash[0x5555] = 0xA0;
+    p_flash[offset] = data;
+    /* Direct write fallback */
+    p_flash[offset] = data;
+}
 
-    /* Partition 0: System (Factory info, starts at 0x1A000 and mirror at 0x1A0A0) */
-    if(addr >= 0x1A000 && addr < 0x1A005) {
-        return (uint8_t)region[addr - 0x1A000];
-    }
-    if(addr >= 0x1A005 && addr < 0x1A010) {
-        const char *magic = "Dreamcast  "; /* 11 bytes */
-        return (uint8_t)magic[addr - 0x1A005];
-    }
-    if(addr >= 0x1A0A0 && addr < 0x1A0A5) {
-        return (uint8_t)region[addr - 0x1A0A0];
-    }
-    if(addr >= 0x1A0A5 && addr < 0x1A0B0) {
-        const char *magic = "Dreamcast  ";
-        return (uint8_t)magic[addr - 0x1A0A5];
+static void jedec_flash_erase_sector(uint32_t offset) {
+    volatile uint8_t *p_flash = (volatile uint8_t *)0xA0200000UL;
+    /* Standard Macronix/AMD JEDEC Sector Erase Sequence */
+    p_flash[0x5555] = 0xAA;
+    p_flash[0x2AAA] = 0x55;
+    p_flash[0x5555] = 0x80;
+    p_flash[0x5555] = 0xAA;
+    p_flash[0x2AAA] = 0x55;
+    p_flash[offset] = 0x30;
+}
+
+static void init_flashrom_if_needed(void) {
+    volatile uint8_t *p2_ram = (volatile uint8_t *)FLASH_RAM_BASE;
+
+    /* 1. Check if Partition 2 is already initialized in SDRAM (survives soft reset) */
+    if(p2_ram[0] == 'K' && p2_ram[1] == 'A' &&
+       p2_ram[2] == 'T' && p2_ram[3] == 'A') {
+        return;
     }
 
-    /* Partition 2: Block 1 / User Settings (starts at 0x1C000) */
+    /* 2. Check if physical FlashROM at 0xA021C000 has valid KATANA header (from Flycast dc_flash.bin) */
+    volatile const uint8_t *p2_rom = (volatile const uint8_t *)0xA021C000UL;
+    if(p2_rom[0] == 'K' && p2_rom[1] == 'A' &&
+       p2_rom[2] == 'T' && p2_rom[3] == 'A') {
+        for(uint32_t i = 0; i < 0x4000; i++) {
+            p2_ram[i] = p2_rom[i];
+        }
+        return;
+    }
+
+    /* 3. If neither has valid data, initialize defaults into both SDRAM and physical FlashROM */
+    for(uint32_t i = 0; i < 0x4000; i++) {
+        p2_ram[i] = 0xFF;
+    }
+
     /* Header (18 bytes): "KATANA_FLASH____\x02\x00" */
-    if(addr >= 0x1C000 && addr < 0x1C012) {
-        const char *magic = "KATANA_FLASH____\x02\x00";
-        return (uint8_t)magic[addr - 0x1C000];
+    const char *magic = "KATANA_FLASH____\x02\x00";
+    for(int i = 0; i < 18; i++) {
+        p2_ram[i] = (uint8_t)magic[i];
+        jedec_flash_write_byte(0x1C000 + i, (uint8_t)magic[i]);
     }
 
-    /* Physical block 1 (offset 0x1C040 to 0x1C07F): Block 5 (Sysconfig) */
-    if(addr >= 0x1C040 && addr < 0x1C080) {
-        return syscfg_block[addr - 0x1C040];
+    /* Block 1 (Sysconfig block at offset 0x40 and offset 0x80) */
+    for(int i = 0; i < 64; i++) {
+        p2_ram[0x40 + i] = s_syscfg_default[i];
+        jedec_flash_write_byte(0x1C040 + i, s_syscfg_default[i]);
+        p2_ram[0x80 + i] = s_syscfg_default[i];
+        jedec_flash_write_byte(0x1C080 + i, s_syscfg_default[i]);
     }
 
-    /* Allocation bitmap at end of Partition 2 (offset 0x1FFC0 to 0x1FFFF) */
-    if(addr >= 0x1FFC0 && addr < 0x20000) {
-        if(addr == 0x1FFC0)
-            return 0x40; /* Block 0 used, block 1 unused (terminates scan) */
-        return 0xFF;
+    /* Bitmap at offset 0x3FC0 */
+    for(int i = 0; i < 64; i++) {
+        p2_ram[0x3FC0 + i] = 0xFF;
+    }
+    p2_ram[0x3FC0] = 0x3F; /* Block 0 & 1 allocated (bits 7 & 6 cleared) */
+    jedec_flash_write_byte(0x1FFC0, 0x3F);
+
+
+    const char *reg = get_disc_region_props();
+    for(int i = 0; i < 5; i++) {
+        jedec_flash_write_byte(0x1A000 + i, (uint8_t)reg[i]);
+        jedec_flash_write_byte(0x1AA00 + i, (uint8_t)reg[i]);
+    }
+    const char *sys = "Dreamcast  ";
+    for(int i = 0; i < 11; i++) {
+        jedec_flash_write_byte(0x1A005 + i, (uint8_t)sys[i]);
+        jedec_flash_write_byte(0x1AA05 + i, (uint8_t)sys[i]);
+    }
+}
+
+static uint8_t fake_flashrom_byte(uint32_t addr) {
+    init_flashrom_if_needed();
+
+    if(addr >= 0x1C000 && addr < 0x20000) {
+        return *(volatile const uint8_t *)(FLASH_RAM_BASE + (addr - 0x1C000));
     }
 
-    /* Fallback to physical flash or 0xFF */
+    const char *region = get_disc_region_props();
+    if(addr >= 0x1A000 && addr < 0x1A005) return (uint8_t)region[addr - 0x1A000];
+    if(addr >= 0x1A005 && addr < 0x1A010) {
+        const char *sys = "Dreamcast  ";
+        return (uint8_t)sys[addr - 0x1A005];
+    }
+    if(addr >= 0x1A0A0 && addr < 0x1A0A5) return (uint8_t)region[addr - 0x1A0A0];
+    if(addr >= 0x1A0A5 && addr < 0x1A0B0) {
+        const char *sys = "Dreamcast  ";
+        return (uint8_t)sys[addr - 0x1A0A5];
+    }
+
     return *(const volatile uint8_t *)(0xA0200000UL + addr);
 }
 
+
 static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
                                  uint32_t arg2, uint32_t func) {
+    init_flashrom_if_needed();
+
     if(func == 0) {
         /* flashrom_info (partition, ptrs[2]) */
         int part = (int)arg0;
@@ -567,16 +633,42 @@ static int kos_flashrom_dispatch(uint32_t arg0, uint32_t arg1,
         for(uint32_t i = 0; i < bytes; i++) {
             dst[i] = fake_flashrom_byte(offset + i);
         }
-        return 0; /* Returns 0 on success, -1 on failure */
+        return 0; /* Returns 0 on success */
     } else if(func == 2) {
-        /* flashrom_write */
-        return (int)arg2;
+        /* flashrom_write (offset, buffer, bytes) */
+        uint32_t offset = arg0;
+        if(!arg1) return -1;
+        const uint8_t *src = (const uint8_t *)kos_buffer_address((void *)arg1);
+        uint32_t bytes = arg2;
+        if(offset >= 0x20000) return -1;
+        if(offset + bytes > 0x20000) bytes = 0x20000 - offset;
+
+        for(uint32_t i = 0; i < bytes; i++) {
+            uint32_t cur = offset + i;
+            if(cur >= 0x1C000 && cur < 0x20000) {
+                *(volatile uint8_t *)(FLASH_RAM_BASE + (cur - 0x1C000)) = src[i];
+            }
+            jedec_flash_write_byte(cur, src[i]);
+        }
+        return (int)bytes;
     } else if(func == 3) {
-        /* flashrom_delete */
+        /* flashrom_delete (offset) */
+        uint32_t offset = arg0;
+        if(offset >= 0x20000) return -1;
+        if(offset == 0x1C000) {
+            volatile uint8_t *p2_ram = (volatile uint8_t *)FLASH_RAM_BASE;
+            for(uint32_t i = 0; i < 0x4000; i++) p2_ram[i] = 0xFF;
+        }
+        jedec_flash_erase_sector(offset);
+        volatile uint8_t *dst = (volatile uint8_t *)(0xA0200000UL + offset);
+        for(uint32_t i = 0; i < 0x4000 && (offset + i) < 0x20000; i++) {
+            dst[i] = 0xFF;
+        }
         return 0;
     }
     return 0;
 }
+
 
 static int kos_system_dispatch(uint32_t arg0, uint32_t arg1,
                                uint32_t arg2, uint32_t func) {
