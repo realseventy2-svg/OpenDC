@@ -54,6 +54,9 @@ typedef struct {
     float     depth;
 } render_tri_t;
 
+#define MAX_OBJ_TRIS 512
+static render_tri_t s_tri_buffer[MAX_OBJ_TRIS];
+
 static vec3_f s_active_cam = { 0.0f, -4.6f, 3.2f };
 
 static int project_vertex(float wx, float wy, float wz, point2d_f *out) {
@@ -75,46 +78,22 @@ static int project_vertex(float wx, float wy, float wz, point2d_f *out) {
     return 1;
 }
 
-/* Draw 3D Perspective Background Grid Floor */
-static void draw_3d_grid(void) {
-    uint16_t grid_col = 0x18C5; /* Dark cyber navy */
-    for (float x = -6.0f; x <= 6.0f; x += 1.5f) {
-        point2d_f p0, p1;
-        if (project_vertex(x, -4.0f, -0.6f, &p0) && project_vertex(x, 6.0f, -0.6f, &p1)) {
-            draw_line(p0.x, p0.y, p1.x, p1.y, grid_col);
-        }
-    }
-    for (float y = -4.0f; y <= 6.0f; y += 1.5f) {
-        point2d_f p0, p1;
-        if (project_vertex(-6.0f, y, -0.6f, &p0) && project_vertex(6.0f, y, -0.6f, &p1)) {
-            draw_line(p0.x, p0.y, p1.x, p1.y, grid_col);
-        }
-    }
-}
-
 void dcui_engine_render(void) {
     s_anim_time += 0.04f;
 
     if (!s_vm.header || !s_vm.objects || !s_vm.vertices || !s_vm.indices) return;
 
-    /* 1. Camera */
+    /* 1. Camera from Blender Scene */
     s_active_cam.x = s_vm.header->cam_x;
     s_active_cam.y = s_vm.header->cam_y;
     s_active_cam.z = s_vm.header->cam_z;
 
-    /* 2. Header using authentic Sega 12x24 BFont */
-    draw_bfont(MARGIN_X, 22, COLOR_WHITE, "DREAMCAST 3D INTERACTIVE BIOS");
-    draw_rect(MARGIN_X, 50, SCREEN_W - (MARGIN_X * 2), 1, COLOR_DARK_GRAY);
-
-    /* 3. Render 3D Background Grid Floor */
-    draw_3d_grid();
-
-    /* 4. Directional Light Source */
+    /* 2. Directional Light Source */
     float lx = 0.4f, ly = -0.5f, lz = 0.8f;
     float l_len = sqrtf(lx*lx + ly*ly + lz*lz);
     lx /= l_len; ly /= l_len; lz /= l_len;
 
-    /* 5. Sort all visible objects by camera depth (cz) descending (Painter's Algorithm) */
+    /* 3. Sort all visible scene objects by camera depth (cz) descending (Painter's Algorithm) */
     uint32_t draw_order[64];
     float draw_depth[64];
     uint32_t count = 0;
@@ -146,9 +125,7 @@ void dcui_engine_render(void) {
         draw_depth[j + 1] = cur_d;
     }
 
-    /* 6. Render 3D Triangulated Mesh Objects */
-    render_tri_t tri_buffer[128];
-
+    /* 4. Render 3D Triangulated Mesh Objects directly from Blender */
     for (uint32_t k = 0; k < count; k++) {
         uint32_t i = draw_order[k];
         const dcui_mesh_object_t *obj = &s_vm.objects[i];
@@ -159,13 +136,13 @@ void dcui_engine_render(void) {
         float hover_z = 0.0f;
         if (is_focused) {
             hover_z = 0.12f + 0.04f * sinf(s_anim_time * 3.0f);
-            base_color = shade_color(base_color, 1.25f);
+            base_color = shade_color(base_color, 1.35f);
         }
 
         uint32_t tri_count = 0;
 
         /* Filter & Project Triangles */
-        for (uint32_t t = 0; t + 2 < obj->idx_count && tri_count < 128; t += 3) {
+        for (uint32_t t = 0; t + 2 < obj->idx_count && tri_count < MAX_OBJ_TRIS; t += 3) {
             uint16_t i0 = s_vm.indices[obj->start_idx + t];
             uint16_t i1 = s_vm.indices[obj->start_idx + t + 1];
             uint16_t i2 = s_vm.indices[obj->start_idx + t + 2];
@@ -190,54 +167,43 @@ void dcui_engine_render(void) {
             float dot = nx * lx + ny * ly + nz * lz;
             float intensity = 0.45f + 0.55f * fmaxf(0.0f, dot);
 
-            tri_buffer[tri_count].p0 = p0;
-            tri_buffer[tri_count].p1 = p1;
-            tri_buffer[tri_count].p2 = p2;
-            tri_buffer[tri_count].color = shade_color(base_color, intensity);
-            tri_buffer[tri_count].depth = (p0.z + p1.z + p2.z) * 0.3333f;
+            s_tri_buffer[tri_count].p0 = p0;
+            s_tri_buffer[tri_count].p1 = p1;
+            s_tri_buffer[tri_count].p2 = p2;
+            s_tri_buffer[tri_count].color = shade_color(base_color, intensity);
+            s_tri_buffer[tri_count].depth = (p0.z + p1.z + p2.z) * 0.3333f;
             tri_count++;
         }
 
         /* Sort Triangles by depth descending */
         for (uint32_t ti = 1; ti < tri_count; ti++) {
-            render_tri_t cur_t = tri_buffer[ti];
+            render_tri_t cur_t = s_tri_buffer[ti];
             int tj = (int)ti - 1;
-            while (tj >= 0 && tri_buffer[tj].depth < cur_t.depth) {
-                tri_buffer[tj + 1] = tri_buffer[tj];
+            while (tj >= 0 && s_tri_buffer[tj].depth < cur_t.depth) {
+                s_tri_buffer[tj + 1] = s_tri_buffer[tj];
                 tj--;
             }
-            tri_buffer[tj + 1] = cur_t;
+            s_tri_buffer[tj + 1] = cur_t;
         }
 
         /* Rasterize Sorted Triangles */
         for (uint32_t ti = 0; ti < tri_count; ti++) {
-            const render_tri_t *t = &tri_buffer[ti];
+            const render_tri_t *t = &s_tri_buffer[ti];
             draw_triangle_filled(t->p0.x, t->p0.y, t->p1.x, t->p1.y, t->p2.x, t->p2.y, t->color);
             draw_line(t->p0.x, t->p0.y, t->p1.x, t->p1.y, shade_color(t->color, 1.25f));
             draw_line(t->p1.x, t->p1.y, t->p2.x, t->p2.y, shade_color(t->color, 1.25f));
             draw_line(t->p2.x, t->p2.y, t->p0.x, t->p0.y, shade_color(t->color, 1.25f));
         }
 
-        /* Anchor Sega 12x24 BFont Text on Interactable Buttons */
-        if (is_interactable) {
+        /* Anchor Sega 12x24 BFont Typography directly from Blender text_binding */
+        if (is_interactable && obj->text_binding[0]) {
             point2d_f pt;
-            if (project_vertex(obj->cx, obj->cy, obj->cz + hover_z + 0.15f, &pt)) {
-                const char *label = obj->text_binding[0] ? obj->text_binding : obj->name;
+            if (project_vertex(obj->cx, obj->cy, obj->cz + hover_z + 0.14f, &pt)) {
                 uint16_t txt_color = is_focused ? COLOR_GOLD : ((base_color == COLOR_WHITE) ? COLOR_BLACK : COLOR_WHITE);
-
-                if (is_focused) {
-                    draw_bfont_centered(pt.x, pt.y - 12, txt_color, label);
-                    draw_bfont(pt.x - 90, pt.y - 12, COLOR_GOLD, ">");
-                } else {
-                    draw_bfont_centered(pt.x, pt.y - 12, txt_color, label);
-                }
+                draw_bfont_centered(pt.x, pt.y - 12, txt_color, obj->text_binding);
             }
         }
     }
-
-    /* 7. Navigation Footer */
-    draw_bfont_centered(SCREEN_W / 2, 442, COLOR_LIGHT_GRAY,
-        "(A) Select   (START) Fast-Boot   (D-PAD) Move");
 }
 
 bios_screen_t dcui_engine_handle_input(uint32_t pressed) {

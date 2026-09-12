@@ -26,7 +26,7 @@ cam_data.lens = 35
 cam_obj = bpy.data.objects.new("Main_Camera", cam_data)
 scene.collection.objects.link(cam_obj)
 cam_obj.location = (0.0, -4.6, 3.2)
-cam_obj.rotation_euler = (0.96, 0.0, 0.0) # Look down at ~55 deg
+cam_obj.rotation_euler = (0.96, 0.0, 0.0)
 scene.camera = cam_obj
 
 # Key Light
@@ -52,8 +52,6 @@ mat_dc_blue   = create_colored_mat("Mat_DC_Blue",    (0.05, 0.45, 0.95, 1.0), 0.
 mat_dc_gray   = create_colored_mat("Mat_DC_Console", (0.85, 0.85, 0.88, 1.0), 0.4)
 mat_dc_dark   = create_colored_mat("Mat_DC_Dark",    (0.18, 0.18, 0.22, 1.0), 0.5)
 mat_dc_white  = create_colored_mat("Mat_DC_White",   (0.95, 0.95, 0.95, 1.0), 0.2)
-mat_text_white= create_colored_mat("Mat_Text_White", (1.0, 1.0, 1.0, 1.0), 0.1)
-mat_text_dark = create_colored_mat("Mat_Text_Dark",  (0.1, 0.1, 0.1, 1.0), 0.1)
 
 # 3D Dreamcast Console Base
 bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, -0.15))
@@ -87,35 +85,18 @@ ports_obj.scale = (1.6, 0.15, 0.20)
 ports_obj.data.materials.append(mat_dc_dark)
 ports_obj.opendc_node_type = 'MESH'
 
-# Function to create 3D Text Mesh
-def add_3d_text(name, body, loc, rot, size, mat):
-    bpy.ops.object.text_add(location=loc, rotation=rot)
-    t_obj = bpy.context.active_object
-    t_obj.name = name
-    t_obj.data.body = body
-    t_obj.data.size = size
-    t_obj.data.extrude = 0.03
-    t_obj.data.align_x = 'CENTER'
-    t_obj.data.align_y = 'CENTER'
-    t_obj.data.materials.append(mat)
-    # Convert curve/font to polygon mesh
-    bpy.ops.object.convert(target='MESH')
-    t_obj.opendc_node_type = 'MESH'
-    return t_obj
-
-# Interactive Buttons with 3D Text
+# Interactive Buttons (with labels defined in Blender opendc_text_binding)
 buttons_info = [
-    ("Btn_Boot_Disc",   (-2.0,  0.8, 0.45), "BOOT DISC",   mat_dc_orange, mat_text_white),
-    ("Btn_Diagnostics", ( 2.0,  0.8, 0.45), "DIAGNOSTICS", mat_dc_blue,   mat_text_white),
-    ("Btn_VMU",         (-2.0, -0.6, 0.45), "VMU MANAGER", mat_dc_blue,   mat_text_white),
-    ("Btn_Settings",    ( 2.0, -0.6, 0.45), "SETTINGS",    mat_dc_orange, mat_text_white),
-    ("Btn_Reboot",      ( 0.0, -1.6, 0.45), "REBOOT",      mat_dc_white,  mat_text_dark),
+    ("Btn_Boot_Disc",   (-2.0,  0.8, 0.45), "BOOT DISC",   mat_dc_orange),
+    ("Btn_Diagnostics", ( 2.0,  0.8, 0.45), "DIAGNOSTICS", mat_dc_blue),
+    ("Btn_VMU",         (-2.0, -0.6, 0.45), "VMU MANAGER", mat_dc_blue),
+    ("Btn_Settings",    ( 2.0, -0.6, 0.45), "SETTINGS",    mat_dc_orange),
+    ("Btn_Reboot",      ( 0.0, -1.6, 0.45), "REBOOT",      mat_dc_white),
 ]
 
 created_buttons = {}
 
-for name, loc, label, btn_mat, txt_mat in buttons_info:
-    # 1. Base Button Box
+for name, loc, label, btn_mat in buttons_info:
     bpy.ops.mesh.primitive_cube_add(size=1.0, location=loc)
     btn_obj = bpy.context.active_object
     btn_obj.name = name
@@ -124,10 +105,6 @@ for name, loc, label, btn_mat, txt_mat in buttons_info:
     btn_obj.opendc_node_type = 'INTERACTABLE'
     btn_obj.opendc_text_binding = label
     created_buttons[name] = btn_obj
-
-    # 2. 3D Text directly on top of the button
-    txt_z = loc[2] + 0.13
-    txt_obj = add_3d_text(name + "_Text", label, (loc[0], loc[1], txt_z), (0.0, 0.0, 0.0), 0.18, txt_mat)
 
 # Spatial Navigation Links
 created_buttons["Btn_Boot_Disc"].opendc_nav_down  = created_buttons["Btn_VMU"]
