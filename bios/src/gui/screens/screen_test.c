@@ -19,8 +19,8 @@ void screen_test_render(void) {
         draw_rect(x, 320, 1, 60, gray);
     }
 
-    draw_text_2x(MARGIN_X, 400, COLOR_WHITE, "VIDEO DAC TEST PATTERN");
-    draw_text(MARGIN_X, 436, COLOR_LIGHT_GRAY, "(A) Audio Test Tone   (B) Return to Bootmenu");
+    draw_bfont_centered(SCREEN_W / 2, 400, COLOR_WHITE, "VIDEO DAC TEST PATTERN");
+    draw_bfont_centered(SCREEN_W / 2, 440, COLOR_LIGHT_GRAY, "(A) Audio Test Tone   (B) Return to Bootmenu");
 }
 
 bios_screen_t screen_test_handle_input(uint32_t pressed) {

@@ -1,6 +1,7 @@
 #include "syscalls.h"
 #include "gdrom.h"
 #include "wince.h"
+#include "bfont_data.h"
 #include <stddef.h>
 
 typedef struct {
@@ -438,28 +439,10 @@ static int kos_sysinfo_dispatch(uint32_t arg0, uint32_t arg1,
 static uint32_t kos_biofont_dispatch(uint32_t ch, uint32_t arg0,
                                      uint32_t arg1, uint32_t arg2) {
     (void)arg0; (void)arg1; (void)arg2;
-    if(ch == 0) {
-        return 0xA0100020UL;
-    }
     if(ch >= 32 && ch <= 126) {
-        return 0xA0100020UL + ((ch - 32) * 36U);
+        return (uint32_t)&BFONT_12X24_GLYPHS[ch - 32][0];
     }
-    if(ch >= 0xA0 && ch <= 0xDF) {
-        /* Half-width katakana */
-        return 0xA0100020UL + ((ch - 0xA0 + 96) * 36U);
-    }
-    if(ch >= 0x0100) {
-        /* Full-width Japanese character (Shift-JIS) */
-        uint32_t c1 = (ch >> 8) & 0xFF;
-        uint32_t c2 = ch & 0xFF;
-        if(c1 >= 0x81 && c1 <= 0x9F) c1 -= 0x81;
-        else if(c1 >= 0xE0 && c1 <= 0xEA) c1 -= 0xC1;
-        if(c2 >= 0x40 && c2 <= 0x7E) c2 -= 0x40;
-        else if(c2 >= 0x80 && c2 <= 0xFC) c2 -= 0x41;
-        uint32_t jis_idx = (c1 * 188) + c2;
-        return 0xA0100000UL + 0x2000 + (jis_idx * 72U);
-    }
-    return 0xA0100020UL;
+    return (uint32_t)&BFONT_12X24_GLYPHS[0][0];
 }
 
 #define FLASH_RAM_BASE 0x8C004000UL

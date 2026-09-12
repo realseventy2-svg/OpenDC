@@ -396,13 +396,15 @@ void video_draw_hex8(int x, int y, const uint8_t *data, uint16_t color, int scal
     }
 }
 
+#include "bfont_data.h"
+
 void video_draw_bfont_char(int x, int y, char c, uint16_t color) {
     uint8_t uc = (uint8_t)c;
     if (uc <= 32 || uc > 126) {
         return; /* Space and control characters are blank */
     }
     uint32_t index = uc - 32;
-    const uint8_t *glyph = (const uint8_t *)(BFONT_ROM_ADDR + index * 36);
+    const uint8_t *glyph = BFONT_12X24_GLYPHS[index];
 
     for (int r = 0; r < 12; r++) {
         uint8_t b0 = glyph[r * 3 + 0];

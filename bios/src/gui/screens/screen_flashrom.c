@@ -37,12 +37,12 @@ void screen_flashrom_init(void) {
 
 static void render_settings_diagnostics(void) {
     int start_x = MARGIN_X;
-    int y = 28;
+    int y = 24;
 
-    draw_text_2x(start_x, y, COLOR_WHITE, "FLASHROM CONFIGURATION");
-    y += 26;
+    draw_bfont(start_x, y, COLOR_WHITE, "FLASHROM CONFIGURATION");
+    y += 28;
     draw_rect(start_x, y, SCREEN_W - (MARGIN_X * 2), 1, COLOR_DARK_GRAY);
-    y += 14;
+    y += 12;
 
     uint32_t phys_sc_addr = 0;
     uint16_t phys_crc = 0, calc_phys_crc = 0;
@@ -50,96 +50,97 @@ static void render_settings_diagnostics(void) {
     flashrom_service_find_syscfg_slot(&phys_sc_addr, &phys_crc, &calc_phys_crc, &phys_has_magic);
 
     /* Section 1: User System Settings */
-    draw_text(start_x, y, COLOR_WHITE, "SYSTEM PREFERENCES:");
-    y += 16;
+    draw_bfont(start_x, y, COLOR_WHITE, "SYSTEM PREFERENCES:");
+    y += 22;
 
     const char *lang_str = (s_syscfg.language >= 0 && s_syscfg.language <= 5) ?
                             LANG_NAMES[s_syscfg.language] : "English";
 
-    draw_text_fmt(start_x + 16, y, COLOR_LIGHT_GRAY,
+    draw_sysfont_fmt(start_x + 16, y, COLOR_LIGHT_GRAY,
         "- Language:         %-10s [ (X) Cycle ]", lang_str);
-    y += 15;
-    draw_text_fmt(start_x + 16, y, COLOR_LIGHT_GRAY,
+    y += 14;
+    draw_sysfont_fmt(start_x + 16, y, COLOR_LIGHT_GRAY,
         "- Audio DAC:        %-10s [ (Y) Toggle ]",
         s_syscfg.audio ? "Stereo" : "Mono");
-    y += 15;
-    draw_text_fmt(start_x + 16, y, COLOR_LIGHT_GRAY,
+    y += 14;
+    draw_sysfont_fmt(start_x + 16, y, COLOR_LIGHT_GRAY,
         "- Disc Auto-Start:  %-10s [ (A) Toggle ]",
         s_syscfg.autostart ? "Enabled" : "Disabled");
-    y += 22;
+    y += 20;
 
     /* Section 2: Non-Volatile Memory Status */
-    draw_text(start_x, y, COLOR_WHITE, "FLASHROM HARDWARE STATUS:");
-    y += 16;
+    draw_bfont(start_x, y, COLOR_WHITE, "FLASHROM HARDWARE STATUS:");
+    y += 22;
 
-    draw_text(start_x + 16, y, COLOR_LIGHT_GRAY,
+    draw_sysfont(start_x + 16, y, COLOR_LIGHT_GRAY,
         "- Flash Memory:     128 KB NOR Flash @ Area 0 (0xA0200000)");
-    y += 15;
-    draw_text_fmt(start_x + 16, y, COLOR_LIGHT_GRAY,
+    y += 14;
+    draw_sysfont_fmt(start_x + 16, y, COLOR_LIGHT_GRAY,
         "- Partition 2:      User Block 0x05 @ 0x%05X [CRC: 0x%04X]",
         (unsigned int)(phys_sc_addr - FLASHROM_BASE_ADDR), phys_crc);
-    y += 15;
-    draw_text_fmt(start_x + 16, y,
+    y += 14;
+    draw_sysfont_fmt(start_x + 16, y,
         (phys_has_magic && phys_crc == calc_phys_crc) ? COLOR_GREEN : COLOR_GOLD,
         "- Hardware Link:    %s",
         phys_has_magic ? "[ CONNECTED / VALID ]" : "[ UNINITIALIZED ]");
-    y += 22;
+    y += 20;
 
     /* Section 3: Commit / Save State */
-    draw_text(start_x, y, COLOR_WHITE, "NVRAM STATE:");
-    y += 16;
+    draw_bfont(start_x, y, COLOR_WHITE, "NVRAM STATE:");
+    y += 22;
     if(s_save_status == 1 && s_save_timer > 0) {
-        draw_text(start_x + 16, y, COLOR_GREEN,
+        draw_sysfont(start_x + 16, y, COLOR_GREEN,
             "- Status:           [ SAVED / COMMITTED TO NVRAM ]");
         s_save_timer--;
     } else if(s_save_status == 2 && s_save_timer > 0) {
-        draw_text(start_x + 16, y, COLOR_RED,
+        draw_sysfont(start_x + 16, y, COLOR_RED,
             "- Status:           [ ERROR / WRITE FAILED ]");
         s_save_timer--;
     } else if(s_dirty) {
-        draw_text(start_x + 16, y, COLOR_GOLD,
+        draw_sysfont(start_x + 16, y, COLOR_GOLD,
             "- Status:           [ MODIFIED / Press (START) to Commit ]");
     } else {
-        draw_text(start_x + 16, y, COLOR_LIGHT_GRAY,
+        draw_sysfont(start_x + 16, y, COLOR_LIGHT_GRAY,
             "- Status:           [ SYNCHRONIZED / READY ]");
     }
-    y += 24;
+    y += 20;
 
     /* Section 4: Topology */
-    draw_text(start_x, y, COLOR_WHITE, "PARTITION TOPOLOGY:");
-    y += 16;
-    draw_text(start_x + 16, y, COLOR_LIGHT_GRAY,
+    draw_bfont(start_x, y, COLOR_WHITE, "PARTITION TOPOLOGY:");
+    y += 22;
+    draw_sysfont(start_x + 16, y, COLOR_LIGHT_GRAY,
         "PT0: Factory (8KB)    PT1: Reserved (8KB)   PT2: User/ISP (16KB)");
-    y += 15;
-    draw_text(start_x + 16, y, COLOR_LIGHT_GRAY,
+    y += 14;
+    draw_sysfont(start_x + 16, y, COLOR_LIGHT_GRAY,
         "PT3: Game Save (32KB) PT4: Block Alloc 2 (64KB)");
-    y += 24;
 
     /* Footer Controls */
-    draw_text(start_x, 436, COLOR_LIGHT_GRAY,
-        "(X) Lang  (Y) Audio  (A) Auto-Start  (START) Save  (DPAD) Hex View  (B) Back");
+    draw_sysfont(start_x, 430, COLOR_LIGHT_GRAY,
+        "(X) Language   (Y) Audio Mode   (A) Auto-Start   (START) Save NVRAM");
+    draw_sysfont(start_x, 446, COLOR_LIGHT_GRAY,
+        "(D-PAD) Hex Inspector   (B) Return to Bootmenu");
 }
 
 static void render_raw_hex_inspector(void) {
     int start_x = MARGIN_X;
-    int y = 28;
+    int y = 24;
 
-    draw_text_2x(start_x, y, COLOR_WHITE, "FLASHROM MEMORY INSPECTOR");
-    y += 26;
+    draw_bfont(start_x, y, COLOR_WHITE, "FLASHROM MEMORY INSPECTOR");
+    y += 28;
     draw_rect(start_x, y, SCREEN_W - (MARGIN_X * 2), 1, COLOR_DARK_GRAY);
-    y += 14;
+    y += 12;
 
     const flash_partition_entry_t *pt = flashrom_service_get_partition(s_hex_partition);
     uint32_t pt_offset = pt ? pt->offset : 0;
     uint32_t current_addr = FLASHROM_BASE_ADDR + pt_offset + (s_hex_block_page * 64);
 
-    draw_text_fmt(start_x, y, COLOR_WHITE,
+    draw_sysfont_fmt(start_x, y, COLOR_WHITE,
         "PARTITION [%d/5]: %s", s_hex_partition + 1, pt ? pt->name : "Unknown");
-    y += 15;
-    draw_text_fmt(start_x, y, COLOR_LIGHT_GRAY,
+    y += 14;
+    draw_sysfont_fmt(start_x, y, COLOR_LIGHT_GRAY,
         "Address: 0x%08X  |  Offset: 0x%05X  |  Block: %d/64",
         (unsigned int)current_addr, (unsigned int)(pt_offset + (s_hex_block_page * 64)), s_hex_block_page);
-    y += 18;
+    y += 16;
 
     /* Hex Dump Box */
     draw_rect(start_x, y, SCREEN_W - (MARGIN_X * 2), 140, 0x0842);
@@ -147,7 +148,7 @@ static void render_raw_hex_inspector(void) {
 
     volatile const uint8_t *mem_ptr = (volatile const uint8_t *)current_addr;
 
-    draw_text(start_x + 8, y, COLOR_WHITE,
+    draw_sysfont(start_x + 8, y, COLOR_WHITE,
         "OFFSET   00 01 02 03 04 05 06 07  08 09 0A 0B 0C 0D 0E 0F   ASCII");
     y += 14;
     draw_rect(start_x + 8, y, SCREEN_W - (MARGIN_X * 2) - 16, 1, COLOR_DARK_GRAY);
@@ -171,30 +172,30 @@ static void render_raw_hex_inspector(void) {
         }
         ascii[16] = '\0';
 
-        draw_text_fmt(start_x + 8, y, COLOR_LIGHT_GRAY,
+        draw_sysfont_fmt(start_x + 8, y, COLOR_LIGHT_GRAY,
             "+0x%02X    %s %s  %s", (unsigned int)row_off, hex1, hex2, ascii);
         y += 14;
     }
 
     y += 16;
-    draw_text(start_x, y, COLOR_WHITE, "BLOCK METRICS & CRC:");
-    y += 16;
+    draw_bfont(start_x, y, COLOR_WHITE, "BLOCK METRICS & CRC:");
+    y += 24;
 
     uint16_t block_id = (uint16_t)mem_ptr[0] | ((uint16_t)mem_ptr[1] << 8);
     uint16_t block_crc = (uint16_t)mem_ptr[62] | ((uint16_t)mem_ptr[63] << 8);
     uint16_t calc_crc = flashrom_service_calc_crc((const uint8_t *)mem_ptr);
 
-    draw_text_fmt(start_x + 16, y, COLOR_LIGHT_GRAY,
+    draw_sysfont_fmt(start_x + 16, y, COLOR_LIGHT_GRAY,
         "- Header ID: 0x%04X %s", block_id,
         (block_id == 0x0005) ? "(Sysconfig)" : ((block_id == 0xFFFF) ? "(Empty/Erased)" : "(User Data)"));
     y += 14;
-    draw_text_fmt(start_x + 16, y, (block_crc == calc_crc) ? COLOR_GREEN : COLOR_GOLD,
+    draw_sysfont_fmt(start_x + 16, y, (block_crc == calc_crc) ? COLOR_GREEN : COLOR_GOLD,
         "- CRC-16:    0x%04X (Computed: 0x%04X) %s",
         block_crc, calc_crc, (block_crc == calc_crc) ? "[ VALID ]" : "[ MISMATCH / UNCOMMITTED ]");
 
     /* Controls footer */
-    draw_text(start_x, 436, COLOR_LIGHT_GRAY,
-        "(LEFT/RIGHT) Change Partition   (UP/DOWN) Block Page   (B) Back to Settings");
+    draw_bfont_centered(SCREEN_W / 2, 440, COLOR_LIGHT_GRAY,
+        "(L/R) Partition   (UP/DN) Block   (B) Back");
 }
 
 void screen_flashrom_render(void) {

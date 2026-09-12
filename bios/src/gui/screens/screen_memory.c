@@ -8,18 +8,18 @@ static uint32_t s_mem_addr = 0x8C000000UL;
 
 void screen_memory_render(void) {
     int start_x = MARGIN_X;
-    int y = 24;
+    int y = 20;
 
-    draw_text_2x(start_x, y, COLOR_WHITE, "MEMORY & REGISTER HEX INSPECTOR");
-    y += 24;
-    draw_text_fmt(start_x, y, COLOR_GOLD,
+    draw_bfont(start_x, y, COLOR_WHITE, "MEMORY & REGISTER HEX INSPECTOR");
+    y += 28;
+    draw_sysfont_fmt(start_x, y, COLOR_GOLD,
         "BASE ADDRESS: 0x%08X  |  [X] SDRAM (0x8C000000)  [Y] BIOS ROM (0xA0000000)",
         (unsigned int)s_mem_addr);
-    y += 15;
+    y += 14;
     draw_rect(start_x, y, SCREEN_W - (MARGIN_X * 2), 1, COLOR_DARK_GRAY);
     y += 8;
 
-    draw_text(start_x, y, COLOR_WHITE,
+    draw_sysfont(start_x, y, COLOR_WHITE,
         "ADDRESS    00 01 02 03 04 05 06 07  08 09 0A 0B 0C 0D 0E 0F   ASCII");
     y += 14;
     draw_rect(start_x, y, SCREEN_W - (MARGIN_X * 2), 1, COLOR_DARK_GRAY);
@@ -33,13 +33,13 @@ void screen_memory_render(void) {
 
         memory_service_format_hex_row(addr, hex1, hex2, ascii);
 
-        draw_text_fmt(start_x, y, COLOR_LIGHT_GRAY,
+        draw_sysfont_fmt(start_x, y, COLOR_LIGHT_GRAY,
             "%08X   %s %s  %s", (unsigned int)addr, hex1, hex2, ascii);
         y += 14;
     }
 
-    draw_text(start_x, 436, COLOR_LIGHT_GRAY,
-        "(UP/DN) +/-16B   (L/R) +/-256B   (X) RAM   (Y) ROM   (B) Exit");
+    draw_bfont_centered(SCREEN_W / 2, 440, COLOR_LIGHT_GRAY,
+        "(D-PAD) Seek   (X) RAM   (Y) ROM   (B) Exit");
 }
 
 bios_screen_t screen_memory_handle_input(uint32_t pressed) {

@@ -30,7 +30,7 @@ LDFLAGS = -m4-single-only -ml -nostdlib \
 # Subsystem Object Groups
 CORE_OBJS     = crt0.o syscalls.o wince.o payload.o
 STORAGE_OBJS  = ata.o gdrom.o iso9660.o gdi_loader.o selfboot_cdi.o homebrew_cdi.o scramble.o boot.o
-VIDEO_OBJS    = video.o screen.o
+VIDEO_OBJS    = video.o screen.o bfont_data.o
 AUDIO_OBJS    = sound.o
 SCENE_OBJS    = scene_loader.o rasterizer.o postprocess.o sprite.o scene_render.o boot_scene_blob.o
 
@@ -86,6 +86,9 @@ video.o: src/video/video.c src/video/video.h
 screen.o: src/video/screen.c src/video/screen.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
+bfont_data.o: src/video/bfont_data.c src/video/bfont_data.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # 4. Audio Subsystem
 sound.o: src/audio/sound.c src/audio/sound.h
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -121,20 +124,20 @@ $(TARGET).elf: $(OBJS) linker.ld
 $(TARGET).bin: $(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 
-# Build the final 2 MB ROM image:
+# Build the final 2 MB clean-room standalone ROM image:
 dc_boot.bin: $(TARGET).bin
 	python3 -c "\
 import os; \
 sz = $(ROM_SIZE); \
-r_candidates = [os.environ.get('RETAIL_BIOS', ''), '../bios/res/boot_loader_retail.bios', 'res/boot_loader_retail.bios']; \
-r_file = next((p for p in r_candidates if p and os.path.exists(p)), None); \
-r = bytearray(open(r_file, 'rb').read()) if r_file else bytearray(sz); \
+r = bytearray(sz); \
 b = open('$<', 'rb').read(); \
 r[:len(b)] = b; \
 c_candidates = ['../bios/custom_bios.bin', '../bios/custom_payload.bin']; \
 [r.__setitem__(slice(65536, 65536 + len(open(cp, 'rb').read())), open(cp, 'rb').read()) for cp in c_candidates if os.path.exists(cp)]; \
+s_candidates = ['boot_scene.bin', 'res/boot_scene.bin']; \
+[r.__setitem__(slice(0xA0000, 0xA0000 + len(open(sp, 'rb').read())), open(sp, 'rb').read()) for sp in s_candidates if os.path.exists(sp)]; \
 open('$@', 'wb').write(r[:sz]); \
-print(f'Built $@: {sz:,} bytes')"
+print(f'Built $@: {sz:,} bytes (100% Standalone Open-Source ROM)')"
 
 clean:
 	rm -f $(OBJS) $(TARGET).elf $(TARGET).bin dc_boot.bin boot_scene_blob.o

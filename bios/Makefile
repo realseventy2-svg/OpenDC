@@ -10,6 +10,7 @@ BACKEND_OBJS = src/backend/audio_driver.o \
 
 # GUI presentation & render objects
 GUI_OBJS = src/gui/render/renderer.o \
+           src/gui/render/bfont_data.o \
            src/gui/screens/screen_main_menu.o \
            src/gui/screens/screen_sysinfo.o \
            src/gui/screens/screen_maple.o \

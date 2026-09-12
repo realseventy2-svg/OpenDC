@@ -126,7 +126,99 @@ void draw_rect(int x, int y, int w, int h, uint16_t color) {
     }
 }
 
-void draw_char_1x(int x, int y, char c, uint16_t color) {
+#include "bfont_data.h"
+
+/* -------------------------------------------------------------------------- */
+/* Authentic Sega 12x24 BIOS Font (Primary UI Font - Pure C)                  */
+/* -------------------------------------------------------------------------- */
+
+void draw_bfont_char(int x, int y, char c, uint16_t color) {
+    uint8_t uc = (uint8_t)c;
+    if (uc <= 32 || uc > 126 || !s_fb) return;
+
+    uint32_t index = uc - 32;
+    const uint8_t *glyph = BFONT_12X24_GLYPHS[index];
+
+    for (int r = 0; r < 12; r++) {
+        uint8_t b0 = glyph[r * 3 + 0];
+        uint8_t b1 = glyph[r * 3 + 1];
+        uint8_t b2 = glyph[r * 3 + 2];
+        uint32_t val = ((uint32_t)b0 << 16) | ((uint32_t)b1 << 8) | (uint32_t)b2;
+        uint16_t row0 = (val >> 12) & 0x0FFF;
+        uint16_t row1 = val & 0x0FFF;
+
+        int py0 = y + r * 2;
+        int py1 = y + r * 2 + 1;
+
+        if (py0 >= 0 && py0 < SCREEN_H) {
+            uint16_t *line0 = &s_fb[py0 * SCREEN_W];
+            for (int col = 0; col < 12; col++) {
+                if (row0 & (0x800 >> col)) {
+                    int px = x + col;
+                    if (px >= 0 && px < SCREEN_W) line0[px] = color;
+                }
+            }
+        }
+        if (py1 >= 0 && py1 < SCREEN_H) {
+            uint16_t *line1 = &s_fb[py1 * SCREEN_W];
+            for (int col = 0; col < 12; col++) {
+                if (row1 & (0x800 >> col)) {
+                    int px = x + col;
+                    if (px >= 0 && px < SCREEN_W) line1[px] = color;
+                }
+            }
+        }
+    }
+}
+
+void draw_bfont(int x, int y, uint16_t color, const char *str) {
+    if(!str || !s_fb) return;
+    int cur_x = x;
+    while(*str) {
+        if(*str == '\n') {
+            y += 26;
+            cur_x = x;
+        } else {
+            draw_bfont_char(cur_x, y, *str, color);
+            cur_x += 12;
+        }
+        str++;
+    }
+}
+
+void draw_bfont_fmt(int x, int y, uint16_t color, const char *fmt, ...) {
+    char buf[256];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    draw_bfont(x, y, color, buf);
+}
+
+void draw_bfont_centered(int center_x, int y, uint16_t color, const char *str) {
+    if(!str || !s_fb) return;
+    int len = 0;
+    const char *p = str;
+    while(*p++) len++;
+    int total_w = len * 12;
+    int start_x = center_x - (total_w / 2);
+    draw_bfont(start_x, y, color, str);
+}
+
+void draw_bfont_centered_fmt(int center_x, int y, uint16_t color, const char *fmt, ...) {
+    char buf[256];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    draw_bfont_centered(center_x, y, color, buf);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Retro 8x8 Monospace System Font                                            */
+/* -------------------------------------------------------------------------- */
+
+void draw_sysfont_char(int x, int y, char c, uint16_t color) {
     if(c < 32 || c > 126 || !s_fb) return;
     if(c == 32) return;
 
@@ -146,7 +238,7 @@ void draw_char_1x(int x, int y, char c, uint16_t color) {
     }
 }
 
-void draw_char_2x(int x, int y, char c, uint16_t color) {
+void draw_sysfont_char_2x(int x, int y, char c, uint16_t color) {
     if(c < 32 || c > 126 || !s_fb) return;
     if(c == 32) return;
 
@@ -177,19 +269,57 @@ void draw_char_2x(int x, int y, char c, uint16_t color) {
     }
 }
 
-void draw_text(int x, int y, uint16_t color, const char *str) {
-    if(!str) return;
+void draw_sysfont(int x, int y, uint16_t color, const char *str) {
+    if(!str || !s_fb) return;
     int cur_x = x;
     while(*str) {
         if(*str == '\n') {
             y += 12;
             cur_x = x;
         } else {
-            draw_char_1x(cur_x, y, *str, color);
+            draw_sysfont_char(cur_x, y, *str, color);
             cur_x += 8;
         }
         str++;
     }
+}
+
+void draw_sysfont_fmt(int x, int y, uint16_t color, const char *fmt, ...) {
+    char buf[256];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    draw_sysfont(x, y, color, buf);
+}
+
+void draw_sysfont_2x(int x, int y, uint16_t color, const char *str) {
+    if(!str || !s_fb) return;
+    int cur_x = x;
+    while(*str) {
+        if(*str == '\n') {
+            y += 20;
+            cur_x = x;
+        } else {
+            draw_sysfont_char_2x(cur_x, y, *str, color);
+            cur_x += 16;
+        }
+        str++;
+    }
+}
+
+void draw_sysfont_2x_fmt(int x, int y, uint16_t color, const char *fmt, ...) {
+    char buf[256];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    draw_sysfont_2x(x, y, color, buf);
+}
+
+/* Default Aliases: draw_text now maps to authentic Sega BFont */
+void draw_text(int x, int y, uint16_t color, const char *str) {
+    draw_bfont(x, y, color, str);
 }
 
 void draw_text_fmt(int x, int y, uint16_t color, const char *fmt, ...) {
@@ -198,22 +328,11 @@ void draw_text_fmt(int x, int y, uint16_t color, const char *fmt, ...) {
     va_start(args, fmt);
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
-    draw_text(x, y, color, buf);
+    draw_bfont(x, y, color, buf);
 }
 
 void draw_text_2x(int x, int y, uint16_t color, const char *str) {
-    if(!str) return;
-    int cur_x = x;
-    while(*str) {
-        if(*str == '\n') {
-            y += 20;
-            cur_x = x;
-        } else {
-            draw_char_2x(cur_x, y, *str, color);
-            cur_x += 16;
-        }
-        str++;
-    }
+    draw_bfont(x, y, color, str);
 }
 
 void draw_text_2x_fmt(int x, int y, uint16_t color, const char *fmt, ...) {
@@ -222,5 +341,5 @@ void draw_text_2x_fmt(int x, int y, uint16_t color, const char *fmt, ...) {
     va_start(args, fmt);
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
-    draw_text_2x(x, y, color, buf);
+    draw_bfont(x, y, color, buf);
 }
